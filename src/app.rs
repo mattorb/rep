@@ -1,0 +1,2826 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::ops::Range;
+use std::path::PathBuf;
+
+use anyhow::{Context, Result};
+use chrono::Utc;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+
+use crate::document::{DocNode, Document};
+use crate::markdown::{MarkdownLinkRange, render_markdown_line};
+use crate::output::clean_context;
+#[cfg(test)]
+use crate::output::{
+    AgentOutput, ChangeOutput, FeedbackOutput, KeymapOutput, LineAnnotationOutput, LineContext,
+    ReactionOutput,
+};
+use crate::ui::wrap_styled_spans;
+
+const FOOTER_HEIGHT: u16 = 1;
+const GUTTER_WIDTH: usize = 2;
+
+// ── Annotation types ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InputMode {
+    Normal,
+    Change,
+    Feedback,
+    /// Editing the change at (node_idx, change_idx).
+    EditChange(usize, usize),
+}
+
+#[derive(Debug, Clone)]
+struct ChangeAnnotation {
+    #[allow(dead_code)]
+    created_at: String,
+    sentence_index: Option<usize>,
+    sentence_text: Option<String>,
+    change: String,
+}
+
+#[derive(Debug, Clone)]
+struct FeedbackAnnotation {
+    #[allow(dead_code)]
+    created_at: String,
+    sentence_index: Option<usize>,
+    sentence_text: Option<String>,
+    feedback: String,
+}
+
+// ── Rendered document node ────────────────────────────────────────────────────
+
+/// Per-node rendering cache: styled spans for the joined source text plus
+/// sentence byte-range boundaries within `plain`.
+struct RenderedNode {
+    plain: String,
+    #[allow(dead_code)]
+    spans: Vec<Span<'static>>,
+    sentence_ranges: Vec<Range<usize>>,
+    links: Vec<MarkdownLinkRange>,
+}
+
+impl std::fmt::Debug for RenderedNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RenderedNode")
+            .field("plain", &self.plain)
+            .field("sentence_ranges", &self.sentence_ranges)
+            .finish_non_exhaustive()
+    }
+}
+
+fn build_rendered_nodes(doc: &Document, source_lines: &[String]) -> Vec<RenderedNode> {
+    doc.nodes
+        .iter()
+        .map(|n| build_rendered_node(n, source_lines))
+        .collect()
+}
+
+fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode {
+    match node {
+        DocNode::Heading { source_line, .. } => {
+            let text = source_lines.get(*source_line).cloned().unwrap_or_default();
+            let r = render_markdown_line(&text);
+            let ranges = single_range(&r.plain);
+            RenderedNode {
+                plain: r.plain,
+                spans: r.spans,
+                sentence_ranges: ranges,
+                links: r.links,
+            }
+        }
+        DocNode::Paragraph {
+            source_lines: range,
+            ..
+        } => {
+            let src = &source_lines[clamp_range(range, source_lines.len())];
+            let (plain, spans, links) = render_source_lines_with_breaks(src);
+            if plain.is_empty() {
+                let joined = join_node_source_lines(src);
+                let r = render_markdown_line(&joined);
+                let sentence_ranges = single_range(&r.plain);
+                RenderedNode {
+                    plain: r.plain,
+                    spans: r.spans,
+                    sentence_ranges,
+                    links: r.links,
+                }
+            } else {
+                let sentence_ranges = sentence_ranges_from_plain(&plain);
+                RenderedNode {
+                    plain,
+                    spans,
+                    sentence_ranges,
+                    links,
+                }
+            }
+        }
+        DocNode::ListItem {
+            source_lines: range,
+            ordered,
+            depth,
+            ..
+        } => {
+            let joined =
+                join_node_source_lines(&source_lines[clamp_range(range, source_lines.len())]);
+            let r = render_markdown_line(&joined);
+            let ranges = single_range(&r.plain);
+            // Top-level ordered items act as section headings — style them like one.
+            let spans = if *ordered && *depth == 0 {
+                let style = Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD);
+                vec![Span::styled(r.plain.clone(), style)]
+            } else {
+                r.spans
+            };
+            RenderedNode {
+                plain: r.plain,
+                spans,
+                sentence_ranges: ranges,
+                links: r.links,
+            }
+        }
+        DocNode::CodeBlock {
+            source_lines: range,
+            ..
+        } => {
+            let raw = &source_lines[clamp_range(range, source_lines.len())];
+            let plain = raw.join("\n");
+            let ranges = single_range(&plain);
+            let spans = raw
+                .iter()
+                .flat_map(|line| {
+                    let style = if line.trim_start().starts_with("```") {
+                        Style::default().fg(Color::DarkGray)
+                    } else {
+                        Style::default().fg(Color::White).bg(Color::DarkGray)
+                    };
+                    [
+                        Span::styled(line.clone(), style),
+                        Span::raw("\n".to_owned()),
+                    ]
+                })
+                .collect();
+            RenderedNode {
+                plain,
+                spans,
+                sentence_ranges: ranges,
+                links: vec![],
+            }
+        }
+        DocNode::ThematicBreak { .. } => {
+            let r = render_markdown_line("---");
+            RenderedNode {
+                plain: r.plain,
+                spans: r.spans,
+                sentence_ranges: vec![],
+                links: r.links,
+            }
+        }
+    }
+}
+
+/// Return a single byte-range covering the entire string, or empty if empty.
+#[allow(clippy::single_range_in_vec_init)]
+fn single_range(s: &str) -> Vec<std::ops::Range<usize>> {
+    if s.is_empty() {
+        vec![]
+    } else {
+        vec![0..s.len()]
+    }
+}
+
+/// Split plain rendered text into sentence byte ranges.
+///
+/// Splits on `\n` (newline separators between source lines) and on `. `/`! `/`? `
+/// followed by an ASCII uppercase letter (prose sentence boundaries).
+/// Works directly on the original text, so byte ranges are always valid.
+fn sentence_ranges_from_plain(plain: &str) -> Vec<Range<usize>> {
+    if plain.trim().is_empty() {
+        return Vec::new();
+    }
+    let mut ranges: Vec<Range<usize>> = Vec::new();
+    let bytes = plain.as_bytes();
+    let len = bytes.len();
+    let mut start = 0usize;
+    let mut i = 0usize;
+    while i < len {
+        if bytes[i] == b'\n' {
+            // Look past the newline and any leading spaces to the first content char.
+            // If it's a lowercase letter the line is a hard-wrap continuation of the
+            // current sentence, not a new item — so don't split here.
+            let mut j = i + 1;
+            while j < len && bytes[j] == b' ' {
+                j += 1;
+            }
+            if j < len && bytes[j].is_ascii_lowercase() {
+                i += 1;
+                continue;
+            }
+            push_trimmed_range(&mut ranges, plain, start, i);
+            i += 1;
+            start = i;
+            continue;
+        }
+        if matches!(bytes[i], b'.' | b'!' | b'?')
+            && i + 2 < len
+            && bytes[i + 1] == b' '
+            && bytes[i + 2].is_ascii_uppercase()
+        {
+            push_trimmed_range(&mut ranges, plain, start, i + 1);
+            i += 2;
+            start = i;
+            continue;
+        }
+        i += 1;
+    }
+    push_trimmed_range(&mut ranges, plain, start, len);
+    if ranges.is_empty() {
+        ranges.push(0..len);
+    }
+    ranges
+}
+
+fn push_trimmed_range(ranges: &mut Vec<Range<usize>>, plain: &str, start: usize, end: usize) {
+    if start >= end {
+        return;
+    }
+    let slice = &plain[start..end];
+    if slice.trim().is_empty() {
+        return;
+    }
+    let leading = slice.len() - slice.trim_start().len();
+    let trailing = slice.len() - slice.trim_end().len();
+    ranges.push((start + leading)..(end - trailing));
+}
+
+fn join_node_source_lines(lines: &[String]) -> String {
+    lines
+        .iter()
+        .enumerate()
+        .map(|(i, l)| if i == 0 { l.as_str() } else { l.trim() })
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Render multi-line paragraph source into per-line spans joined by '\n'.
+///
+/// Relative indentation is preserved: each line is shown indented by its source
+/// indentation minus the first line's indentation, so sub-items appear visually
+/// nested without any content-altering markdown indentation interpretation.
+fn render_source_lines_with_breaks(
+    src_lines: &[String],
+) -> (String, Vec<Span<'static>>, Vec<MarkdownLinkRange>) {
+    let mut plain = String::new();
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut links: Vec<MarkdownLinkRange> = Vec::new();
+    let first_indent = src_lines
+        .first()
+        .map(|l| l.len() - l.trim_start().len())
+        .unwrap_or(0);
+    for (i, line) in src_lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !plain.is_empty() {
+            plain.push('\n');
+            spans.push(Span::raw("\n".to_owned()));
+        }
+        let relative_indent = if i == 0 {
+            0
+        } else {
+            let line_indent = line.len() - line.trim_start().len();
+            line_indent.saturating_sub(first_indent)
+        };
+        if relative_indent > 0 {
+            let prefix = " ".repeat(relative_indent);
+            plain.push_str(&prefix);
+            spans.push(Span::raw(prefix));
+        }
+        let offset = plain.len();
+        let r = render_markdown_line(trimmed);
+        for link in r.links {
+            links.push(MarkdownLinkRange {
+                start: link.start + offset,
+                end: link.end + offset,
+                url: link.url,
+            });
+        }
+        plain.push_str(&r.plain);
+        spans.extend(r.spans);
+    }
+    (plain, spans, links)
+}
+
+fn clamp_range(r: &Range<usize>, len: usize) -> Range<usize> {
+    r.start.min(len)..r.end.min(len)
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+
+#[derive(Debug)]
+pub struct App {
+    source_path: PathBuf,
+    /// Original source lines — used only for output context (prev/next line).
+    source_lines: Vec<String>,
+    doc: Document,
+    rendered_nodes: Vec<RenderedNode>,
+    cursor_node: usize,
+    cursor_sentence: usize,
+    /// When set by J/K, highlights every node from the section start through the node
+    /// before the next section boundary. Cleared on the next j/k/h/l press.
+    section_highlight_range: Option<Range<usize>>,
+    /// Annotations keyed by node index.
+    changes: BTreeMap<usize, Vec<ChangeAnnotation>>,
+    feedbacks: BTreeMap<usize, Vec<FeedbackAnnotation>>,
+    strikes: BTreeMap<usize, BTreeSet<usize>>,
+    input_mode: InputMode,
+    change_buffer: String,
+    feedback_buffer: String,
+    status: String,
+    notification: Option<String>,
+    pub should_quit: bool,
+    pub silent_quit: bool,
+    show_link_popup: bool,
+    link_popup_urls: Vec<String>,
+    show_help: bool,
+    show_ast: bool,
+    ast_scroll: u16,
+    ast_lines: Vec<String>,
+    scroll_offset: usize,
+    list_inner: Rect,
+    cached_node_heights: Vec<u16>,
+}
+
+impl App {
+    pub fn load(path: PathBuf) -> Result<Self> {
+        let raw = fs::read_to_string(&path)
+            .with_context(|| format!("failed to read markdown file: {}", path.display()))?;
+
+        let source_lines: Vec<String> = raw.lines().map(ToOwned::to_owned).collect();
+        let ast_text = markdown::to_mdast(&raw, &markdown::ParseOptions::default())
+            .map(|node| format!("{node:#?}"))
+            .unwrap_or_else(|_| "Failed to parse AST".to_string());
+        let ast_lines: Vec<String> = ast_text.lines().map(ToOwned::to_owned).collect();
+        let doc = Document::parse(&raw);
+        let rendered_nodes = build_rendered_nodes(&doc, &source_lines);
+
+        let cursor_node = doc.next_node_with_sentences(0).unwrap_or(0);
+
+        Ok(Self {
+            source_path: path,
+            source_lines,
+            doc,
+            rendered_nodes,
+            cursor_node,
+            cursor_sentence: 0,
+            section_highlight_range: None,
+            changes: BTreeMap::new(),
+            feedbacks: BTreeMap::new(),
+            strikes: BTreeMap::new(),
+            input_mode: InputMode::Normal,
+            change_buffer: String::new(),
+            feedback_buffer: String::new(),
+            status: "Loaded file. Press q to quit and print annotations.".to_string(),
+            should_quit: false,
+            silent_quit: false,
+            show_link_popup: false,
+            link_popup_urls: Vec::new(),
+            show_help: false,
+            show_ast: false,
+            ast_scroll: 0,
+            ast_lines,
+            notification: None,
+            scroll_offset: 0,
+            list_inner: Rect::default(),
+            cached_node_heights: Vec::new(),
+        })
+    }
+
+    pub fn handle_key(&mut self, key: KeyEvent) {
+        match self.input_mode.clone() {
+            InputMode::Normal => self.handle_normal_key(key),
+            InputMode::Change => self.handle_change_key(key),
+            InputMode::Feedback => self.handle_feedback_key(key),
+            InputMode::EditChange(node_idx, change_idx) => {
+                self.handle_edit_key(key, node_idx, change_idx)
+            }
+        }
+    }
+
+    fn handle_normal_key(&mut self, key: KeyEvent) {
+        self.notification = None;
+
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            self.should_quit = true;
+            return;
+        }
+
+        if self.show_ast {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('i') => {
+                    self.show_ast = false;
+                    self.status = "Closed AST view.".to_string();
+                }
+                KeyCode::Char('j') | KeyCode::Down => {
+                    self.ast_scroll = self.ast_scroll.saturating_add(3);
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.ast_scroll = self.ast_scroll.saturating_sub(3);
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        if self.show_link_popup {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('u') => {
+                    self.show_link_popup = false;
+                    self.link_popup_urls.clear();
+                    self.status = "Closed link popup.".to_string();
+                }
+                _ => {
+                    self.show_link_popup = false;
+                    self.link_popup_urls.clear();
+                }
+            }
+            return;
+        }
+
+        if self.show_help {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('?') => {
+                    self.show_help = false;
+                    self.status = "Closed help.".to_string();
+                }
+                KeyCode::Char('/') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                    self.show_help = false;
+                    self.status = "Closed help.".to_string();
+                }
+                _ => {
+                    self.show_help = false;
+                }
+            }
+            return;
+        }
+
+        match key.code {
+            KeyCode::Char('q') => self.should_quit = true,
+            KeyCode::Char('Q') => {
+                self.silent_quit = true;
+                self.should_quit = true;
+            }
+            KeyCode::Char('?') => {
+                self.show_help = true;
+                self.status = "Help open. Press ? or Esc to close.".to_string();
+            }
+            KeyCode::Char('/') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.show_help = true;
+                self.status = "Help open. Press ? or Esc to close.".to_string();
+            }
+            KeyCode::Char('c') => {
+                self.input_mode = InputMode::Change;
+                self.change_buffer.clear();
+                self.status = "Change mode: type text and press Enter. Esc cancels.".to_string();
+            }
+            KeyCode::Char('f') => {
+                self.input_mode = InputMode::Feedback;
+                self.feedback_buffer.clear();
+                self.status = "Feedback mode: type text and press Enter. Esc cancels.".to_string();
+            }
+            KeyCode::Char('e') => self.begin_edit_change(),
+            KeyCode::Char('J') => self.move_section(true),
+            KeyCode::Char('K') => self.move_section(false),
+            KeyCode::Char('L') => self.move_block(true),
+            KeyCode::Char('H') => self.move_block(false),
+            KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.move_section(true)
+            }
+            KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.move_section(false)
+            }
+            KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.move_block(true)
+            }
+            KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.move_block(false)
+            }
+            KeyCode::Down => self.move_node(1),
+            KeyCode::Up => self.move_node(-1),
+            KeyCode::Char('j') | KeyCode::Right => self.move_sentence(true),
+            KeyCode::Char('k') | KeyCode::Left => self.move_sentence(false),
+            KeyCode::Char('i') => {
+                self.show_ast = true;
+                self.ast_scroll = 0;
+                self.status = "AST view. j/k scroll, i or Esc close.".to_string();
+            }
+            KeyCode::Char('u') if !self.reveal_links_for_current_sentence() => {
+                self.status = "No markdown links in current sentence.".to_string();
+            }
+            KeyCode::Char('l') => self.move_sentence(true),
+            KeyCode::Char('h') => self.move_sentence(false),
+            KeyCode::Char('x') => self.toggle_strike(),
+            KeyCode::Char('r') => {
+                let output = self.to_human_output();
+                self.notification = Some(match copy_to_clipboard(&output) {
+                    ClipboardOutcome::OsCommand => "Copied to clipboard".to_string(),
+                    ClipboardOutcome::Osc52 => "Sent via OSC 52".to_string(),
+                    ClipboardOutcome::Failed => "Copy failed — no clipboard available".to_string(),
+                });
+            }
+            KeyCode::Char('[') => self.jump_to_annotation(false),
+            KeyCode::Char(']') => self.jump_to_annotation(true),
+            _ => {}
+        }
+    }
+
+    fn handle_change_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.input_mode = InputMode::Normal;
+                self.change_buffer.clear();
+                self.status = "Change cancelled.".to_string();
+            }
+            KeyCode::Enter => {
+                let trimmed = self.change_buffer.trim().to_string();
+                if trimmed.is_empty() {
+                    self.status = "Change ignored because it was empty.".to_string();
+                } else {
+                    let (sentence_index, sentence_text) =
+                        if let Some((idx, text)) = self.current_sentence_context() {
+                            (Some(idx), Some(text))
+                        } else {
+                            (None, None)
+                        };
+                    let annotation = ChangeAnnotation {
+                        created_at: Utc::now().to_rfc3339(),
+                        sentence_index,
+                        sentence_text,
+                        change: trimmed,
+                    };
+                    self.changes
+                        .entry(self.cursor_node)
+                        .or_default()
+                        .push(annotation);
+                    self.status = format!(
+                        "Change saved on node {} (line {}).",
+                        self.cursor_node + 1,
+                        self.current_source_line() + 1
+                    );
+                }
+                self.input_mode = InputMode::Normal;
+                self.change_buffer.clear();
+            }
+            KeyCode::Backspace => {
+                self.change_buffer.pop();
+            }
+            KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.change_buffer.push(ch);
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_feedback_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.input_mode = InputMode::Normal;
+                self.feedback_buffer.clear();
+                self.status = "Feedback cancelled.".to_string();
+            }
+            KeyCode::Enter => {
+                let trimmed = self.feedback_buffer.trim().to_string();
+                if trimmed.is_empty() {
+                    self.status = "Feedback ignored because it was empty.".to_string();
+                } else {
+                    let (sentence_index, sentence_text) =
+                        if let Some((idx, text)) = self.current_sentence_context() {
+                            (Some(idx), Some(text))
+                        } else {
+                            (None, None)
+                        };
+                    let annotation = FeedbackAnnotation {
+                        created_at: Utc::now().to_rfc3339(),
+                        sentence_index,
+                        sentence_text,
+                        feedback: trimmed,
+                    };
+                    self.feedbacks
+                        .entry(self.cursor_node)
+                        .or_default()
+                        .push(annotation);
+                    self.status = format!(
+                        "Feedback saved on node {} (line {}).",
+                        self.cursor_node + 1,
+                        self.current_source_line() + 1
+                    );
+                }
+                self.input_mode = InputMode::Normal;
+                self.feedback_buffer.clear();
+            }
+            KeyCode::Backspace => {
+                self.feedback_buffer.pop();
+            }
+            KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.feedback_buffer.push(ch);
+            }
+            _ => {}
+        }
+    }
+
+    // ── Navigation ────────────────────────────────────────────────────────────
+
+    /// ↓/↑: move through every content node (nodes that have a highlightable sentence).
+    fn move_node(&mut self, delta: isize) {
+        if self.doc.node_count() == 0 || delta == 0 {
+            return;
+        }
+        let steps = delta.unsigned_abs();
+        let forward = delta.is_positive();
+        let mut target = self.cursor_node;
+        let mut moved = 0usize;
+
+        for _ in 0..steps {
+            let next = if forward {
+                self.doc.next_node_with_sentences(target.saturating_add(1))
+            } else {
+                self.doc.prev_node_with_sentences(target)
+            };
+            let Some(idx) = next else { break };
+            target = idx;
+            moved += 1;
+        }
+
+        if moved == 0 {
+            self.status = if forward {
+                "Already at the last node.".to_string()
+            } else {
+                "Already at the first node.".to_string()
+            };
+            return;
+        }
+        self.cursor_node = target;
+        self.section_highlight_range = None;
+        self.clamp_sentence();
+        self.status = format!("Node {}/{}", self.cursor_node + 1, self.doc.node_count());
+    }
+
+    /// h/j/k/l: move sentence by sentence, crossing node boundaries.
+    fn move_sentence(&mut self, forward: bool) {
+        if self.doc.node_count() == 0 {
+            return;
+        }
+        self.section_highlight_range = None;
+
+        let current_count = self
+            .rendered_nodes
+            .get(self.cursor_node)
+            .map(|rn| rn.sentence_ranges.len())
+            .unwrap_or(0);
+
+        if current_count == 0 {
+            let next = if forward {
+                self.doc.next_node_with_sentences(self.cursor_node + 1)
+            } else {
+                self.doc.prev_node_with_sentences(self.cursor_node)
+            };
+            match next {
+                Some(idx) => {
+                    self.cursor_node = idx;
+                    self.cursor_sentence = if forward {
+                        0
+                    } else {
+                        self.rendered_nodes[idx]
+                            .sentence_ranges
+                            .len()
+                            .saturating_sub(1)
+                    };
+                }
+                None => {
+                    self.status = "No sentence found in that direction.".to_string();
+                    return;
+                }
+            }
+        } else if forward {
+            if self.cursor_sentence + 1 < current_count {
+                self.cursor_sentence += 1;
+            } else if let Some(idx) = self.doc.next_node_with_sentences(self.cursor_node + 1) {
+                self.cursor_node = idx;
+                self.cursor_sentence = 0;
+            }
+        } else if self.cursor_sentence > 0 {
+            self.cursor_sentence -= 1;
+        } else if let Some(idx) = self.doc.prev_node_with_sentences(self.cursor_node) {
+            self.cursor_node = idx;
+            self.cursor_sentence = self.rendered_nodes[idx]
+                .sentence_ranges
+                .len()
+                .saturating_sub(1);
+        }
+
+        let total = self
+            .rendered_nodes
+            .get(self.cursor_node)
+            .map(|rn| rn.sentence_ranges.len())
+            .unwrap_or(0);
+        self.status = if total == 0 {
+            format!("Node {} has no sentences.", self.cursor_node + 1)
+        } else {
+            format!(
+                "Sentence {}/{} on node {}",
+                self.cursor_sentence + 1,
+                total,
+                self.cursor_node + 1
+            )
+        };
+    }
+
+    /// J/K: jump to the next/prev section heading or top-level ordered list item.
+    fn move_section(&mut self, forward: bool) {
+        let target = if forward {
+            self.doc.next_section(self.cursor_node.saturating_add(1))
+        } else {
+            self.doc.prev_section(self.cursor_node)
+        };
+
+        match target {
+            Some(idx) => {
+                self.cursor_node = idx;
+                self.cursor_sentence = 0;
+                let end = self
+                    .doc
+                    .next_section(idx + 1)
+                    .unwrap_or(self.doc.node_count());
+                self.section_highlight_range = Some(idx..end);
+                self.status = format!("Section at node {}.", idx + 1);
+            }
+            None => {
+                self.status = if forward {
+                    "Already at the last section.".to_string()
+                } else {
+                    "Already at the first section.".to_string()
+                };
+            }
+        }
+    }
+
+    /// H/L: jump to the next/prev content block (entire lists count as one block).
+    fn move_block(&mut self, forward: bool) {
+        let target = if forward {
+            self.doc.next_block(self.cursor_node.saturating_add(1))
+        } else {
+            self.doc.prev_block(self.cursor_node)
+        };
+
+        match target {
+            Some(idx) => {
+                self.cursor_node = idx;
+                self.cursor_sentence = 0;
+                let end = self.doc.block_end(idx);
+                self.section_highlight_range = Some(idx..end + 1);
+                self.status = format!("Block at node {}.", idx + 1);
+            }
+            None => {
+                self.status = if forward {
+                    "Already at the last block.".to_string()
+                } else {
+                    "Already at the first block.".to_string()
+                };
+            }
+        }
+    }
+
+    fn jump_to_annotation(&mut self, forward: bool) {
+        let from = if forward {
+            self.cursor_node + 1
+        } else {
+            self.cursor_node
+        };
+        let n = self.doc.node_count();
+        let target = if forward {
+            (from..n).find(|&i| self.has_annotation(i))
+        } else {
+            (0..from).rev().find(|&i| self.has_annotation(i))
+        };
+
+        match target {
+            Some(idx) => {
+                self.cursor_node = idx;
+                self.clamp_sentence();
+                self.status = format!("Annotated node {}.", idx + 1);
+            }
+            None => {
+                self.status = if forward {
+                    "No annotated nodes after this one.".to_string()
+                } else {
+                    "No annotated nodes before this one.".to_string()
+                };
+            }
+        }
+    }
+
+    pub fn handle_mouse(&mut self, mouse: MouseEvent) {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => self.move_node(-1),
+            MouseEventKind::ScrollDown => self.move_node(1),
+            MouseEventKind::Down(MouseButton::Left) => {
+                if let Some(node_idx) = self.click_to_node(mouse.row) {
+                    self.cursor_node = node_idx;
+                    self.clamp_sentence();
+                    self.status = format!("Node {}/{}", node_idx + 1, self.doc.node_count());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn click_to_node(&self, mouse_row: u16) -> Option<usize> {
+        let inner = self.list_inner;
+        if mouse_row < inner.y || mouse_row >= inner.y + inner.height {
+            return None;
+        }
+        let visual_row = mouse_row - inner.y;
+        let offset = self.scroll_offset;
+        let mut cumulative = 0u16;
+        for (i, &height) in self.cached_node_heights.iter().skip(offset).enumerate() {
+            if visual_row < cumulative + height {
+                return Some(offset + i);
+            }
+            cumulative += height;
+        }
+        None
+    }
+
+    fn has_annotation(&self, node_idx: usize) -> bool {
+        self.changes.contains_key(&node_idx)
+            || self.feedbacks.contains_key(&node_idx)
+            || self.strikes.contains_key(&node_idx)
+    }
+
+    fn clamp_sentence(&mut self) {
+        let total = self
+            .rendered_nodes
+            .get(self.cursor_node)
+            .map(|rn| rn.sentence_ranges.len())
+            .unwrap_or(0);
+        if total == 0 {
+            self.cursor_sentence = 0;
+        } else {
+            self.cursor_sentence = self.cursor_sentence.min(total - 1);
+        }
+    }
+
+    fn current_source_line(&self) -> usize {
+        self.doc
+            .nodes
+            .get(self.cursor_node)
+            .map(|n| n.source_start_line())
+            .unwrap_or(0)
+    }
+
+    fn current_sentence_context(&self) -> Option<(usize, String)> {
+        let rn = self.rendered_nodes.get(self.cursor_node)?;
+        let range = rn.sentence_ranges.get(self.cursor_sentence)?;
+        let text = rn.plain.get(range.clone())?.trim().to_string();
+        Some((self.cursor_sentence, text))
+    }
+
+    // ── Annotations ───────────────────────────────────────────────────────────
+
+    fn begin_edit_change(&mut self) {
+        let Some(changes) = self.changes.get(&self.cursor_node) else {
+            self.status = "No change to edit on this node.".to_string();
+            return;
+        };
+
+        let change_idx = changes
+            .iter()
+            .rposition(|c| c.sentence_index == Some(self.cursor_sentence))
+            .or_else(|| {
+                if changes.is_empty() {
+                    None
+                } else {
+                    Some(changes.len() - 1)
+                }
+            });
+
+        let Some(idx) = change_idx else {
+            self.status = "No change to edit on this node.".to_string();
+            return;
+        };
+
+        self.change_buffer = changes[idx].change.clone();
+        self.input_mode = InputMode::EditChange(self.cursor_node, idx);
+        self.status = "Edit mode: Enter saves, Esc cancels.".to_string();
+    }
+
+    fn handle_edit_key(&mut self, key: KeyEvent, node_idx: usize, change_idx: usize) {
+        match key.code {
+            KeyCode::Esc => {
+                self.input_mode = InputMode::Normal;
+                self.change_buffer.clear();
+                self.status = "Edit cancelled.".to_string();
+            }
+            KeyCode::Enter => {
+                let trimmed = self.change_buffer.trim().to_string();
+                if trimmed.is_empty() {
+                    self.status = "Edit ignored — change cannot be empty.".to_string();
+                } else if let Some(changes) = self.changes.get_mut(&node_idx)
+                    && let Some(annotation) = changes.get_mut(change_idx)
+                {
+                    annotation.change = trimmed;
+                    self.status = format!("Change updated on node {}.", node_idx + 1);
+                }
+                self.input_mode = InputMode::Normal;
+                self.change_buffer.clear();
+            }
+            KeyCode::Backspace => {
+                self.change_buffer.pop();
+            }
+            KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.change_buffer.push(ch);
+            }
+            _ => {}
+        }
+    }
+
+    fn toggle_strike(&mut self) {
+        let Some((sentence_idx, _)) = self.current_sentence_context() else {
+            self.status = format!("Node {} has no sentence to strike.", self.cursor_node + 1);
+            return;
+        };
+
+        let entry = self.strikes.entry(self.cursor_node).or_default();
+        if entry.contains(&sentence_idx) {
+            entry.remove(&sentence_idx);
+            let node = self.cursor_node;
+            if entry.is_empty() {
+                self.strikes.remove(&node);
+            }
+            self.status = format!(
+                "Removed strike from node {}, sentence {}.",
+                self.cursor_node + 1,
+                sentence_idx + 1
+            );
+        } else {
+            entry.insert(sentence_idx);
+            self.status = format!(
+                "Struck node {}, sentence {}.",
+                self.cursor_node + 1,
+                sentence_idx + 1
+            );
+        }
+    }
+
+    fn reveal_links_for_current_sentence(&mut self) -> bool {
+        let urls = self.current_sentence_links();
+        if urls.is_empty() {
+            return false;
+        }
+        self.link_popup_urls = urls;
+        self.show_link_popup = true;
+        self.status = format!(
+            "Showing {} link(s) from current sentence.",
+            self.link_popup_urls.len()
+        );
+        true
+    }
+
+    fn current_sentence_links(&self) -> Vec<String> {
+        let Some(rn) = self.rendered_nodes.get(self.cursor_node) else {
+            return Vec::new();
+        };
+        let Some(range) = rn.sentence_ranges.get(self.cursor_sentence) else {
+            return Vec::new();
+        };
+        let mut urls = Vec::new();
+        for link in &rn.links {
+            let overlaps = link.end > range.start && link.start < range.end;
+            if overlaps && !urls.iter().any(|u: &String| u == &link.url) {
+                urls.push(link.url.clone());
+            }
+        }
+        urls
+    }
+
+    fn annotation_counts(&self) -> (usize, usize, usize) {
+        let changes: usize = self.changes.values().map(|v| v.len()).sum();
+        let feedbacks: usize = self.feedbacks.values().map(|v| v.len()).sum();
+        let strikes: usize = self.strikes.values().map(|v| v.len()).sum();
+        (changes, feedbacks, strikes)
+    }
+
+    // ── Drawing ───────────────────────────────────────────────────────────────
+
+    pub fn draw(&mut self, frame: &mut Frame) {
+        let area = frame.area();
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(FOOTER_HEIGHT)])
+            .split(area);
+        let line_area_inner_width = layout[0].width.saturating_sub(2) as usize;
+        let wrapped_text_width = line_area_inner_width.saturating_sub(GUTTER_WIDTH).max(1);
+
+        let filename = self
+            .source_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("markdown");
+        let (change_count, feedback_count, strike_count) = self.annotation_counts();
+        let block_title = if change_count == 0 && feedback_count == 0 && strike_count == 0 {
+            format!(" {filename} ")
+        } else {
+            let mut parts = Vec::new();
+            if change_count > 0 {
+                parts.push(format!("{change_count}C"));
+            }
+            if feedback_count > 0 {
+                parts.push(format!("{feedback_count}F"));
+            }
+            if strike_count > 0 {
+                parts.push(format!("{strike_count}X"));
+            }
+            format!(" {filename}  {} ", parts.join(" · "))
+        };
+
+        let list_block = Block::default()
+            .borders(Borders::ALL)
+            .title(block_title)
+            .border_style(Style::default().fg(Color::Gray));
+        let list_inner = list_block.inner(layout[0]);
+        self.list_inner = list_inner;
+
+        let mut node_heights: Vec<u16> = Vec::with_capacity(self.doc.node_count());
+
+        let node_count = self.doc.node_count();
+        let node_lines: Vec<Vec<Line<'static>>> = self
+            .doc
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(node_idx, node)| {
+                let (indicator, indicator_style) = self.node_indicator(node_idx);
+                // Add a blank trailing line when the NEXT node is a block start.
+                // This keeps the spacer at the END of the preceding item so that
+                // navigating to any node always shows content as the first line.
+                let add_spacer_after =
+                    node_idx + 1 < node_count && self.doc.is_block_start(node_idx + 1);
+
+                // Code blocks render line-by-line without sentence wrap logic.
+                if let DocNode::CodeBlock {
+                    source_lines: range,
+                    ..
+                } = node
+                {
+                    let raw = &self.source_lines[clamp_range(range, self.source_lines.len())];
+                    let mut display_lines: Vec<Line> = raw
+                        .iter()
+                        .enumerate()
+                        .map(|(i, line)| {
+                            let style = if line.trim_start().starts_with("```") {
+                                Style::default().fg(Color::DarkGray)
+                            } else {
+                                Style::default().fg(Color::White).bg(Color::DarkGray)
+                            };
+                            let mut spans = vec![if i == 0 {
+                                Span::styled(format!("{indicator} "), indicator_style)
+                            } else {
+                                Span::raw("  ")
+                            }];
+                            spans.push(Span::styled(line.clone(), style));
+                            Line::from(spans)
+                        })
+                        .collect();
+                    if add_spacer_after {
+                        display_lines.push(Line::from(""));
+                    }
+                    let height = display_lines.len().max(1) as u16;
+                    node_heights.push(height);
+                    return display_lines;
+                }
+
+                let spans = self.render_node_spans(node_idx);
+                let wrapped = wrap_styled_spans(spans, wrapped_text_width);
+
+                let mut wrapped_lines: Vec<Line> = wrapped
+                    .into_iter()
+                    .enumerate()
+                    .map(|(seg_idx, mut seg)| {
+                        let mut line_spans = Vec::new();
+                        if seg_idx == 0 {
+                            line_spans.push(Span::styled(format!("{indicator} "), indicator_style));
+                        } else {
+                            line_spans.push(Span::raw("  "));
+                        }
+                        line_spans.append(&mut seg);
+                        Line::from(line_spans)
+                    })
+                    .collect();
+
+                if add_spacer_after {
+                    wrapped_lines.push(Line::from(""));
+                }
+                let height = wrapped_lines.len().max(1) as u16;
+                node_heights.push(height);
+
+                wrapped_lines
+            })
+            .collect();
+
+        self.cached_node_heights = node_heights;
+        self.adjust_scroll(list_inner.height);
+        self.fill_partial_bottom(list_inner.height);
+
+        // Render block border, then manually render lines so partial items are
+        // clipped at the bottom rather than skipped entirely.
+        frame.render_widget(list_block, layout[0]);
+        let mut visible: Vec<Line<'static>> = Vec::new();
+        let mut count = 0u16;
+        'outer: for lines in node_lines.iter().skip(self.scroll_offset) {
+            for line in lines {
+                if count >= list_inner.height {
+                    break 'outer;
+                }
+                visible.push(line.clone());
+                count += 1;
+            }
+        }
+        frame.render_widget(Paragraph::new(Text::from(visible)), list_inner);
+
+        let footer_line = if let Some(note) = &self.notification {
+            Line::from(Span::styled(
+                format!(" {note}"),
+                Style::default().fg(Color::Green),
+            ))
+        } else {
+            let hint_style = Style::default().fg(Color::DarkGray);
+            let left = " h/j/k/l/x/c/f/r";
+            let right = "? for help ";
+            let gap = (layout[1].width as usize).saturating_sub(left.len() + right.len());
+            Line::from(vec![
+                Span::styled(left, hint_style),
+                Span::raw(" ".repeat(gap)),
+                Span::styled(right, hint_style),
+            ])
+        };
+        frame.render_widget(Paragraph::new(footer_line), layout[1]);
+
+        let popup_title = match &self.input_mode {
+            InputMode::Change => Some(" Change "),
+            InputMode::Feedback => Some(" Feedback "),
+            InputMode::EditChange(..) => Some(" Edit Change "),
+            InputMode::Normal => None,
+        };
+        if let Some(title) = popup_title {
+            match self.input_mode {
+                InputMode::Change | InputMode::EditChange(..) => {
+                    self.draw_input_popup(frame, list_inner, true, title);
+                }
+                InputMode::Feedback => {
+                    self.draw_input_popup(frame, list_inner, false, title);
+                }
+                InputMode::Normal => {}
+            }
+        }
+
+        if self.show_link_popup {
+            self.draw_link_popup(frame, area);
+        }
+
+        if self.show_help {
+            self.draw_help(frame, area);
+        }
+
+        if self.show_ast {
+            self.draw_ast_popup(frame, area);
+        }
+    }
+
+    fn draw_input_popup(&self, frame: &mut Frame, list_inner: Rect, is_change: bool, title: &str) {
+        let heights = &self.cached_node_heights;
+        if list_inner.width < 12 || list_inner.height < 4 || self.cursor_node >= heights.len() {
+            return;
+        }
+
+        let list_offset = self.scroll_offset;
+        if self.cursor_node < list_offset {
+            return;
+        }
+
+        let selected_top: u16 = heights
+            .iter()
+            .skip(list_offset)
+            .take(self.cursor_node - list_offset)
+            .copied()
+            .sum();
+        let selected_height = heights[self.cursor_node].max(1);
+
+        if selected_top >= list_inner.height {
+            return;
+        }
+
+        let popup_height = 4u16.min(list_inner.height);
+        let popup_width = list_inner.width.clamp(20, 80);
+
+        let preferred_below_y = list_inner.y
+            + selected_top
+                .saturating_add(selected_height)
+                .min(list_inner.height.saturating_sub(1));
+        let list_bottom = list_inner.y + list_inner.height;
+        let y = if preferred_below_y.saturating_add(popup_height) <= list_bottom {
+            preferred_below_y
+        } else {
+            let anchor_y = list_inner.y + selected_top;
+            anchor_y.saturating_sub(popup_height)
+        };
+
+        let popup = Rect {
+            x: list_inner.x,
+            y,
+            width: popup_width,
+            height: popup_height,
+        };
+
+        let (hint, prompt, buf) = if is_change {
+            (
+                "Change mode: Enter save | Esc cancel",
+                "Change> ",
+                &self.change_buffer,
+            )
+        } else {
+            (
+                "Feedback mode: Enter save | Esc cancel",
+                "Feedback> ",
+                &self.feedback_buffer,
+            )
+        };
+
+        let lines = vec![
+            Line::from(Span::styled(hint, Style::default().fg(Color::Yellow))),
+            Line::from(format!("{prompt}{buf}")),
+        ];
+
+        frame.render_widget(Clear, popup);
+        frame.render_widget(
+            Paragraph::new(Text::from(lines))
+                .block(
+                    Block::default()
+                        .title(title.to_owned())
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Yellow)),
+                )
+                .wrap(Wrap { trim: false }),
+            popup,
+        );
+    }
+
+    fn draw_help(&self, frame: &mut Frame, area: Rect) {
+        let help_lines = vec![
+            Line::from(Span::styled(
+                "  nav  next/prev",
+                Style::default().fg(Color::Cyan),
+            )),
+            Line::from("  j/k  line         h/l  sentence"),
+            Line::from("  J/K  section      H/L  paragraph"),
+            Line::from("  ]/[  annotation"),
+            Line::from(""),
+            Line::from("  i  AST view        u  links"),
+            Line::from("  c  change (literal)"),
+            Line::from("  f  feedback (intent)"),
+            Line::from("  e  x  r  edit · strike · copy result"),
+            Line::from("  q  Q          quit · silent quit"),
+            Line::from("  ? / Esc       help · close"),
+        ];
+
+        let content_width: u16 = help_lines
+            .iter()
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.chars().count())
+                    .sum::<usize>()
+            })
+            .max()
+            .unwrap_or(40) as u16;
+        let content_height = help_lines.len() as u16;
+        let popup_width = (content_width + 2).min(area.width);
+        let popup_height = (content_height + 2).min(area.height);
+        let popup = Rect {
+            x: area.x + area.width.saturating_sub(popup_width) / 2,
+            y: area.y + area.height.saturating_sub(popup_height) / 2,
+            width: popup_width,
+            height: popup_height,
+        };
+
+        frame.render_widget(Clear, popup);
+        frame.render_widget(
+            Paragraph::new(Text::from(help_lines))
+                .block(
+                    Block::default()
+                        .title(" Help ")
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Cyan)),
+                )
+                .wrap(Wrap { trim: false }),
+            popup,
+        );
+    }
+
+    fn draw_ast_popup(&self, frame: &mut Frame, area: Rect) {
+        let popup_width = (area.width * 4 / 5).max(40).min(area.width);
+        let popup_height = (area.height * 4 / 5).max(6).min(area.height);
+        let popup = Rect {
+            x: area.x + area.width.saturating_sub(popup_width) / 2,
+            y: area.y + area.height.saturating_sub(popup_height) / 2,
+            width: popup_width,
+            height: popup_height,
+        };
+
+        let lines: Vec<Line> = self
+            .ast_lines
+            .iter()
+            .map(|l| Line::from(Span::raw(l.clone())))
+            .collect();
+
+        let total = self.ast_lines.len() as u16;
+        let inner_height = popup_height.saturating_sub(2);
+        let max_scroll = total.saturating_sub(inner_height);
+        let scroll = self.ast_scroll.min(max_scroll);
+
+        frame.render_widget(Clear, popup);
+        frame.render_widget(
+            Paragraph::new(Text::from(lines))
+                .block(
+                    Block::default()
+                        .title(format!(
+                            " AST  [{}/{}]  j/k scroll · i/Esc close ",
+                            scroll + 1,
+                            total
+                        ))
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Green)),
+                )
+                .scroll((scroll, 0)),
+            popup,
+        );
+    }
+
+    fn draw_link_popup(&self, frame: &mut Frame, area: Rect) {
+        let popup_width = area.width.saturating_sub(10).clamp(40, 100);
+        let max_height = area.height.saturating_sub(6).max(6);
+        let desired_height = (self.link_popup_urls.len() as u16)
+            .saturating_add(5)
+            .clamp(6, max_height);
+        let popup = Rect {
+            x: area.x + area.width.saturating_sub(popup_width) / 2,
+            y: area.y + area.height.saturating_sub(desired_height) / 2,
+            width: popup_width,
+            height: desired_height,
+        };
+
+        let mut lines = Vec::new();
+        lines.push(Line::from("Links in current sentence:"));
+        lines.push(Line::from(""));
+        for (idx, url) in self.link_popup_urls.iter().enumerate() {
+            lines.push(Line::from(format!("{}. {}", idx + 1, url)));
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Press i or Esc to close",
+            Style::default().fg(Color::Gray),
+        )));
+
+        frame.render_widget(Clear, popup);
+        frame.render_widget(
+            Paragraph::new(Text::from(lines))
+                .block(
+                    Block::default()
+                        .title(" Link ")
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Cyan)),
+                )
+                .wrap(Wrap { trim: false }),
+            popup,
+        );
+    }
+
+    fn adjust_scroll(&mut self, inner_height: u16) {
+        let heights = &self.cached_node_heights;
+        if heights.is_empty() {
+            return;
+        }
+        let n = heights.len();
+        self.scroll_offset = self.scroll_offset.min(n.saturating_sub(1));
+
+        if self.cursor_node < self.scroll_offset {
+            self.scroll_offset = self.cursor_node;
+            return;
+        }
+
+        let cursor_height = heights.get(self.cursor_node).copied().unwrap_or(1);
+        let rows_before: u16 = heights
+            .get(self.scroll_offset..self.cursor_node)
+            .map(|s| s.iter().copied().sum())
+            .unwrap_or(0);
+
+        // Cursor is fully visible — nothing to do.
+        if rows_before + cursor_height <= inner_height {
+            return;
+        }
+
+        // Cursor extends past the bottom (or is entirely off-screen). Reposition so
+        // the cursor's bottom aligns with the screen bottom, maximising the number of
+        // cursor lines shown. If the cursor is taller than the screen, put it at top.
+        let target_start = inner_height.saturating_sub(cursor_height);
+
+        let mut new_offset = self.cursor_node;
+        let mut cum: u16 = 0;
+        for i in (0..self.cursor_node).rev() {
+            let h = heights.get(i).copied().unwrap_or(0);
+            if cum + h > target_start {
+                break;
+            }
+            cum += h;
+            new_offset = i;
+        }
+        self.scroll_offset = new_offset;
+    }
+
+    /// After cursor positioning, pull any item that is partially visible at the
+    /// bottom fully into view — as long as the cursor node remains visible.
+    ///
+    /// This covers the case where the cursor is on node N and node N+1 (or later)
+    /// is partially clipped at the bottom: we scroll forward enough to show the
+    /// partial item fully, provided the cursor itself stays in view.
+    fn fill_partial_bottom(&mut self, inner_height: u16) {
+        let heights = &self.cached_node_heights;
+        if heights.is_empty() {
+            return;
+        }
+
+        // Find the first partially-visible item at the bottom of the current view.
+        let mut cum: u16 = 0;
+        let mut partial: Option<(usize, u16)> = None;
+        for (i, &h) in heights.iter().enumerate().skip(self.scroll_offset) {
+            if cum + h > inner_height {
+                partial = Some((i, h));
+                break;
+            }
+            cum += h;
+        }
+
+        let (partial_idx, partial_h) = match partial {
+            Some(p) if p.1 <= inner_height => p, // only handle items that can fit fully
+            _ => return,
+        };
+
+        if partial_idx <= self.cursor_node {
+            return; // cursor-based logic already handles this
+        }
+
+        // How many rows do we need to free up above to show the partial item fully?
+        // Currently the item starts at `cum`; we need it at `inner_height - partial_h`.
+        let needed = cum.saturating_sub(inner_height - partial_h);
+        if needed == 0 {
+            return;
+        }
+
+        // Try to advance scroll_offset by `needed` rows, while keeping cursor visible.
+        let cursor_h = heights.get(self.cursor_node).copied().unwrap_or(1);
+        let mut skipped: u16 = 0;
+        let mut new_offset = self.scroll_offset;
+        for i in self.scroll_offset..partial_idx {
+            let h = heights.get(i).copied().unwrap_or(0);
+            if skipped + h > needed {
+                break;
+            }
+            // Verify cursor stays visible after advancing past item i.
+            let candidate = i + 1;
+            if candidate > self.cursor_node {
+                break; // would push cursor above offset
+            }
+            let rows_before_cursor: u16 = heights
+                .get(candidate..self.cursor_node)
+                .map(|s| s.iter().copied().sum())
+                .unwrap_or(0);
+            if rows_before_cursor + cursor_h > inner_height {
+                break; // cursor would go off-screen
+            }
+            skipped += h;
+            new_offset = candidate;
+        }
+        self.scroll_offset = new_offset;
+    }
+
+    fn node_indicator(&self, node_idx: usize) -> (&'static str, Style) {
+        let has_change = self
+            .changes
+            .get(&node_idx)
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        let has_feedback = self
+            .feedbacks
+            .get(&node_idx)
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        let has_strike = self
+            .strikes
+            .get(&node_idx)
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+
+        let count = has_change as u8 + has_feedback as u8 + has_strike as u8;
+        if count > 1 {
+            return (
+                "*",
+                Style::default()
+                    .fg(Color::LightMagenta)
+                    .add_modifier(Modifier::BOLD),
+            );
+        }
+        if has_change {
+            return (
+                "C",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            );
+        }
+        if has_feedback {
+            return (
+                "F",
+                Style::default()
+                    .fg(Color::LightCyan)
+                    .add_modifier(Modifier::BOLD),
+            );
+        }
+        if has_strike {
+            return ("X", Style::default().fg(Color::LightRed));
+        }
+        (" ", Style::default().fg(Color::DarkGray))
+    }
+
+    fn render_node_spans(&self, node_idx: usize) -> Vec<Span<'static>> {
+        let Some(rn) = self.rendered_nodes.get(node_idx) else {
+            return vec![Span::styled(
+                " ",
+                Style::default().add_modifier(Modifier::DIM),
+            )];
+        };
+        let plain = rn.plain.as_str();
+        let plain_len = plain.len();
+
+        if plain.is_empty() {
+            return vec![Span::styled(
+                " ",
+                Style::default().add_modifier(Modifier::DIM),
+            )];
+        }
+
+        let sentence_ranges = &rn.sentence_ranges;
+        let strikes = self.strikes.get(&node_idx);
+
+        // Map span style → byte range segments.
+        let mut seg: Vec<(usize, usize, Style)> = Vec::new();
+        let mut offset = 0usize;
+        for span in &rn.spans {
+            let len = span.content.len();
+            if len == 0 {
+                continue;
+            }
+            let end = (offset + len).min(plain_len);
+            if offset < end {
+                seg.push((offset, end, span.style));
+            }
+            offset = end;
+        }
+        if seg.is_empty() {
+            seg.push((0, plain_len, Style::default()));
+        }
+
+        // Collect all split points.
+        let mut bounds = vec![0, plain_len];
+        for &(s, e, _) in &seg {
+            bounds.push(s);
+            bounds.push(e);
+        }
+        for r in sentence_ranges {
+            bounds.push(r.start.min(plain_len));
+            bounds.push(r.end.min(plain_len));
+        }
+        bounds.sort_unstable();
+        bounds.dedup();
+
+        let highlight = if self
+            .section_highlight_range
+            .as_ref()
+            .is_some_and(|r| r.contains(&node_idx))
+        {
+            Some(0..plain_len)
+        } else if node_idx == self.cursor_node {
+            sentence_ranges.get(self.cursor_sentence).cloned()
+        } else {
+            None
+        };
+
+        let mut spans = Vec::new();
+        for pair in bounds.windows(2) {
+            let (start, end) = (pair[0], pair[1]);
+            if start >= end {
+                continue;
+            }
+            let Some(text) = plain.get(start..end) else {
+                continue;
+            };
+            if text.is_empty() {
+                continue;
+            }
+
+            let mut style = seg
+                .iter()
+                .find(|&&(s, e, _)| start >= s && start < e)
+                .map(|&(_, _, sty)| sty)
+                .unwrap_or_default();
+
+            let sentence_idx = sentence_ranges
+                .iter()
+                .position(|r| start >= r.start && start < r.end);
+
+            if highlight
+                .as_ref()
+                .map(|r| start < r.end && end > r.start)
+                .unwrap_or(false)
+            {
+                style = style.patch(
+                    Style::default()
+                        .bg(Color::Blue)
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD),
+                );
+            }
+
+            if sentence_idx
+                .map(|idx| strikes.map(|s| s.contains(&idx)).unwrap_or(false))
+                .unwrap_or(false)
+            {
+                style = style.patch(
+                    Style::default()
+                        .fg(Color::Red)
+                        .add_modifier(Modifier::CROSSED_OUT | Modifier::DIM),
+                );
+            }
+
+            spans.push(Span::styled(text.to_string(), style));
+        }
+
+        if spans.is_empty() {
+            spans.push(Span::raw(plain.to_string()));
+        }
+        spans
+    }
+
+    // ── Output ────────────────────────────────────────────────────────────────
+
+    #[cfg(test)]
+    pub fn to_output(&self) -> AgentOutput {
+        let mut touched = BTreeSet::new();
+        touched.extend(self.changes.keys().copied());
+        touched.extend(self.feedbacks.keys().copied());
+        touched.extend(self.strikes.keys().copied());
+
+        let mut annotations = Vec::new();
+        for node_idx in touched {
+            let (source_line, line_text) = self.node_line_context(node_idx);
+
+            let previous_line = source_line
+                .checked_sub(1)
+                .and_then(|i| self.source_lines.get(i))
+                .cloned();
+            let next_line = self.source_lines.get(source_line + 1).cloned();
+
+            let changes = self
+                .changes
+                .get(&node_idx)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|a| ChangeOutput {
+                    created_at: a.created_at,
+                    sentence_index: a.sentence_index.map(|i| i + 1),
+                    sentence_text: a.sentence_text,
+                    change: a.change,
+                })
+                .collect();
+
+            let feedbacks = self
+                .feedbacks
+                .get(&node_idx)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|a| FeedbackOutput {
+                    created_at: a.created_at,
+                    sentence_index: a.sentence_index.map(|i| i + 1),
+                    sentence_text: a.sentence_text,
+                    feedback: a.feedback,
+                })
+                .collect();
+
+            let reactions = self
+                .strikes
+                .get(&node_idx)
+                .map(|set| {
+                    set.iter()
+                        .map(|&sidx| {
+                            let sentence_text = self
+                                .rendered_nodes
+                                .get(node_idx)
+                                .and_then(|rn| rn.sentence_ranges.get(sidx))
+                                .and_then(|r| self.rendered_nodes[node_idx].plain.get(r.clone()))
+                                .map(|s| s.trim().to_string())
+                                .unwrap_or_default();
+                            ReactionOutput {
+                                kind: "strike".to_string(),
+                                sentence_index: sidx + 1,
+                                sentence_text,
+                            }
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            annotations.push(LineAnnotationOutput {
+                line_number: source_line + 1,
+                line_text: line_text.clone(),
+                context: LineContext {
+                    previous_line,
+                    current_line: line_text,
+                    next_line,
+                },
+                changes,
+                feedbacks,
+                reactions,
+            });
+        }
+
+        AgentOutput {
+            source_file: self.source_path.display().to_string(),
+            generated_at: Utc::now().to_rfc3339(),
+            keymap: KeymapOutput {
+                line_prev: "k".to_string(),
+                line_next: "j".to_string(),
+                sentence_prev: "h".to_string(),
+                sentence_next: "l".to_string(),
+                reveal_link: "u".to_string(),
+                section_prev: "K".to_string(),
+                section_next: "J".to_string(),
+                paragraph_prev: "H".to_string(),
+                paragraph_next: "L".to_string(),
+                annotation_prev: "[".to_string(),
+                annotation_next: "]".to_string(),
+                help: "?".to_string(),
+                change: "c".to_string(),
+                feedback: "f".to_string(),
+                strike: "x".to_string(),
+                quit: "q".to_string(),
+                quit_silent: "Q".to_string(),
+            },
+            annotations,
+        }
+    }
+
+    pub fn to_human_output(&self) -> String {
+        let mut touched = BTreeSet::new();
+        touched.extend(self.changes.keys().copied());
+        touched.extend(self.feedbacks.keys().copied());
+        touched.extend(self.strikes.keys().copied());
+
+        let mut out = String::new();
+        out.push_str(&format!("FILE: {}\n", self.source_path.display()));
+
+        if touched.is_empty() {
+            out.push_str("\nNo actions.\n");
+            return out;
+        }
+
+        for node_idx in touched {
+            let (source_line, line_text) = self.node_line_context(node_idx);
+
+            let prev = source_line
+                .checked_sub(1)
+                .and_then(|i| self.source_lines.get(i))
+                .map(String::as_str)
+                .unwrap_or("");
+            let next = self
+                .source_lines
+                .get(source_line + 1)
+                .map(String::as_str)
+                .unwrap_or("");
+
+            let prev_clean = clean_context(prev, 140);
+            let line_clean = clean_context(&line_text, 180);
+            let next_clean = clean_context(next, 140);
+
+            if let Some(changes) = self.changes.get(&node_idx) {
+                for change in changes {
+                    let target = change
+                        .sentence_text
+                        .as_deref()
+                        .map(|s| clean_context(s, 180))
+                        .unwrap_or_else(|| line_clean.clone());
+                    out.push('\n');
+                    out.push_str("ACTION: change\n");
+                    out.push_str(&format!(
+                        "WHERE: line {}{}\n",
+                        source_line + 1,
+                        change
+                            .sentence_index
+                            .map(|i| format!(", sentence {}", i + 1))
+                            .unwrap_or_default()
+                    ));
+                    out.push_str("CONTEXT:\n");
+                    if !prev_clean.is_empty() {
+                        out.push_str(&format!("  prev: \"{prev_clean}\"\n"));
+                    }
+                    out.push_str(&format!("  target: \"{target}\"\n"));
+                    if !next_clean.is_empty() {
+                        out.push_str(&format!("  next: \"{next_clean}\"\n"));
+                    }
+                    out.push_str(&format!(
+                        "CHANGE: \"{}\"\n",
+                        clean_context(&change.change, 220)
+                    ));
+                }
+            }
+
+            if let Some(feedbacks) = self.feedbacks.get(&node_idx) {
+                for feedback in feedbacks {
+                    let target = feedback
+                        .sentence_text
+                        .as_deref()
+                        .map(|s| clean_context(s, 180))
+                        .unwrap_or_else(|| line_clean.clone());
+                    out.push('\n');
+                    out.push_str("ACTION: revise-to-incorporate-feedback\n");
+                    out.push_str(&format!(
+                        "WHERE: line {}{}\n",
+                        source_line + 1,
+                        feedback
+                            .sentence_index
+                            .map(|i| format!(", sentence {}", i + 1))
+                            .unwrap_or_default()
+                    ));
+                    out.push_str("CONTEXT:\n");
+                    if !prev_clean.is_empty() {
+                        out.push_str(&format!("  prev: \"{prev_clean}\"\n"));
+                    }
+                    out.push_str(&format!("  target: \"{target}\"\n"));
+                    if !next_clean.is_empty() {
+                        out.push_str(&format!("  next: \"{next_clean}\"\n"));
+                    }
+                    out.push_str(&format!(
+                        "FEEDBACK: \"{}\"\n",
+                        clean_context(&feedback.feedback, 220)
+                    ));
+                }
+            }
+
+            if let Some(strikes) = self.strikes.get(&node_idx) {
+                for &sentence_idx in strikes {
+                    let sentence_text = self
+                        .rendered_nodes
+                        .get(node_idx)
+                        .and_then(|rn| rn.sentence_ranges.get(sentence_idx))
+                        .and_then(|r| self.rendered_nodes[node_idx].plain.get(r.clone()))
+                        .map(|s| clean_context(s, 180))
+                        .unwrap_or_else(|| line_clean.clone());
+                    out.push('\n');
+                    out.push_str("ACTION: delete this\n");
+                    out.push_str(&format!(
+                        "WHERE: line {}, sentence {}\n",
+                        source_line + 1,
+                        sentence_idx + 1
+                    ));
+                    out.push_str("CONTEXT:\n");
+                    if !prev_clean.is_empty() {
+                        out.push_str(&format!("  prev: \"{prev_clean}\"\n"));
+                    }
+                    out.push_str(&format!("  target: \"{sentence_text}\"\n"));
+                    if !next_clean.is_empty() {
+                        out.push_str(&format!("  next: \"{next_clean}\"\n"));
+                    }
+                }
+            }
+        }
+
+        out
+    }
+
+    fn node_line_context(&self, node_idx: usize) -> (usize, String) {
+        let source_line = self
+            .doc
+            .nodes
+            .get(node_idx)
+            .map(|n| n.source_start_line())
+            .unwrap_or(0);
+        let line_text = self
+            .source_lines
+            .get(source_line)
+            .cloned()
+            .unwrap_or_default();
+        (source_line, line_text)
+    }
+}
+
+// ── Clipboard ─────────────────────────────────────────────────────────────────
+
+enum ClipboardOutcome {
+    OsCommand,
+    Osc52,
+    Failed,
+}
+
+fn copy_to_clipboard(text: &str) -> ClipboardOutcome {
+    if try_osc52(text) {
+        return ClipboardOutcome::Osc52;
+    }
+    if try_os_clipboard(text) {
+        return ClipboardOutcome::OsCommand;
+    }
+    ClipboardOutcome::Failed
+}
+
+fn try_os_clipboard(text: &str) -> bool {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let candidates: &[(&str, &[&str])] = if cfg!(target_os = "macos") {
+        &[("pbcopy", &[])]
+    } else if cfg!(windows) {
+        &[("clip", &[])]
+    } else {
+        &[
+            ("wl-copy", &[]),
+            ("xclip", &["-selection", "clipboard"]),
+            ("xsel", &["--clipboard", "--input"]),
+        ]
+    };
+
+    for (cmd, args) in candidates {
+        let Ok(mut child) = Command::new(cmd).args(*args).stdin(Stdio::piped()).spawn() else {
+            continue;
+        };
+        if let Some(stdin) = child.stdin.as_mut() {
+            let _ = stdin.write_all(text.as_bytes());
+        }
+        if child.wait().is_ok() {
+            return true;
+        }
+    }
+    false
+}
+
+fn try_osc52(text: &str) -> bool {
+    use std::io::Write;
+    let encoded = base64_encode(text.as_bytes());
+    let seq = if std::env::var("TMUX").is_ok() {
+        format!("\x1bPtmux;\x1b\x1b]52;c;{encoded}\x07\x1b\\")
+    } else {
+        format!("\x1b]52;c;{encoded}\x07")
+    };
+
+    #[cfg(unix)]
+    if let Ok(mut tty) = std::fs::OpenOptions::new().write(true).open("/dev/tty") {
+        return tty.write_all(seq.as_bytes()).is_ok() && tty.flush().is_ok();
+    }
+
+    let _ = std::io::stderr().write_all(seq.as_bytes());
+    let _ = std::io::stderr().flush();
+    false
+}
+
+fn base64_encode(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = chunk.get(1).copied().unwrap_or(0) as u32;
+        let b2 = chunk.get(2).copied().unwrap_or(0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(T[((n >> 18) & 63) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            T[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            T[(n & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{Terminal, backend::TestBackend};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static FILE_SEQ: AtomicUsize = AtomicUsize::new(0);
+
+    fn test_app(content: &str) -> App {
+        let n = FILE_SEQ.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("rep_test_{n}.md"));
+        std::fs::write(&path, content).unwrap();
+        App::load(path).unwrap()
+    }
+
+    fn render(app: &mut App) -> Terminal<TestBackend> {
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        terminal
+    }
+
+    fn row(terminal: &Terminal<TestBackend>, y: u16) -> String {
+        let buf = terminal.backend().buffer();
+        (0..buf.area.width)
+            .map(|x| {
+                buf.cell(ratatui::layout::Position::new(x, y))
+                    .map(|c| c.symbol())
+                    .unwrap_or(" ")
+            })
+            .collect()
+    }
+
+    fn cell(terminal: &Terminal<TestBackend>, x: u16, y: u16) -> char {
+        terminal
+            .backend()
+            .buffer()
+            .cell(ratatui::layout::Position::new(x, y))
+            .and_then(|c| c.symbol().chars().next())
+            .unwrap_or(' ')
+    }
+
+    fn has_sentence_highlight(spans: &[Span<'_>]) -> bool {
+        spans.iter().any(|s| s.style.bg == Some(Color::Blue))
+    }
+
+    fn make_change(text: &str) -> ChangeAnnotation {
+        ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            sentence_index: Some(0),
+            sentence_text: None,
+            change: text.into(),
+        }
+    }
+
+    fn make_feedback(text: &str) -> FeedbackAnnotation {
+        FeedbackAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            sentence_index: Some(0),
+            sentence_text: None,
+            feedback: text.into(),
+        }
+    }
+
+    // ── Gutter indicators ─────────────────────────────────────────────────────
+
+    #[test]
+    fn gutter_shows_c_after_change() {
+        let mut app = test_app("A sentence here.\n");
+        app.changes.entry(0).or_default().push(make_change("x"));
+        let t = render(&mut app);
+        assert_eq!(cell(&t, 1, 1), 'C', "expected change indicator 'C'");
+    }
+
+    #[test]
+    fn gutter_shows_x_after_strike() {
+        let mut app = test_app("A sentence here.\n");
+        app.strikes.entry(0).or_default().insert(0);
+        let t = render(&mut app);
+        assert_eq!(cell(&t, 1, 1), 'X', "expected strike indicator 'X'");
+    }
+
+    #[test]
+    fn gutter_shows_f_after_feedback() {
+        let mut app = test_app("A sentence here.\n");
+        app.feedbacks.entry(0).or_default().push(make_feedback("x"));
+        let t = render(&mut app);
+        assert_eq!(cell(&t, 1, 1), 'F', "expected feedback indicator 'F'");
+    }
+
+    #[test]
+    fn gutter_shows_star_for_both() {
+        let mut app = test_app("A sentence.\n");
+        app.changes.entry(0).or_default().push(make_change("x"));
+        app.strikes.entry(0).or_default().insert(0);
+        let t = render(&mut app);
+        assert_eq!(cell(&t, 1, 1), '*', "expected combined indicator '*'");
+    }
+
+    #[test]
+    fn gutter_shows_space_when_unannotated() {
+        let mut app = test_app("A sentence.\n");
+        let t = render(&mut app);
+        assert_eq!(
+            cell(&t, 1, 1),
+            ' ',
+            "expected blank indicator for unannotated node"
+        );
+    }
+
+    #[test]
+    fn block_title_shows_filename() {
+        let n = FILE_SEQ.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("named_doc_{n}.md"));
+        std::fs::write(&path, "line one\n").unwrap();
+        let stem = path.file_name().unwrap().to_string_lossy().to_string();
+        let mut app = App::load(path).unwrap();
+        let t = render(&mut app);
+        let top = row(&t, 0);
+        assert!(top.contains(&stem), "filename missing from title: {top:?}");
+    }
+
+    #[test]
+    fn block_title_shows_annotation_counts() {
+        let mut app = test_app("A sentence.\n");
+        app.changes.entry(0).or_default().push(make_change("x"));
+        app.feedbacks.entry(0).or_default().push(make_feedback("y"));
+        app.strikes.entry(0).or_default().insert(0);
+        let t = render(&mut app);
+        let top = row(&t, 0);
+        assert!(top.contains("1C"), "change count missing: {top:?}");
+        assert!(top.contains("1F"), "feedback count missing: {top:?}");
+        assert!(top.contains("1X"), "strike count missing: {top:?}");
+    }
+
+    #[test]
+    fn footer_shows_key_hints() {
+        let mut app = test_app("line\n");
+        let t = render(&mut app);
+        let hint_row = row(&t, 23);
+        assert!(hint_row.contains("j/k"), "key hints missing: {hint_row:?}");
+    }
+
+    #[test]
+    fn human_output_emits_revise_action_for_feedback() {
+        let mut app = test_app("A sentence here.\n");
+        app.feedbacks
+            .entry(0)
+            .or_default()
+            .push(make_feedback("make this clearer"));
+        let out = app.to_human_output();
+        assert!(
+            out.contains("ACTION: revise-to-incorporate-feedback"),
+            "{out}"
+        );
+        assert!(out.contains("FEEDBACK: \"make this clearer\""), "{out}");
+    }
+
+    #[test]
+    fn human_output_change_format_with_sentence_text_as_target() {
+        let mut app = test_app("Alpha. Beta.\n");
+        app.changes.entry(0).or_default().push(ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            sentence_index: Some(0),
+            sentence_text: Some("Alpha.".into()),
+            change: "Rewrite alpha".into(),
+        });
+        let out = app.to_human_output();
+        assert!(out.contains("ACTION: change"), "{out}");
+        assert!(out.contains("CHANGE: \"Rewrite alpha\""), "{out}");
+        assert!(out.contains("target: \"Alpha.\""), "{out}");
+    }
+
+    #[test]
+    fn human_output_strike_emits_delete_action_and_extracts_sentence_text() {
+        let mut app = test_app("Strike this. Keep this.\n");
+        app.strikes.entry(0).or_default().insert(0);
+        let out = app.to_human_output();
+        assert!(out.contains("ACTION: delete this"), "{out}");
+        assert!(out.contains("WHERE: line 1, sentence 1"), "{out}");
+        assert!(out.contains("\"Strike this.\""), "{out}");
+    }
+
+    #[test]
+    fn human_output_sentence_index_in_where_is_one_based() {
+        // sentence_index stored 0-based; WHERE must show 1-based for consumers
+        let mut app = test_app("First. Second. Third.\n");
+        app.changes.entry(0).or_default().push(ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            sentence_index: Some(2), // 0-based: third sentence
+            sentence_text: Some("Third.".into()),
+            change: "Fix third".into(),
+        });
+        let out = app.to_human_output();
+        assert!(out.contains("sentence 3"), "should be 1-based: {out}");
+        assert!(
+            !out.contains("sentence 2"),
+            "should not show 0-based offset: {out}"
+        );
+    }
+
+    #[test]
+    fn human_output_with_no_annotations_contains_no_actions() {
+        let app = test_app("Some text.\n");
+        let out = app.to_human_output();
+        assert!(out.contains("No actions."), "{out}");
+        assert!(!out.contains("ACTION:"), "{out}");
+    }
+
+    #[test]
+    fn agent_output_sentence_index_is_one_based() {
+        let mut app = test_app("First. Second.\n");
+        app.changes.entry(0).or_default().push(ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            sentence_index: Some(1), // 0-based: second sentence
+            sentence_text: Some("Second.".into()),
+            change: "Fix this".into(),
+        });
+        let out = app.to_output();
+        assert_eq!(out.annotations.len(), 1);
+        assert_eq!(
+            out.annotations[0].changes[0].sentence_index,
+            Some(2),
+            "agent output sentence_index must be 1-based"
+        );
+    }
+
+    // ── Navigation ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn sentence_navigation_crosses_node_boundary() {
+        // Blank lines don't exist as nodes — moving 'l' from last sentence of
+        // node 0 should land on first sentence of node 1.
+        let mut app = test_app("First sentence.\n\nSecond sentence.\n");
+        assert_eq!(app.cursor_node, 0);
+        assert_eq!(app.cursor_sentence, 0);
+        app.move_sentence(true);
+        assert_eq!(app.cursor_node, 1, "should cross to next node");
+        assert_eq!(app.cursor_sentence, 0);
+    }
+
+    #[test]
+    fn node_navigation_moves_through_every_node() {
+        // "one", blank, blank, "two", blank, "three" → 3 Paragraph nodes.
+        let mut app = test_app("one\n\n\ntwo\n\nthree\n");
+        assert_eq!(app.cursor_node, 0);
+        app.move_node(1);
+        assert_eq!(app.cursor_node, 1, "should move to next node");
+        app.move_node(1);
+        assert_eq!(app.cursor_node, 2, "should move to next node");
+        app.move_node(-1);
+        assert_eq!(app.cursor_node, 1, "should move back");
+    }
+
+    #[test]
+    fn block_navigation_jumps_between_content_nodes() {
+        // Title / Para / ListItem / Tail → nodes 0..3
+        let mut app =
+            test_app("Title\n\nPara one line one\nline two\n\n- list item\nwrapped\n\nTail\n");
+        assert_eq!(app.cursor_node, 0);
+        app.move_block(true);
+        assert_eq!(app.cursor_node, 1, "should jump to next content node");
+        app.move_block(true);
+        assert_eq!(app.cursor_node, 2, "should jump to list item");
+        app.move_block(true);
+        assert_eq!(app.cursor_node, 3, "should jump to tail");
+        app.move_block(false);
+        assert_eq!(app.cursor_node, 2, "should jump back");
+    }
+
+    #[test]
+    fn section_navigation_finds_headings_and_numbered_sections() {
+        // Intro / ## Heading A / text / 1. Heading B / text / - list item
+        let mut app =
+            test_app("Intro\n\n## Heading A\ntext\n\n1. Heading B\ntext\n\n- list item\n");
+        assert_eq!(app.cursor_node, 0);
+        app.move_section(true);
+        // node 1 = Heading "Heading A"
+        let heading_node = app.cursor_node;
+        assert!(
+            app.doc.nodes[heading_node].is_heading(),
+            "should land on heading: node {heading_node}"
+        );
+        app.move_section(true);
+        // node 3 = ordered ListItem "Heading B" (top-level numbered section)
+        let section_node = app.cursor_node;
+        assert!(
+            app.doc.nodes[section_node].is_section(),
+            "should land on section: node {section_node}"
+        );
+        app.move_section(false);
+        assert_eq!(app.cursor_node, heading_node, "should jump back to heading");
+    }
+
+    #[test]
+    fn section_navigation_works_for_numbered_sections() {
+        let mut app = test_app("Intro\n\n  1. First section\nline\n\n  2. Second section\n");
+        assert_eq!(app.cursor_node, 0);
+        app.move_section(true);
+        let first = app.cursor_node;
+        assert!(app.doc.nodes[first].is_section(), "first numbered section");
+        app.move_section(true);
+        let second = app.cursor_node;
+        assert!(
+            app.doc.nodes[second].is_section(),
+            "second numbered section"
+        );
+        assert!(second > first, "should be a later node");
+        app.move_section(false);
+        assert_eq!(app.cursor_node, first, "should jump back");
+    }
+
+    // ── Sentence context and highlight ────────────────────────────────────────
+
+    #[test]
+    fn sentence_context_for_soft_wrapped_paragraph() {
+        // The two source lines are one paragraph; sentences are correctly split
+        // on the joined text, not on individual lines.
+        let app = test_app(
+            "  - Stabilize commands/flags (future --output,\n    --stdin, --version)\n  - Next item.\n",
+        );
+        let (_, context) = app.current_sentence_context().expect("sentence context");
+        assert!(context.contains("Stabilize commands/flags"), "{context}");
+        assert!(context.contains("stdin"), "{context}");
+        assert!(context.contains("version)"), "{context}");
+        assert!(!context.contains("Next item"), "context leaked: {context}");
+    }
+
+    #[test]
+    fn sentence_context_single_sentence_stops_at_node_boundary() {
+        let app = test_app("First sentence ends.\nSecond sentence starts here.\n");
+        let (_, context) = app.current_sentence_context().expect("sentence context");
+        // Paragraph is joined → two sentences; cursor on sentence 0.
+        assert!(context.contains("First sentence ends."), "{context}");
+        assert!(!context.contains("Second sentence"), "{context}");
+    }
+
+    #[test]
+    fn sentence_highlight_covers_full_node_when_cursor_on_it() {
+        let mut app = test_app("Hello world. Goodbye world.\n");
+        app.cursor_node = 0;
+        app.cursor_sentence = 0;
+        let spans = app.render_node_spans(0);
+        assert!(
+            has_sentence_highlight(&spans),
+            "first sentence should be highlighted"
+        );
+    }
+
+    #[test]
+    fn sentence_highlight_absent_on_other_nodes() {
+        let mut app = test_app("Para one.\n\nPara two.\n");
+        app.cursor_node = 0;
+        app.cursor_sentence = 0;
+        let spans = app.render_node_spans(1);
+        assert!(
+            !has_sentence_highlight(&spans),
+            "node 1 should not be highlighted"
+        );
+    }
+
+    #[test]
+    fn sentence_ranges_applied_to_newline_joined_plain_are_byte_valid() {
+        // Ensure cursor_sentence=0 always lands on a range that begins at byte 0
+        // (i.e. covers "Option 1 ..."), not a later sentence mid-paragraph.
+        let content = "\
+  Option 1 — Lean (~60 lines)
+    Triggers: push/PR to main
+    Rust:     stable only
+    Cache:    Swatinem/rust-cache@v2
+    Tradeoff: No MSRV, no audit. Fast (~30-60s).
+";
+        let app = test_app(content);
+        let rn = &app.rendered_nodes[0];
+        assert!(
+            !rn.sentence_ranges.is_empty(),
+            "should have at least one sentence range"
+        );
+        // The first sentence range must start at byte 0 so that cursor_sentence=0
+        // highlights the beginning of the node ("Option 1 ..."), not a later sentence.
+        assert_eq!(
+            rn.sentence_ranges[0].start, 0,
+            "sentence 0 must start at byte 0 (i.e. cover 'Option 1'), got ranges: {:?}",
+            rn.sentence_ranges
+        );
+    }
+
+    #[test]
+    fn multi_line_paragraph_first_rendered_line_matches_source_first_line() {
+        // "Option 1" style paragraph: first source line on its own, continuation
+        // lines indented. The first visible line of the rendered node must be the
+        // first source line, not a merged blob of all lines.
+        let content = "\
+  Option 1 — Lean (~60 lines)
+    Triggers: push/PR to main
+    Rust:     stable only
+    Cache:    Swatinem/rust-cache@v2
+    Tradeoff: No MSRV, no audit. Fast (~30-60s).
+";
+        let app = test_app(content);
+        assert_eq!(app.doc.node_count(), 1);
+        let rn = &app.rendered_nodes[0];
+        // The plain text must start with the first source line, not a joined blob.
+        assert!(
+            rn.plain.starts_with("Option 1"),
+            "first rendered line should start with 'Option 1', got: {:?}",
+            &rn.plain[..rn.plain.len().min(60)]
+        );
+        // The per-line rendering inserts '\n' between source lines, not ' '.
+        let first_line: &str = rn.plain.split('\n').next().unwrap_or("");
+        assert_eq!(
+            first_line, "Option 1 — Lean (~60 lines)",
+            "first line should be the literal first source line"
+        );
+    }
+
+    // ── sentence_ranges_from_plain: byte-range values ────────────────────────
+
+    #[test]
+    fn sentence_ranges_from_plain_byte_ranges_slice_correctly() {
+        let text = "First sentence. Second sentence.";
+        let ranges = sentence_ranges_from_plain(text);
+        assert_eq!(ranges.len(), 2, "{ranges:?}");
+        assert_eq!(&text[ranges[0].clone()], "First sentence.");
+        assert_eq!(&text[ranges[1].clone()], "Second sentence.");
+    }
+
+    // ── sentence_ranges_from_plain: hard-wrap continuation ────────────────────
+
+    #[test]
+    fn hard_wrap_lowercase_continuation_is_not_split() {
+        let ranges = sentence_ranges_from_plain("First line\ncontinuation here");
+        assert_eq!(
+            ranges.len(),
+            1,
+            "lowercase after newline must not split: {ranges:?}"
+        );
+    }
+
+    #[test]
+    fn hard_wrap_uppercase_after_newline_does_split() {
+        let ranges = sentence_ranges_from_plain("First line\nSecond line");
+        assert_eq!(
+            ranges.len(),
+            2,
+            "uppercase after newline must split: {ranges:?}"
+        );
+    }
+
+    #[test]
+    fn hard_wrap_indented_lowercase_continuation_no_split() {
+        let ranges = sentence_ranges_from_plain("Some text\n  continued here");
+        assert_eq!(
+            ranges.len(),
+            1,
+            "indented lowercase continuation must not split: {ranges:?}"
+        );
+    }
+
+    #[test]
+    fn hard_wrap_indented_uppercase_splits() {
+        let ranges = sentence_ranges_from_plain("Some text\n  Capitalized here");
+        assert_eq!(ranges.len(), 2, "indented uppercase must split: {ranges:?}");
+    }
+
+    // ── move_sentence boundary conditions ─────────────────────────────────────
+
+    #[test]
+    fn move_sentence_forward_at_last_sentence_stays_put() {
+        let mut app = test_app("Single sentence.");
+        app.move_sentence(true);
+        assert_eq!(app.cursor_node, 0, "no next node — cursor must stay");
+        assert_eq!(app.cursor_sentence, 0);
+    }
+
+    #[test]
+    fn move_sentence_backward_at_first_sentence_stays_put() {
+        let mut app = test_app("Single sentence.");
+        app.move_sentence(false);
+        assert_eq!(app.cursor_node, 0);
+        assert_eq!(app.cursor_sentence, 0);
+    }
+
+    #[test]
+    fn move_sentence_forward_stays_on_last_sentence_of_multi_sentence_node() {
+        let mut app = test_app("One. Two. Three.");
+        app.cursor_sentence = 2;
+        app.move_sentence(true);
+        assert_eq!(app.cursor_node, 0);
+        assert_eq!(app.cursor_sentence, 2, "should stay on last sentence");
+    }
+
+    #[test]
+    fn move_sentence_backward_crosses_to_last_sentence_of_previous_node() {
+        // node 0 has 2 sentences; node 1 has 1.
+        let mut app = test_app("First. Second.\n\nThird.\n");
+        app.move_sentence(true); // → node 0, sentence 1
+        app.move_sentence(true); // → node 1, sentence 0
+        assert_eq!(app.cursor_node, 1);
+        app.move_sentence(false); // ← should land on last sentence of node 0
+        assert_eq!(app.cursor_node, 0);
+        assert_eq!(
+            app.cursor_sentence, 1,
+            "must land on last sentence of previous node"
+        );
+    }
+
+    #[test]
+    fn move_sentence_clears_section_highlight_range() {
+        let mut app = test_app("Intro\n\n# A\ntext\n");
+        app.move_section(true);
+        assert!(
+            app.section_highlight_range.is_some(),
+            "should be set after move_section"
+        );
+        app.move_sentence(true);
+        assert!(
+            app.section_highlight_range.is_none(),
+            "should be cleared after move_sentence"
+        );
+    }
+
+    #[test]
+    fn move_node_clamps_cursor_sentence_to_destination_node_length() {
+        // node 0: 3 sentences; node 1: 1 sentence
+        let mut app = test_app("One. Two. Three.\n\nSingle.\n");
+        app.cursor_sentence = 2;
+        app.move_node(1);
+        assert_eq!(app.cursor_node, 1);
+        assert_eq!(
+            app.cursor_sentence, 0,
+            "cursor_sentence must clamp to last valid index"
+        );
+    }
+
+    #[test]
+    fn move_node_skips_thematic_break() {
+        // nodes: [Para, ThematicBreak, Para]
+        let mut app = test_app("First paragraph.\n\n---\n\nSecond paragraph.\n");
+        assert_eq!(app.cursor_node, 0);
+        app.move_node(1);
+        assert_eq!(app.cursor_node, 2, "should skip ThematicBreak at node 1");
+    }
+
+    // ── current_sentence_links ────────────────────────────────────────────────
+
+    #[test]
+    fn current_sentence_links_isolates_links_per_sentence() {
+        let mut app = test_app(
+            "[Click here](https://example.com) for info. [Other link](https://other.com) elsewhere.\n",
+        );
+        // sentence 0: "Click here for info."  — contains first link
+        // sentence 1: "Other link elsewhere." — contains second link
+        app.cursor_sentence = 0;
+        let links = app.current_sentence_links();
+        assert_eq!(
+            links.len(),
+            1,
+            "sentence 0 should have exactly one link: {links:?}"
+        );
+        assert!(links[0].contains("example.com"), "{links:?}");
+
+        app.cursor_sentence = 1;
+        let links = app.current_sentence_links();
+        assert_eq!(
+            links.len(),
+            1,
+            "sentence 1 should have exactly one link: {links:?}"
+        );
+        assert!(links[0].contains("other.com"), "{links:?}");
+    }
+
+    // ── move_section / move_block boundary conditions ─────────────────────────
+
+    #[test]
+    fn move_section_in_doc_with_no_sections_stays_put() {
+        let mut app = test_app("Just a paragraph. No headings.");
+        let start = app.cursor_node;
+        app.move_section(true);
+        assert_eq!(
+            app.cursor_node, start,
+            "no section found — cursor must not move"
+        );
+        app.move_section(false);
+        assert_eq!(app.cursor_node, start);
+    }
+
+    #[test]
+    fn move_block_forward_at_last_block_stays_put() {
+        let mut app = test_app("Only one block.");
+        let start = app.cursor_node;
+        app.move_block(true);
+        assert_eq!(
+            app.cursor_node, start,
+            "already at last block — must not move"
+        );
+    }
+
+    #[test]
+    fn move_section_sets_highlight_range_to_section_boundary() {
+        // nodes: [Para(intro), Heading(A), Para(text), Heading(B), Para(final)]
+        let mut app = test_app("Intro\n\n# A\ntext\n\n# B\nfinal\n");
+        app.move_section(true); // jumps to Heading A = node 1
+        assert_eq!(app.cursor_node, 1);
+        let range = app
+            .section_highlight_range
+            .clone()
+            .expect("highlight should be set");
+        assert_eq!(range.start, 1);
+        assert_eq!(range.end, 3, "section A spans nodes 1..3");
+
+        app.move_section(true); // jumps to Heading B = node 3
+        assert_eq!(app.cursor_node, 3);
+        let range = app
+            .section_highlight_range
+            .clone()
+            .expect("highlight should be set");
+        assert_eq!(range.start, 3);
+        assert_eq!(range.end, 5, "last section spans to end of doc");
+    }
+
+    #[test]
+    fn tall_item_at_bottom_renders_partial_not_blank() {
+        // 10 list items (no inter-item spacers) + 1 tall paragraph.
+        // Layout: height=15, footer=1, outer block=13, border top+bottom → inner=11.
+        // But we need inner=12, so use height=15 → outer=14 → inner=12.
+        //
+        // With inner_height=12:
+        //   Nodes 0-8 (list items, no spacer): 9 rows.
+        //   Node 9 (last list item + trailing spacer before paragraph): 2 rows.
+        //   Total: 11 rows → 1 row left at inner row 11 = terminal row 12.
+        // That row must show "tall line 0", not be blank.
+        let mut content = String::new();
+        for i in 0..10 {
+            content.push_str(&format!("- Item {i}\n"));
+        }
+        content.push('\n'); // blank line separates list from following paragraph
+        for j in 0..12 {
+            content.push_str(&format!("tall line {j}\n"));
+        }
+
+        let mut app = test_app(&content);
+        // height=15: footer at row 14, outer block rows 0-13, inner rows 1-12 (height=12).
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+
+        // Inner row 11 = terminal row 12.
+        let buf = terminal.backend().buffer();
+        let row12: String = (0..40)
+            .map(|x| {
+                buf.cell(ratatui::layout::Position::new(x, 12))
+                    .map(|c| c.symbol())
+                    .unwrap_or(" ")
+            })
+            .collect();
+        assert!(
+            row12.contains("tall line"),
+            "partial tall item should render at bottom, got: {row12:?}"
+        );
+    }
+
+    #[test]
+    fn navigating_to_tall_node_bottom_aligns_it() {
+        // When the cursor moves to a node taller than the available space,
+        // adjust_scroll should bottom-align the node so the last visible lines
+        // are at the bottom of the screen — not just show the first line.
+        //
+        // Layout: 5-line terminal, footer=1, outer=3 (border top+bottom → inner=1).
+        // Use a 7-line terminal to get inner=4.
+        // Node 0: "before" (1 line, + spacer = 2 rows since next is block start)
+        // Node 1: tall paragraph with 6 lines (> inner_height of 4).
+        //
+        // After navigating to node 1, adjust_scroll must bottom-align it:
+        // target_start = max(0, 4-6) = 0 → cursor at top of inner area.
+        // The first 4 lines of the tall node fill the screen.
+        // Terminal row 1 (inner row 0) should show "tall line 0".
+        let content = "before\n\ntall line 0\ntall line 1\ntall line 2\ntall line 3\ntall line 4\ntall line 5\n";
+        let mut app = test_app(content);
+        // height=7: footer row 6, outer block rows 0-5, inner rows 1-4 (height=4).
+        let mut terminal = Terminal::new(TestBackend::new(40, 7)).unwrap();
+
+        // Navigate to node 1 (the tall paragraph).
+        app.move_node(1);
+        terminal.draw(|f| app.draw(f)).unwrap();
+
+        let buf = terminal.backend().buffer();
+        let inner_rows: Vec<String> = (1..=4)
+            .map(|y| {
+                (0..40)
+                    .map(|x| {
+                        buf.cell(ratatui::layout::Position::new(x, y))
+                            .map(|c| c.symbol())
+                            .unwrap_or(" ")
+                    })
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect();
+
+        assert!(
+            inner_rows[0].contains("tall line 0"),
+            "tall node should be top-aligned (bottom-aligned with 0 context): got {:?}",
+            inner_rows
+        );
+        assert!(
+            inner_rows[3].contains("tall line 3"),
+            "last visible inner row should show tall line 3: got {:?}",
+            inner_rows
+        );
+    }
+
+    #[test]
+    fn move_sentence_to_tall_node_bottom_aligns_it() {
+        // Same layout as navigating_to_tall_node_bottom_aligns_it, but navigate
+        // there via move_sentence (j key) rather than move_node (Down arrow).
+        // adjust_scroll fires on every draw() regardless of how cursor moved.
+        let content = "before\n\ntall line 0\ntall line 1\ntall line 2\ntall line 3\ntall line 4\ntall line 5\n";
+        let mut app = test_app(content);
+        let mut terminal = Terminal::new(TestBackend::new(40, 7)).unwrap();
+
+        // move_sentence forward from node 0's last sentence → lands on node 1.
+        app.move_sentence(true);
+        terminal.draw(|f| app.draw(f)).unwrap();
+
+        let buf = terminal.backend().buffer();
+        let inner_rows: Vec<String> = (1..=4)
+            .map(|y| {
+                (0..40)
+                    .map(|x| {
+                        buf.cell(ratatui::layout::Position::new(x, y))
+                            .map(|c| c.symbol())
+                            .unwrap_or(" ")
+                    })
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect();
+
+        assert_eq!(app.cursor_node, 1, "cursor should be on the tall node");
+        assert!(
+            inner_rows[0].contains("tall line 0"),
+            "move_sentence to tall node must also bottom-align it: got {:?}",
+            inner_rows
+        );
+        assert!(
+            inner_rows[3].contains("tall line 3"),
+            "last inner row should show tall line 3: got {:?}",
+            inner_rows
+        );
+    }
+
+    #[test]
+    fn fill_partial_bottom_reveals_more_of_next_node() {
+        // Cursor is on node 1 (short paragraph); node 2 is a 5-line paragraph.
+        // Without fill_partial_bottom, scroll_offset=0 and only 3 lines of node 2
+        // fit on screen. fill_partial_bottom should skip node 0 (scroll_offset→1)
+        // so all 5 lines of node 2 become visible.
+        //
+        // Layout: height=10 → footer at row 9, borders rows 0 & 8, inner rows 1-7 (height=7).
+        //   Node 0: "short A"      → 1 content row + 1 spacer = 2 rows
+        //   Node 1: "short B..."   → 1 content row + 1 spacer = 2 rows  (cursor)
+        //   Node 2: 5-line para    → 5 rows (last node, no spacer)
+        //   Total: 9 rows > inner_height=7; node 2 partially hidden without scrolling.
+        //
+        // After fill_partial_bottom: scroll_offset=1 (node 0 scrolled off).
+        //   Node 1: inner rows 0-1, Node 2: inner rows 2-6 (terminal rows 3-7).
+        //   Terminal row 7 should show "tall line 4" (the last of 5 node-2 lines).
+        let content = "short A\n\nshort B. Next. Third.\n\ntall line 0\ntall line 1\ntall line 2\ntall line 3\ntall line 4\n";
+        let mut app = test_app(content);
+        let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+
+        app.move_node(1); // cursor on "short B" node
+        terminal.draw(|f| app.draw(f)).unwrap();
+
+        let buf = terminal.backend().buffer();
+        let last_inner_row: String = (0..40)
+            .map(|x| {
+                buf.cell(ratatui::layout::Position::new(x, 7))
+                    .map(|c| c.symbol())
+                    .unwrap_or(" ")
+            })
+            .collect::<String>()
+            .trim_end()
+            .to_string();
+
+        assert!(
+            last_inner_row.contains("tall line 4"),
+            "fill_partial_bottom should reveal all 5 lines of next node; last inner row got: {last_inner_row:?}"
+        );
+    }
+}

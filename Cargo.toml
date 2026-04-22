@@ -1,0 +1,19 @@
+[package]
+name = "rep"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A sentence-granular TUI annotation tool for Markdown files, designed for human-AI review loops"
+repository = "https://github.com/mpstx/rep"
+license = "MIT"
+keywords = ["tui", "markdown", "annotation", "review", "ai"]
+categories = ["command-line-utilities", "text-editors"]
+
+[dependencies]
+anyhow = "1.0"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+crossterm = "0.29"
+ratatui = "0.29"
+unicode-width = "0.2"
+pulldown-cmark = "0.12"
+markdown = "1"
