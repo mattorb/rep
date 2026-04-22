@@ -3,7 +3,7 @@
 
 # Rep
 
-A human in the loop TUI to revise markdown plan files quickly in collaboration with an LLM.  It is made for use inside a tmux session wrapping an agent tool like Claude Code or Codex. This is the way.
+A human in the loop TUI to revise markdown plan files quickly in collaboration with an LLM.  It is **made for use inside a tmux session** wrapping an agent tool like Claude Code or Codex. This is the way.
 
 ## Overview
 
