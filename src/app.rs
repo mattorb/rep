@@ -14,8 +14,8 @@ use crate::markdown::{MarkdownLinkRange, render_markdown_line};
 use crate::output::clean_context;
 #[cfg(test)]
 use crate::output::{
-    AgentOutput, ChangeOutput, FeedbackOutput, KeymapOutput, LineAnnotationOutput, LineContext,
-    ReactionOutput,
+    AgentOutput, ChangeOutput, FeedbackOutput, InsertOutput, KeymapOutput, LineAnnotationOutput,
+    LineContext, ReactionOutput,
 };
 use crate::ui::wrap_styled_spans;
 
@@ -29,6 +29,8 @@ pub enum InputMode {
     Normal,
     Change,
     Feedback,
+    InsertBefore,
+    InsertAfter,
     /// Editing the change at (node_idx, change_idx).
     EditChange(usize, usize),
     /// Editing the feedback at (node_idx, feedback_idx).
@@ -57,6 +59,15 @@ struct FeedbackAnnotation {
 enum EditableAnnotation {
     Change(usize),
     Feedback(usize),
+}
+
+#[derive(Debug, Clone)]
+struct InsertAnnotation {
+    #[allow(dead_code)]
+    created_at: String,
+    sentence_index: Option<usize>,
+    sentence_text: Option<String>,
+    text: String,
 }
 
 // ── Rendered document node ────────────────────────────────────────────────────
@@ -347,10 +358,13 @@ pub struct App {
     /// Annotations keyed by node index.
     changes: BTreeMap<usize, Vec<ChangeAnnotation>>,
     feedbacks: BTreeMap<usize, Vec<FeedbackAnnotation>>,
+    inserts_before: BTreeMap<usize, Vec<InsertAnnotation>>,
+    inserts_after: BTreeMap<usize, Vec<InsertAnnotation>>,
     strikes: BTreeMap<usize, BTreeSet<usize>>,
     input_mode: InputMode,
     change_buffer: String,
     feedback_buffer: String,
+    insert_buffer: String,
     status: String,
     notification: Option<String>,
     pub should_quit: bool,
@@ -391,10 +405,13 @@ impl App {
             section_highlight_range: None,
             changes: BTreeMap::new(),
             feedbacks: BTreeMap::new(),
+            inserts_before: BTreeMap::new(),
+            inserts_after: BTreeMap::new(),
             strikes: BTreeMap::new(),
             input_mode: InputMode::Normal,
             change_buffer: String::new(),
             feedback_buffer: String::new(),
+            insert_buffer: String::new(),
             status: "Loaded file. Press q to quit and print annotations.".to_string(),
             should_quit: false,
             silent_quit: false,
@@ -416,6 +433,8 @@ impl App {
             InputMode::Normal => self.handle_normal_key(key),
             InputMode::Change => self.handle_change_key(key),
             InputMode::Feedback => self.handle_feedback_key(key),
+            InputMode::InsertBefore => self.handle_insert_key(key, true),
+            InputMode::InsertAfter => self.handle_insert_key(key, false),
             InputMode::EditChange(node_idx, change_idx) => {
                 self.handle_edit_change_key(key, node_idx, change_idx)
             }
@@ -506,6 +525,18 @@ impl App {
                 self.feedback_buffer.clear();
                 self.status = "Feedback mode: type text and press Enter. Esc cancels.".to_string();
             }
+            KeyCode::Char('b') => {
+                self.input_mode = InputMode::InsertBefore;
+                self.insert_buffer.clear();
+                self.status =
+                    "Insert before: type text and press Enter. Esc cancels.".to_string();
+            }
+            KeyCode::Char('a') => {
+                self.input_mode = InputMode::InsertAfter;
+                self.insert_buffer.clear();
+                self.status =
+                    "Insert after: type text and press Enter. Esc cancels.".to_string();
+            }
             KeyCode::Char('e') => self.begin_edit_annotation(),
             KeyCode::Char('J') => self.move_section(true),
             KeyCode::Char('K') => self.move_section(false),
@@ -594,6 +625,60 @@ impl App {
             }
             KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.change_buffer.push(ch);
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_insert_key(&mut self, key: KeyEvent, before: bool) {
+        match key.code {
+            KeyCode::Esc => {
+                self.input_mode = InputMode::Normal;
+                self.insert_buffer.clear();
+                self.status = if before {
+                    "Insert before cancelled.".to_string()
+                } else {
+                    "Insert after cancelled.".to_string()
+                };
+            }
+            KeyCode::Enter => {
+                let trimmed = self.insert_buffer.trim().to_string();
+                if trimmed.is_empty() {
+                    self.status = "Insert ignored because it was empty.".to_string();
+                } else {
+                    let (sentence_index, sentence_text) =
+                        if let Some((idx, text)) = self.current_sentence_context() {
+                            (Some(idx), Some(text))
+                        } else {
+                            (None, None)
+                        };
+                    let annotation = InsertAnnotation {
+                        created_at: Utc::now().to_rfc3339(),
+                        sentence_index,
+                        sentence_text,
+                        text: trimmed,
+                    };
+                    let bucket = if before {
+                        &mut self.inserts_before
+                    } else {
+                        &mut self.inserts_after
+                    };
+                    bucket.entry(self.cursor_node).or_default().push(annotation);
+                    let label = if before { "before" } else { "after" };
+                    self.status = format!(
+                        "Insert {label} saved on node {} (line {}).",
+                        self.cursor_node + 1,
+                        self.current_source_line() + 1
+                    );
+                }
+                self.input_mode = InputMode::Normal;
+                self.insert_buffer.clear();
+            }
+            KeyCode::Backspace => {
+                self.insert_buffer.pop();
+            }
+            KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.insert_buffer.push(ch);
             }
             _ => {}
         }
@@ -872,6 +957,8 @@ impl App {
     fn has_annotation(&self, node_idx: usize) -> bool {
         self.changes.contains_key(&node_idx)
             || self.feedbacks.contains_key(&node_idx)
+            || self.inserts_before.contains_key(&node_idx)
+            || self.inserts_after.contains_key(&node_idx)
             || self.strikes.contains_key(&node_idx)
     }
 
@@ -1158,11 +1245,13 @@ impl App {
         urls
     }
 
-    fn annotation_counts(&self) -> (usize, usize, usize) {
+    fn annotation_counts(&self) -> (usize, usize, usize, usize) {
         let changes: usize = self.changes.values().map(|v| v.len()).sum();
         let feedbacks: usize = self.feedbacks.values().map(|v| v.len()).sum();
+        let inserts: usize = self.inserts_before.values().map(|v| v.len()).sum::<usize>()
+            + self.inserts_after.values().map(|v| v.len()).sum::<usize>();
         let strikes: usize = self.strikes.values().map(|v| v.len()).sum();
-        (changes, feedbacks, strikes)
+        (changes, feedbacks, inserts, strikes)
     }
 
     // ── Drawing ───────────────────────────────────────────────────────────────
@@ -1181,8 +1270,12 @@ impl App {
             .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or("markdown");
-        let (change_count, feedback_count, strike_count) = self.annotation_counts();
-        let block_title = if change_count == 0 && feedback_count == 0 && strike_count == 0 {
+        let (change_count, feedback_count, insert_count, strike_count) = self.annotation_counts();
+        let block_title = if change_count == 0
+            && feedback_count == 0
+            && insert_count == 0
+            && strike_count == 0
+        {
             format!(" {filename} ")
         } else {
             let mut parts = Vec::new();
@@ -1191,6 +1284,9 @@ impl App {
             }
             if feedback_count > 0 {
                 parts.push(format!("{feedback_count}F"));
+            }
+            if insert_count > 0 {
+                parts.push(format!("{insert_count}I"));
             }
             if strike_count > 0 {
                 parts.push(format!("{strike_count}X"));
@@ -1309,7 +1405,7 @@ impl App {
             ))
         } else {
             let hint_style = Style::default().fg(Color::DarkGray);
-            let left = " h/j/k/l/x/c/f/r";
+            let left = " h/j/k/l/x/c/f/b/a/r";
             let right = "? for help ";
             let gap = (layout[1].width as usize).saturating_sub(left.len() + right.len());
             Line::from(vec![
@@ -1320,23 +1416,47 @@ impl App {
         };
         frame.render_widget(Paragraph::new(footer_line), layout[1]);
 
-        let popup_title = match &self.input_mode {
-            InputMode::Change => Some(" Change "),
-            InputMode::Feedback => Some(" Feedback "),
-            InputMode::EditChange(..) => Some(" Edit Change "),
-            InputMode::EditFeedback(..) => Some(" Edit Feedback "),
+        let popup_spec: Option<(&str, &str, &str, &str)> = match &self.input_mode {
+            InputMode::Change => Some((
+                " Change ",
+                "Change mode: Enter save | Esc cancel",
+                "Change> ",
+                self.change_buffer.as_str(),
+            )),
+            InputMode::EditChange(..) => Some((
+                " Edit Change ",
+                "Edit mode: Enter save | Esc cancel",
+                "Change> ",
+                self.change_buffer.as_str(),
+            )),
+            InputMode::Feedback => Some((
+                " Feedback ",
+                "Feedback mode: Enter save | Esc cancel",
+                "Feedback> ",
+                self.feedback_buffer.as_str(),
+            )),
+            InputMode::EditFeedback(..) => Some((
+                " Edit Feedback ",
+                "Edit mode: Enter save | Esc cancel",
+                "Feedback> ",
+                self.feedback_buffer.as_str(),
+            )),
+            InputMode::InsertBefore => Some((
+                " Insert Before ",
+                "Insert before: Enter save | Esc cancel",
+                "Before> ",
+                self.insert_buffer.as_str(),
+            )),
+            InputMode::InsertAfter => Some((
+                " Insert After ",
+                "Insert after: Enter save | Esc cancel",
+                "After> ",
+                self.insert_buffer.as_str(),
+            )),
             InputMode::Normal => None,
         };
-        if let Some(title) = popup_title {
-            match self.input_mode {
-                InputMode::Change | InputMode::EditChange(..) => {
-                    self.draw_input_popup(frame, list_inner, true, title);
-                }
-                InputMode::Feedback | InputMode::EditFeedback(..) => {
-                    self.draw_input_popup(frame, list_inner, false, title);
-                }
-                InputMode::Normal => {}
-            }
+        if let Some((title, hint, prompt, buf)) = popup_spec {
+            self.draw_input_popup(frame, list_inner, title, hint, prompt, buf);
         }
 
         if self.show_link_popup {
@@ -1352,7 +1472,15 @@ impl App {
         }
     }
 
-    fn draw_input_popup(&self, frame: &mut Frame, list_inner: Rect, is_change: bool, title: &str) {
+    fn draw_input_popup(
+        &self,
+        frame: &mut Frame,
+        list_inner: Rect,
+        title: &str,
+        hint: &str,
+        prompt: &str,
+        buf: &str,
+    ) {
         let heights = &self.cached_node_heights;
         if list_inner.width < 12 || list_inner.height < 4 || self.cursor_node >= heights.len() {
             return;
@@ -1397,22 +1525,11 @@ impl App {
             height: popup_height,
         };
 
-        let (hint, prompt, buf) = if is_change {
-            (
-                "Change mode: Enter save | Esc cancel",
-                "Change> ",
-                &self.change_buffer,
-            )
-        } else {
-            (
-                "Feedback mode: Enter save | Esc cancel",
-                "Feedback> ",
-                &self.feedback_buffer,
-            )
-        };
-
         let lines = vec![
-            Line::from(Span::styled(hint, Style::default().fg(Color::Yellow))),
+            Line::from(Span::styled(
+                hint.to_owned(),
+                Style::default().fg(Color::Yellow),
+            )),
             Line::from(format!("{prompt}{buf}")),
         ];
 
@@ -1443,6 +1560,7 @@ impl App {
             Line::from("  i  AST view        u  links"),
             Line::from("  c  change (literal)"),
             Line::from("  f  feedback (intent)"),
+            Line::from("  b  a  insert before · after"),
             Line::from("  e  x  r  edit · clear/strike · copy result"),
             Line::from("  q  Q          quit · silent quit"),
             Line::from("  ? / Esc       help · close"),
@@ -1679,13 +1797,24 @@ impl App {
             .get(&node_idx)
             .map(|v| !v.is_empty())
             .unwrap_or(false);
+        let has_insert = self
+            .inserts_before
+            .get(&node_idx)
+            .map(|v| !v.is_empty())
+            .unwrap_or(false)
+            || self
+                .inserts_after
+                .get(&node_idx)
+                .map(|v| !v.is_empty())
+                .unwrap_or(false);
         let has_strike = self
             .strikes
             .get(&node_idx)
             .map(|v| !v.is_empty())
             .unwrap_or(false);
 
-        let count = has_change as u8 + has_feedback as u8 + has_strike as u8;
+        let count =
+            has_change as u8 + has_feedback as u8 + has_insert as u8 + has_strike as u8;
         if count > 1 {
             return (
                 "*",
@@ -1707,6 +1836,14 @@ impl App {
                 "F",
                 Style::default()
                     .fg(Color::LightCyan)
+                    .add_modifier(Modifier::BOLD),
+            );
+        }
+        if has_insert {
+            return (
+                "+",
+                Style::default()
+                    .fg(Color::LightGreen)
                     .add_modifier(Modifier::BOLD),
             );
         }
@@ -1842,6 +1979,8 @@ impl App {
         let mut touched = BTreeSet::new();
         touched.extend(self.changes.keys().copied());
         touched.extend(self.feedbacks.keys().copied());
+        touched.extend(self.inserts_before.keys().copied());
+        touched.extend(self.inserts_after.keys().copied());
         touched.extend(self.strikes.keys().copied());
 
         let mut annotations = Vec::new();
@@ -1882,6 +2021,22 @@ impl App {
                 })
                 .collect();
 
+            let map_inserts = |bucket: Option<&Vec<InsertAnnotation>>| -> Vec<InsertOutput> {
+                bucket
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|a| InsertOutput {
+                        created_at: a.created_at,
+                        sentence_index: a.sentence_index.map(|i| i + 1),
+                        sentence_text: a.sentence_text,
+                        text: a.text,
+                    })
+                    .collect()
+            };
+            let inserts_before = map_inserts(self.inserts_before.get(&node_idx));
+            let inserts_after = map_inserts(self.inserts_after.get(&node_idx));
+
             let reactions = self
                 .strikes
                 .get(&node_idx)
@@ -1915,6 +2070,8 @@ impl App {
                 },
                 changes,
                 feedbacks,
+                inserts_before,
+                inserts_after,
                 reactions,
             });
         }
@@ -1937,6 +2094,8 @@ impl App {
                 help: "?".to_string(),
                 change: "c".to_string(),
                 feedback: "f".to_string(),
+                insert_before: "b".to_string(),
+                insert_after: "a".to_string(),
                 strike: "x".to_string(),
                 quit: "q".to_string(),
                 quit_silent: "Q".to_string(),
@@ -1949,6 +2108,8 @@ impl App {
         let mut touched = BTreeSet::new();
         touched.extend(self.changes.keys().copied());
         touched.extend(self.feedbacks.keys().copied());
+        touched.extend(self.inserts_before.keys().copied());
+        touched.extend(self.inserts_after.keys().copied());
         touched.extend(self.strikes.keys().copied());
 
         let mut out = String::new();
@@ -2037,6 +2198,42 @@ impl App {
                     out.push_str(&format!(
                         "FEEDBACK: \"{}\"\n",
                         clean_context(&feedback.feedback, 220)
+                    ));
+                }
+            }
+
+            for (action, bucket) in [
+                ("insert-before", self.inserts_before.get(&node_idx)),
+                ("insert-after", self.inserts_after.get(&node_idx)),
+            ] {
+                let Some(inserts) = bucket else { continue };
+                for insert in inserts {
+                    let target = insert
+                        .sentence_text
+                        .as_deref()
+                        .map(|s| clean_context(s, 180))
+                        .unwrap_or_else(|| line_clean.clone());
+                    out.push('\n');
+                    out.push_str(&format!("ACTION: {action}\n"));
+                    out.push_str(&format!(
+                        "WHERE: line {}{}\n",
+                        source_line + 1,
+                        insert
+                            .sentence_index
+                            .map(|i| format!(", sentence {}", i + 1))
+                            .unwrap_or_default()
+                    ));
+                    out.push_str("CONTEXT:\n");
+                    if !prev_clean.is_empty() {
+                        out.push_str(&format!("  prev: \"{prev_clean}\"\n"));
+                    }
+                    out.push_str(&format!("  target: \"{target}\"\n"));
+                    if !next_clean.is_empty() {
+                        out.push_str(&format!("  next: \"{next_clean}\"\n"));
+                    }
+                    out.push_str(&format!(
+                        "INSERT: \"{}\"\n",
+                        clean_context(&insert.text, 220)
                     ));
                 }
             }
@@ -2248,6 +2445,15 @@ mod tests {
         }
     }
 
+    fn make_insert(text: &str) -> InsertAnnotation {
+        InsertAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            sentence_index: Some(0),
+            sentence_text: None,
+            text: text.into(),
+        }
+    }
+
     // ── Gutter indicators ─────────────────────────────────────────────────────
 
     #[test]
@@ -2272,6 +2478,28 @@ mod tests {
         app.feedbacks.entry(0).or_default().push(make_feedback("x"));
         let t = render(&mut app);
         assert_eq!(cell(&t, 1, 1), 'F', "expected feedback indicator 'F'");
+    }
+
+    #[test]
+    fn gutter_shows_plus_after_insert_before() {
+        let mut app = test_app("A sentence here.\n");
+        app.inserts_before
+            .entry(0)
+            .or_default()
+            .push(make_insert("new text"));
+        let t = render(&mut app);
+        assert_eq!(cell(&t, 1, 1), '+', "expected insert indicator '+'");
+    }
+
+    #[test]
+    fn gutter_shows_plus_after_insert_after() {
+        let mut app = test_app("A sentence here.\n");
+        app.inserts_after
+            .entry(0)
+            .or_default()
+            .push(make_insert("new text"));
+        let t = render(&mut app);
+        assert_eq!(cell(&t, 1, 1), '+', "expected insert indicator '+'");
     }
 
     #[test]
@@ -2325,6 +2553,120 @@ mod tests {
         let t = render(&mut app);
         let hint_row = row(&t, 23);
         assert!(hint_row.contains("j/k"), "key hints missing: {hint_row:?}");
+    }
+
+    #[test]
+    fn block_title_shows_insert_count() {
+        let mut app = test_app("A sentence.\n");
+        app.inserts_before
+            .entry(0)
+            .or_default()
+            .push(make_insert("x"));
+        app.inserts_after
+            .entry(0)
+            .or_default()
+            .push(make_insert("y"));
+        let t = render(&mut app);
+        let top = row(&t, 0);
+        assert!(top.contains("2I"), "insert count missing: {top:?}");
+    }
+
+    #[test]
+    fn human_output_emits_insert_before_action() {
+        let mut app = test_app("A sentence here.\n");
+        app.inserts_before
+            .entry(0)
+            .or_default()
+            .push(InsertAnnotation {
+                created_at: "2026-01-01T00:00:00Z".into(),
+                sentence_index: Some(0),
+                sentence_text: Some("A sentence here.".into()),
+                text: "Prologue line.".into(),
+            });
+        let out = app.to_human_output();
+        assert!(out.contains("ACTION: insert-before"), "{out}");
+        assert!(out.contains("INSERT: \"Prologue line.\""), "{out}");
+        assert!(out.contains("target: \"A sentence here.\""), "{out}");
+    }
+
+    #[test]
+    fn human_output_emits_insert_after_action() {
+        let mut app = test_app("A sentence here.\n");
+        app.inserts_after
+            .entry(0)
+            .or_default()
+            .push(InsertAnnotation {
+                created_at: "2026-01-01T00:00:00Z".into(),
+                sentence_index: Some(0),
+                sentence_text: Some("A sentence here.".into()),
+                text: "Followup line.".into(),
+            });
+        let out = app.to_human_output();
+        assert!(out.contains("ACTION: insert-after"), "{out}");
+        assert!(out.contains("INSERT: \"Followup line.\""), "{out}");
+    }
+
+    #[test]
+    fn agent_output_includes_inserts_before_and_after() {
+        let mut app = test_app("First. Second.\n");
+        app.inserts_before
+            .entry(0)
+            .or_default()
+            .push(make_insert("pre"));
+        app.inserts_after
+            .entry(0)
+            .or_default()
+            .push(make_insert("post"));
+        let out = app.to_output();
+        assert_eq!(out.annotations.len(), 1);
+        assert_eq!(out.annotations[0].inserts_before.len(), 1);
+        assert_eq!(out.annotations[0].inserts_after.len(), 1);
+        assert_eq!(out.annotations[0].inserts_before[0].text, "pre");
+        assert_eq!(out.annotations[0].inserts_after[0].text, "post");
+        assert_eq!(out.keymap.insert_before, "b");
+        assert_eq!(out.keymap.insert_after, "a");
+    }
+
+    #[test]
+    fn b_key_enters_insert_before_mode_and_saves() {
+        let mut app = test_app("A sentence.\n");
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
+        assert_eq!(app.input_mode, InputMode::InsertBefore);
+        for ch in "hello".chars() {
+            app.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        }
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.input_mode, InputMode::Normal);
+        let bucket = app.inserts_before.get(&0).expect("bucket should exist");
+        assert_eq!(bucket.len(), 1);
+        assert_eq!(bucket[0].text, "hello");
+    }
+
+    #[test]
+    fn a_key_enters_insert_after_mode_and_saves() {
+        let mut app = test_app("A sentence.\n");
+        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+        assert_eq!(app.input_mode, InputMode::InsertAfter);
+        for ch in "post".chars() {
+            app.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        }
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.input_mode, InputMode::Normal);
+        let bucket = app.inserts_after.get(&0).expect("bucket should exist");
+        assert_eq!(bucket.len(), 1);
+        assert_eq!(bucket[0].text, "post");
+    }
+
+    #[test]
+    fn insert_mode_esc_cancels_without_saving() {
+        let mut app = test_app("A sentence.\n");
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
+        for ch in "abc".chars() {
+            app.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        }
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.input_mode, InputMode::Normal);
+        assert!(app.inserts_before.is_empty());
     }
 
     #[test]

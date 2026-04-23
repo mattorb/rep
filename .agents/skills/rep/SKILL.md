@@ -53,6 +53,22 @@ Use these rules for each block from rep output.
 5. Keep nearby context coherent (`prev`/`next`) and preserve Markdown/list formatting.
 6. If the intended revision is ambiguous, stop and ask before risky edits.
 
+### `ACTION: insert-before`
+
+1. Use `WHERE` line number as a hint, not the sole source of truth.
+2. Locate `CONTEXT.target` sentence text; if line hint is stale, search nearby lines.
+3. Insert the `INSERT` value immediately before the targeted sentence/text span.
+4. Match the surrounding Markdown structure, indentation, and list formatting so the insertion reads naturally in context.
+5. If target text cannot be located unambiguously, stop and ask before risky edits.
+
+### `ACTION: insert-after`
+
+1. Use `WHERE` line number as a hint, not the sole source of truth.
+2. Locate `CONTEXT.target` sentence text; if line hint is stale, search nearby lines.
+3. Insert the `INSERT` value immediately after the targeted sentence/text span.
+4. Match the surrounding Markdown structure, indentation, and list formatting so the insertion reads naturally in context.
+5. If target text cannot be located unambiguously, stop and ask before risky edits.
+
 ### `ACTION: delete this`
 
 1. Use `WHERE` line number as a hint, not the sole source of truth.

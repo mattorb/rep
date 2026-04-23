@@ -26,6 +26,8 @@ pub struct KeymapOutput {
     pub help: String,
     pub change: String,
     pub feedback: String,
+    pub insert_before: String,
+    pub insert_after: String,
     pub strike: String,
     pub quit: String,
     pub quit_silent: String,
@@ -39,6 +41,8 @@ pub struct LineAnnotationOutput {
     pub context: LineContext,
     pub changes: Vec<ChangeOutput>,
     pub feedbacks: Vec<FeedbackOutput>,
+    pub inserts_before: Vec<InsertOutput>,
+    pub inserts_after: Vec<InsertOutput>,
     pub reactions: Vec<ReactionOutput>,
 }
 
@@ -66,6 +70,15 @@ pub struct FeedbackOutput {
     pub sentence_index: Option<usize>,
     pub sentence_text: Option<String>,
     pub feedback: String,
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+pub struct InsertOutput {
+    pub created_at: String,
+    pub sentence_index: Option<usize>,
+    pub sentence_text: Option<String>,
+    pub text: String,
 }
 
 #[cfg(test)]
