@@ -31,6 +31,7 @@ pub enum InputMode {
     Feedback,
     InsertBefore,
     InsertAfter,
+    Search,
     /// Editing the change at (node_idx, change_idx).
     EditChange(usize, usize),
     /// Editing the feedback at (node_idx, feedback_idx).
@@ -365,6 +366,8 @@ pub struct App {
     change_buffer: String,
     feedback_buffer: String,
     insert_buffer: String,
+    search_buffer: String,
+    last_search: Option<String>,
     status: String,
     notification: Option<String>,
     pub should_quit: bool,
@@ -412,6 +415,8 @@ impl App {
             change_buffer: String::new(),
             feedback_buffer: String::new(),
             insert_buffer: String::new(),
+            search_buffer: String::new(),
+            last_search: None,
             status: "Loaded file. Press q to quit and print annotations.".to_string(),
             should_quit: false,
             silent_quit: false,
@@ -435,6 +440,7 @@ impl App {
             InputMode::Feedback => self.handle_feedback_key(key),
             InputMode::InsertBefore => self.handle_insert_key(key, true),
             InputMode::InsertAfter => self.handle_insert_key(key, false),
+            InputMode::Search => self.handle_search_key(key),
             InputMode::EditChange(node_idx, change_idx) => {
                 self.handle_edit_change_key(key, node_idx, change_idx)
             }
@@ -515,6 +521,13 @@ impl App {
                 self.show_help = true;
                 self.status = "Help open. Press ? or Esc to close.".to_string();
             }
+            KeyCode::Char('/') => {
+                self.input_mode = InputMode::Search;
+                self.search_buffer.clear();
+                self.status = "Search: type pattern and press Enter. Esc cancels.".to_string();
+            }
+            KeyCode::Char('n') => self.jump_search(true),
+            KeyCode::Char('N') => self.jump_search(false),
             KeyCode::Char('c') => {
                 self.input_mode = InputMode::Change;
                 self.change_buffer.clear();
@@ -682,6 +695,135 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    fn handle_search_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.input_mode = InputMode::Normal;
+                self.search_buffer.clear();
+                self.status = "Search cancelled.".to_string();
+            }
+            KeyCode::Enter => {
+                let query = self.search_buffer.trim().to_string();
+                self.input_mode = InputMode::Normal;
+                self.search_buffer.clear();
+                if query.is_empty() {
+                    self.status = "Search cancelled (empty pattern).".to_string();
+                    return;
+                }
+                self.run_search(&query, true);
+                self.last_search = Some(query);
+            }
+            KeyCode::Backspace => {
+                self.search_buffer.pop();
+            }
+            KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.search_buffer.push(ch);
+            }
+            _ => {}
+        }
+    }
+
+    /// Find all search matches across rendered nodes. Returns (node, sentence) pairs,
+    /// de-duplicated so a sentence with multiple hits counts once for navigation.
+    /// Smart-case: case-sensitive iff the query contains an ASCII uppercase letter.
+    fn find_search_matches(&self, query: &str) -> Vec<(usize, usize)> {
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let case_sensitive = query.chars().any(|c| c.is_ascii_uppercase());
+        let needle = if case_sensitive {
+            query.to_owned()
+        } else {
+            let mut s = query.to_owned();
+            s.make_ascii_lowercase();
+            s
+        };
+        let mut matches: Vec<(usize, usize)> = Vec::new();
+        for (ni, rn) in self.rendered_nodes.iter().enumerate() {
+            let mut hay = rn.plain.clone();
+            if !case_sensitive {
+                hay.make_ascii_lowercase();
+            }
+            let mut cursor = 0usize;
+            while cursor <= hay.len() {
+                let Some(offset) = hay[cursor..].find(&needle) else {
+                    break;
+                };
+                let abs = cursor + offset;
+                let sidx = rn
+                    .sentence_ranges
+                    .iter()
+                    .position(|r| abs >= r.start && abs < r.end)
+                    .unwrap_or(0);
+                if matches.last() != Some(&(ni, sidx)) {
+                    matches.push((ni, sidx));
+                }
+                cursor = abs + needle.len().max(1);
+            }
+        }
+        matches
+    }
+
+    fn run_search(&mut self, query: &str, forward: bool) {
+        let matches = self.find_search_matches(query);
+        if matches.is_empty() {
+            self.status = format!("No matches for \"{query}\".");
+            return;
+        }
+        let current = (self.cursor_node, self.cursor_sentence);
+        let target_idx = if forward {
+            matches
+                .iter()
+                .position(|m| *m >= current)
+                .unwrap_or(0)
+        } else {
+            matches
+                .iter()
+                .rposition(|m| *m <= current)
+                .unwrap_or(matches.len() - 1)
+        };
+        self.apply_search_target(query, &matches, target_idx);
+    }
+
+    fn jump_search(&mut self, forward: bool) {
+        let Some(query) = self.last_search.clone() else {
+            self.status = "No previous search. Press / to search.".to_string();
+            return;
+        };
+        let matches = self.find_search_matches(&query);
+        if matches.is_empty() {
+            self.status = format!("No matches for \"{query}\".");
+            return;
+        }
+        let current = (self.cursor_node, self.cursor_sentence);
+        let target_idx = if forward {
+            matches
+                .iter()
+                .position(|m| *m > current)
+                .unwrap_or(0)
+        } else {
+            matches
+                .iter()
+                .rposition(|m| *m < current)
+                .unwrap_or(matches.len() - 1)
+        };
+        self.apply_search_target(&query, &matches, target_idx);
+    }
+
+    fn apply_search_target(&mut self, query: &str, matches: &[(usize, usize)], target_idx: usize) {
+        let (ni, si) = matches[target_idx];
+        self.cursor_node = ni;
+        self.cursor_sentence = si;
+        self.section_highlight_range = None;
+        self.clamp_sentence();
+        self.status = format!(
+            "Match {}/{} for \"{}\".",
+            target_idx + 1,
+            matches.len(),
+            query
+        );
     }
 
     fn handle_feedback_key(&mut self, key: KeyEvent) {
@@ -1453,6 +1595,12 @@ impl App {
                 "After> ",
                 self.insert_buffer.as_str(),
             )),
+            InputMode::Search => Some((
+                " Search ",
+                "Search: Enter jump | Esc cancel | n/N next/prev",
+                "/",
+                self.search_buffer.as_str(),
+            )),
             InputMode::Normal => None,
         };
         if let Some((title, hint, prompt, buf)) = popup_spec {
@@ -1558,6 +1706,7 @@ impl App {
             Line::from("  ]/[  annotation"),
             Line::from(""),
             Line::from("  i  AST view        u  links"),
+            Line::from("  /  search          n/N  next/prev match"),
             Line::from("  c  change (literal)"),
             Line::from("  f  feedback (intent)"),
             Line::from("  b  a  insert before · after"),
@@ -2667,6 +2816,105 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert_eq!(app.input_mode, InputMode::Normal);
         assert!(app.inserts_before.is_empty());
+    }
+
+    // ── Search ────────────────────────────────────────────────────────────────
+
+    fn type_search(app: &mut App, query: &str) {
+        app.handle_key(key_char('/'));
+        assert_eq!(app.input_mode, InputMode::Search);
+        for ch in query.chars() {
+            app.handle_key(key_char(ch));
+        }
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn search_jumps_cursor_to_first_match() {
+        let mut app = test_app("Alpha paragraph.\n\nBeta paragraph with target here.\n\nGamma.\n");
+        type_search(&mut app, "target");
+        assert_eq!(app.cursor_node, 1, "cursor should land on Beta node");
+        assert!(app.status.contains("Match 1/1"), "status: {}", app.status);
+    }
+
+    #[test]
+    fn search_no_match_leaves_cursor_in_place() {
+        let mut app = test_app("Alpha.\n\nBeta.\n");
+        let node_before = app.cursor_node;
+        type_search(&mut app, "notfound");
+        assert_eq!(app.cursor_node, node_before);
+        assert!(app.status.contains("No matches"), "status: {}", app.status);
+    }
+
+    #[test]
+    fn search_is_case_insensitive_by_default() {
+        let mut app = test_app("First.\n\nthe TARGET lives here.\n");
+        type_search(&mut app, "target");
+        assert_eq!(app.cursor_node, 1);
+    }
+
+    #[test]
+    fn search_is_case_sensitive_when_query_has_uppercase() {
+        let mut app = test_app("First has Target.\n\nSecond has target.\n");
+        type_search(&mut app, "Target");
+        assert_eq!(app.cursor_node, 0, "should find capital 'Target' on first node");
+    }
+
+    #[test]
+    fn n_key_advances_to_next_match_and_wraps() {
+        let mut app = test_app("foo one.\n\nfoo two.\n\nfoo three.\n");
+        type_search(&mut app, "foo");
+        assert_eq!(app.cursor_node, 0);
+        app.handle_key(key_char('n'));
+        assert_eq!(app.cursor_node, 1);
+        app.handle_key(key_char('n'));
+        assert_eq!(app.cursor_node, 2);
+        app.handle_key(key_char('n'));
+        assert_eq!(app.cursor_node, 0, "n should wrap to first match");
+    }
+
+    #[test]
+    fn capital_n_goes_to_previous_match() {
+        let mut app = test_app("foo one.\n\nfoo two.\n\nfoo three.\n");
+        type_search(&mut app, "foo");
+        app.handle_key(key_char('n'));
+        assert_eq!(app.cursor_node, 1);
+        app.handle_key(KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT));
+        assert_eq!(app.cursor_node, 0);
+    }
+
+    #[test]
+    fn n_without_previous_search_sets_status() {
+        let mut app = test_app("foo.\n");
+        app.handle_key(key_char('n'));
+        assert!(app.status.contains("No previous search"), "status: {}", app.status);
+    }
+
+    #[test]
+    fn search_esc_cancels_without_running() {
+        let mut app = test_app("foo.\n");
+        app.handle_key(key_char('/'));
+        app.handle_key(key_char('x'));
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.input_mode, InputMode::Normal);
+        assert!(app.last_search.is_none());
+    }
+
+    #[test]
+    fn shift_slash_still_opens_help() {
+        let mut app = test_app("foo.\n");
+        app.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::SHIFT));
+        assert!(app.show_help, "shift+/ should still open help");
+        assert_eq!(app.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn search_matches_within_same_node_multiple_sentences() {
+        let mut app = test_app("The foo sentence. The bar sentence.\n");
+        type_search(&mut app, "foo");
+        assert_eq!(app.cursor_node, 0);
+        assert_eq!(app.cursor_sentence, 0, "should land on first sentence");
     }
 
     #[test]
