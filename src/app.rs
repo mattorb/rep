@@ -725,8 +725,7 @@ impl App {
         }
     }
 
-    /// Find all search matches across rendered nodes. Returns (node, sentence) pairs,
-    /// de-duplicated so a sentence with multiple hits counts once for navigation.
+    /// Find every search hit across rendered nodes as (node, sentence) pairs.
     /// Smart-case: case-sensitive iff the query contains an ASCII uppercase letter.
     fn find_search_matches(&self, query: &str) -> Vec<(usize, usize)> {
         if query.is_empty() {
@@ -757,9 +756,7 @@ impl App {
                     .iter()
                     .position(|r| abs >= r.start && abs < r.end)
                     .unwrap_or(0);
-                if matches.last() != Some(&(ni, sidx)) {
-                    matches.push((ni, sidx));
-                }
+                matches.push((ni, sidx));
                 cursor = abs + needle.len().max(1);
             }
         }
@@ -2915,6 +2912,17 @@ mod tests {
         type_search(&mut app, "foo");
         assert_eq!(app.cursor_node, 0);
         assert_eq!(app.cursor_sentence, 0, "should land on first sentence");
+    }
+
+    #[test]
+    fn search_counts_every_hit_including_duplicates_in_one_sentence() {
+        let mut app = test_app("foo foo foo end.\n");
+        type_search(&mut app, "foo");
+        assert!(
+            app.status.contains("Match 1/3"),
+            "every occurrence should be counted: {}",
+            app.status
+        );
     }
 
     #[test]
