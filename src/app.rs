@@ -541,14 +541,12 @@ impl App {
             KeyCode::Char('b') => {
                 self.input_mode = InputMode::InsertBefore;
                 self.insert_buffer.clear();
-                self.status =
-                    "Insert before: type text and press Enter. Esc cancels.".to_string();
+                self.status = "Insert before: type text and press Enter. Esc cancels.".to_string();
             }
             KeyCode::Char('a') => {
                 self.input_mode = InputMode::InsertAfter;
                 self.insert_buffer.clear();
-                self.status =
-                    "Insert after: type text and press Enter. Esc cancels.".to_string();
+                self.status = "Insert after: type text and press Enter. Esc cancels.".to_string();
             }
             KeyCode::Char('e') => self.begin_edit_annotation(),
             KeyCode::Char('J') => self.move_section(true),
@@ -771,10 +769,7 @@ impl App {
         }
         let current = (self.cursor_node, self.cursor_sentence);
         let target_idx = if forward {
-            matches
-                .iter()
-                .position(|m| *m >= current)
-                .unwrap_or(0)
+            matches.iter().position(|m| *m >= current).unwrap_or(0)
         } else {
             matches
                 .iter()
@@ -796,10 +791,7 @@ impl App {
         }
         let current = (self.cursor_node, self.cursor_sentence);
         let target_idx = if forward {
-            matches
-                .iter()
-                .position(|m| *m > current)
-                .unwrap_or(0)
+            matches.iter().position(|m| *m > current).unwrap_or(0)
         } else {
             matches
                 .iter()
@@ -1410,28 +1402,25 @@ impl App {
             .and_then(|s| s.to_str())
             .unwrap_or("markdown");
         let (change_count, feedback_count, insert_count, strike_count) = self.annotation_counts();
-        let block_title = if change_count == 0
-            && feedback_count == 0
-            && insert_count == 0
-            && strike_count == 0
-        {
-            format!(" {filename} ")
-        } else {
-            let mut parts = Vec::new();
-            if change_count > 0 {
-                parts.push(format!("{change_count}C"));
-            }
-            if feedback_count > 0 {
-                parts.push(format!("{feedback_count}F"));
-            }
-            if insert_count > 0 {
-                parts.push(format!("{insert_count}I"));
-            }
-            if strike_count > 0 {
-                parts.push(format!("{strike_count}X"));
-            }
-            format!(" {filename}  {} ", parts.join(" · "))
-        };
+        let block_title =
+            if change_count == 0 && feedback_count == 0 && insert_count == 0 && strike_count == 0 {
+                format!(" {filename} ")
+            } else {
+                let mut parts = Vec::new();
+                if change_count > 0 {
+                    parts.push(format!("{change_count}C"));
+                }
+                if feedback_count > 0 {
+                    parts.push(format!("{feedback_count}F"));
+                }
+                if insert_count > 0 {
+                    parts.push(format!("{insert_count}I"));
+                }
+                if strike_count > 0 {
+                    parts.push(format!("{strike_count}X"));
+                }
+                format!(" {filename}  {} ", parts.join(" · "))
+            };
 
         let list_block = Block::default()
             .borders(Borders::ALL)
@@ -1959,8 +1948,7 @@ impl App {
             .map(|v| !v.is_empty())
             .unwrap_or(false);
 
-        let count =
-            has_change as u8 + has_feedback as u8 + has_insert as u8 + has_strike as u8;
+        let count = has_change as u8 + has_feedback as u8 + has_insert as u8 + has_strike as u8;
         if count > 1 {
             return (
                 "*",
@@ -2855,7 +2843,10 @@ mod tests {
     fn search_is_case_sensitive_when_query_has_uppercase() {
         let mut app = test_app("First has Target.\n\nSecond has target.\n");
         type_search(&mut app, "Target");
-        assert_eq!(app.cursor_node, 0, "should find capital 'Target' on first node");
+        assert_eq!(
+            app.cursor_node, 0,
+            "should find capital 'Target' on first node"
+        );
     }
 
     #[test]
@@ -2885,7 +2876,11 @@ mod tests {
     fn n_without_previous_search_sets_status() {
         let mut app = test_app("foo.\n");
         app.handle_key(key_char('n'));
-        assert!(app.status.contains("No previous search"), "status: {}", app.status);
+        assert!(
+            app.status.contains("No previous search"),
+            "status: {}",
+            app.status
+        );
     }
 
     #[test]
