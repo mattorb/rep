@@ -28,22 +28,6 @@ The installer:
 - Verifies SHA-256 checksum against `checksums.txt`
 - Installs `rep` to `~/.local/bin` by default
 
-Optional install settings:
-
-```sh
-# Install a specific version tag
-curl -fsSL https://raw.githubusercontent.com/mattorb/rep/main/install.sh | REP_VERSION=v0.1.0 sh
-
-# Install to a custom directory
-curl -fsSL https://raw.githubusercontent.com/mattorb/rep/main/install.sh | REP_INSTALL_DIR="$HOME/bin" sh
-```
-
-If needed, add the install directory to your shell profile:
-
-```sh
-export PATH="$HOME/.local/bin:$PATH"
-```
-
 ## Usage
 
 The BEST way to use this TUI tool is in the agentic loop, with a skill, immediately after you ask AI to help generate a plan (to a file) to accomplish a goal. This allows you to tap a few keys, put some feedback and requests in context quickly.
