@@ -31,6 +31,8 @@ pub enum InputMode {
     Feedback,
     /// Editing the change at (node_idx, change_idx).
     EditChange(usize, usize),
+    /// Editing the feedback at (node_idx, feedback_idx).
+    EditFeedback(usize, usize),
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +51,12 @@ struct FeedbackAnnotation {
     sentence_index: Option<usize>,
     sentence_text: Option<String>,
     feedback: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EditableAnnotation {
+    Change(usize),
+    Feedback(usize),
 }
 
 // ── Rendered document node ────────────────────────────────────────────────────
@@ -409,7 +417,10 @@ impl App {
             InputMode::Change => self.handle_change_key(key),
             InputMode::Feedback => self.handle_feedback_key(key),
             InputMode::EditChange(node_idx, change_idx) => {
-                self.handle_edit_key(key, node_idx, change_idx)
+                self.handle_edit_change_key(key, node_idx, change_idx)
+            }
+            InputMode::EditFeedback(node_idx, feedback_idx) => {
+                self.handle_edit_feedback_key(key, node_idx, feedback_idx)
             }
         }
     }
@@ -495,7 +506,7 @@ impl App {
                 self.feedback_buffer.clear();
                 self.status = "Feedback mode: type text and press Enter. Esc cancels.".to_string();
             }
-            KeyCode::Char('e') => self.begin_edit_change(),
+            KeyCode::Char('e') => self.begin_edit_annotation(),
             KeyCode::Char('J') => self.move_section(true),
             KeyCode::Char('K') => self.move_section(false),
             KeyCode::Char('L') => self.move_block(true),
@@ -894,34 +905,137 @@ impl App {
 
     // ── Annotations ───────────────────────────────────────────────────────────
 
-    fn begin_edit_change(&mut self) {
-        let Some(changes) = self.changes.get(&self.cursor_node) else {
-            self.status = "No change to edit on this node.".to_string();
-            return;
-        };
-
-        let change_idx = changes
-            .iter()
-            .rposition(|c| c.sentence_index == Some(self.cursor_sentence))
-            .or_else(|| {
-                if changes.is_empty() {
-                    None
-                } else {
-                    Some(changes.len() - 1)
-                }
-            });
-
-        let Some(idx) = change_idx else {
-            self.status = "No change to edit on this node.".to_string();
-            return;
-        };
-
-        self.change_buffer = changes[idx].change.clone();
-        self.input_mode = InputMode::EditChange(self.cursor_node, idx);
-        self.status = "Edit mode: Enter saves, Esc cancels.".to_string();
+    fn begin_edit_annotation(&mut self) {
+        match self.editable_annotation_at_cursor() {
+            Some(EditableAnnotation::Change(change_idx)) => {
+                let Some(change) = self
+                    .changes
+                    .get(&self.cursor_node)
+                    .and_then(|changes| changes.get(change_idx))
+                else {
+                    self.status = "No change or feedback to edit on this node.".to_string();
+                    return;
+                };
+                self.change_buffer = change.change.clone();
+                self.input_mode = InputMode::EditChange(self.cursor_node, change_idx);
+                self.status = "Edit mode: Enter saves, Esc cancels.".to_string();
+            }
+            Some(EditableAnnotation::Feedback(feedback_idx)) => {
+                let Some(feedback) = self
+                    .feedbacks
+                    .get(&self.cursor_node)
+                    .and_then(|feedbacks| feedbacks.get(feedback_idx))
+                else {
+                    self.status = "No change or feedback to edit on this node.".to_string();
+                    return;
+                };
+                self.feedback_buffer = feedback.feedback.clone();
+                self.input_mode = InputMode::EditFeedback(self.cursor_node, feedback_idx);
+                self.status = "Edit mode: Enter saves, Esc cancels.".to_string();
+            }
+            None => {
+                self.status = "No change or feedback to edit on this node.".to_string();
+            }
+        }
     }
 
-    fn handle_edit_key(&mut self, key: KeyEvent, node_idx: usize, change_idx: usize) {
+    fn pick_editable_annotation<'a>(
+        change: Option<(usize, &'a ChangeAnnotation)>,
+        feedback: Option<(usize, &'a FeedbackAnnotation)>,
+    ) -> Option<EditableAnnotation> {
+        match (change, feedback) {
+            (Some((change_idx, change)), Some((feedback_idx, feedback))) => {
+                if change.created_at >= feedback.created_at {
+                    Some(EditableAnnotation::Change(change_idx))
+                } else {
+                    Some(EditableAnnotation::Feedback(feedback_idx))
+                }
+            }
+            (Some((change_idx, _)), None) => Some(EditableAnnotation::Change(change_idx)),
+            (None, Some((feedback_idx, _))) => Some(EditableAnnotation::Feedback(feedback_idx)),
+            (None, None) => None,
+        }
+    }
+
+    fn editable_annotation_at_cursor(&self) -> Option<EditableAnnotation> {
+        let sentence_idx = self.current_sentence_context().map(|(idx, _)| idx);
+
+        let sentence_match = sentence_idx.and_then(|idx| {
+            let change = self.changes.get(&self.cursor_node).and_then(|changes| {
+                changes
+                    .iter()
+                    .rposition(|c| c.sentence_index == Some(idx))
+                    .map(|change_idx| (change_idx, &changes[change_idx]))
+            });
+            let feedback = self.feedbacks.get(&self.cursor_node).and_then(|feedbacks| {
+                feedbacks
+                    .iter()
+                    .rposition(|f| f.sentence_index == Some(idx))
+                    .map(|feedback_idx| (feedback_idx, &feedbacks[feedback_idx]))
+            });
+            Self::pick_editable_annotation(change, feedback)
+        });
+
+        sentence_match.or_else(|| {
+            let change = self.changes.get(&self.cursor_node).and_then(|changes| {
+                changes
+                    .len()
+                    .checked_sub(1)
+                    .map(|change_idx| (change_idx, &changes[change_idx]))
+            });
+            let feedback = self.feedbacks.get(&self.cursor_node).and_then(|feedbacks| {
+                feedbacks
+                    .len()
+                    .checked_sub(1)
+                    .map(|feedback_idx| (feedback_idx, &feedbacks[feedback_idx]))
+            });
+            Self::pick_editable_annotation(change, feedback)
+        })
+    }
+
+    fn remove_selected_annotation(&mut self) -> bool {
+        match self.editable_annotation_at_cursor() {
+            Some(EditableAnnotation::Change(change_idx)) => {
+                let mut removed = false;
+                let mut empty = false;
+                if let Some(changes) = self.changes.get_mut(&self.cursor_node)
+                    && change_idx < changes.len()
+                {
+                    changes.remove(change_idx);
+                    removed = true;
+                    empty = changes.is_empty();
+                }
+                if removed {
+                    if empty {
+                        self.changes.remove(&self.cursor_node);
+                    }
+                    self.status = format!("Removed change from node {}.", self.cursor_node + 1);
+                }
+                removed
+            }
+            Some(EditableAnnotation::Feedback(feedback_idx)) => {
+                let mut removed = false;
+                let mut empty = false;
+                if let Some(feedbacks) = self.feedbacks.get_mut(&self.cursor_node)
+                    && feedback_idx < feedbacks.len()
+                {
+                    feedbacks.remove(feedback_idx);
+                    removed = true;
+                    empty = feedbacks.is_empty();
+                }
+                if removed {
+                    if empty {
+                        self.feedbacks.remove(&self.cursor_node);
+                    }
+                    self.status = format!("Removed feedback from node {}.", self.cursor_node + 1);
+                }
+                removed
+            }
+            None => false,
+        }
+    }
+
+    fn handle_edit_change_key(&mut self, key: KeyEvent, node_idx: usize, change_idx: usize) {
         match key.code {
             KeyCode::Esc => {
                 self.input_mode = InputMode::Normal;
@@ -951,7 +1065,41 @@ impl App {
         }
     }
 
+    fn handle_edit_feedback_key(&mut self, key: KeyEvent, node_idx: usize, feedback_idx: usize) {
+        match key.code {
+            KeyCode::Esc => {
+                self.input_mode = InputMode::Normal;
+                self.feedback_buffer.clear();
+                self.status = "Edit cancelled.".to_string();
+            }
+            KeyCode::Enter => {
+                let trimmed = self.feedback_buffer.trim().to_string();
+                if trimmed.is_empty() {
+                    self.status = "Edit ignored — feedback cannot be empty.".to_string();
+                } else if let Some(feedbacks) = self.feedbacks.get_mut(&node_idx)
+                    && let Some(annotation) = feedbacks.get_mut(feedback_idx)
+                {
+                    annotation.feedback = trimmed;
+                    self.status = format!("Feedback updated on node {}.", node_idx + 1);
+                }
+                self.input_mode = InputMode::Normal;
+                self.feedback_buffer.clear();
+            }
+            KeyCode::Backspace => {
+                self.feedback_buffer.pop();
+            }
+            KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.feedback_buffer.push(ch);
+            }
+            _ => {}
+        }
+    }
+
     fn toggle_strike(&mut self) {
+        if self.remove_selected_annotation() {
+            return;
+        }
+
         let Some((sentence_idx, _)) = self.current_sentence_context() else {
             self.status = format!("Node {} has no sentence to strike.", self.cursor_node + 1);
             return;
@@ -1176,6 +1324,7 @@ impl App {
             InputMode::Change => Some(" Change "),
             InputMode::Feedback => Some(" Feedback "),
             InputMode::EditChange(..) => Some(" Edit Change "),
+            InputMode::EditFeedback(..) => Some(" Edit Feedback "),
             InputMode::Normal => None,
         };
         if let Some(title) = popup_title {
@@ -1183,7 +1332,7 @@ impl App {
                 InputMode::Change | InputMode::EditChange(..) => {
                     self.draw_input_popup(frame, list_inner, true, title);
                 }
-                InputMode::Feedback => {
+                InputMode::Feedback | InputMode::EditFeedback(..) => {
                     self.draw_input_popup(frame, list_inner, false, title);
                 }
                 InputMode::Normal => {}
@@ -1294,7 +1443,7 @@ impl App {
             Line::from("  i  AST view        u  links"),
             Line::from("  c  change (literal)"),
             Line::from("  f  feedback (intent)"),
-            Line::from("  e  x  r  edit · strike · copy result"),
+            Line::from("  e  x  r  edit · clear/strike · copy result"),
             Line::from("  q  Q          quit · silent quit"),
             Line::from("  ? / Esc       help · close"),
         ];
@@ -2053,6 +2202,10 @@ mod tests {
         terminal
     }
 
+    fn key_char(ch: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)
+    }
+
     fn row(terminal: &Terminal<TestBackend>, y: u16) -> String {
         let buf = terminal.backend().buffer();
         (0..buf.area.width)
@@ -2255,6 +2408,64 @@ mod tests {
             out.annotations[0].changes[0].sentence_index,
             Some(2),
             "agent output sentence_index must be 1-based"
+        );
+    }
+
+    #[test]
+    fn edit_key_enters_feedback_edit_mode_when_feedback_exists() {
+        let mut app = test_app("A sentence here.\n");
+        app.feedbacks
+            .entry(0)
+            .or_default()
+            .push(make_feedback("make this clearer"));
+
+        app.handle_key(key_char('e'));
+
+        assert_eq!(app.input_mode, InputMode::EditFeedback(0, 0));
+        assert_eq!(app.feedback_buffer, "make this clearer");
+    }
+
+    #[test]
+    fn x_key_removes_change_before_striking() {
+        let mut app = test_app("A sentence here.\n");
+        app.changes
+            .entry(0)
+            .or_default()
+            .push(make_change("rewrite"));
+
+        app.handle_key(key_char('x'));
+        assert!(
+            app.changes.get(&0).is_none(),
+            "first x should remove the existing change"
+        );
+        assert!(
+            app.strikes.get(&0).is_none(),
+            "first x should not strike when removing a change"
+        );
+
+        app.handle_key(key_char('x'));
+        assert!(
+            app.strikes.get(&0).is_some_and(|set| set.contains(&0)),
+            "second x should strike once no change/feedback remains"
+        );
+    }
+
+    #[test]
+    fn x_key_removes_feedback_before_striking() {
+        let mut app = test_app("A sentence here.\n");
+        app.feedbacks
+            .entry(0)
+            .or_default()
+            .push(make_feedback("make this clearer"));
+
+        app.handle_key(key_char('x'));
+        assert!(
+            app.feedbacks.get(&0).is_none(),
+            "first x should remove the existing feedback"
+        );
+        assert!(
+            app.strikes.get(&0).is_none(),
+            "first x should not strike when removing feedback"
         );
     }
 
