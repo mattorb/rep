@@ -16,18 +16,40 @@ You can try, but to really target your changes and apply a whole series of them 
 
 ## Installation
 
-1. Download and extract a release from
-[GitHub Release](https://github.com/mpstx/rep/releases) for macOS
-(x86\_64, aarch64) and Linux (x86\_64, aarch64 — statically linked musl).
+Install the latest release with:
 
-2. Put the binary 'rep' on your PATH.
+```sh
+curl -fsSL https://raw.githubusercontent.com/mattorb/rep/main/install.sh | sh
+```
+
+The installer:
+- Detects your platform (macOS/Linux, x86\_64/aarch64)
+- Downloads the matching release archive from [GitHub Releases](https://github.com/mattorb/rep/releases)
+- Verifies SHA-256 checksum against `checksums.txt`
+- Installs `rep` to `~/.local/bin` by default
+
+Optional install settings:
+
+```sh
+# Install a specific version tag
+curl -fsSL https://raw.githubusercontent.com/mattorb/rep/main/install.sh | REP_VERSION=v0.1.0 sh
+
+# Install to a custom directory
+curl -fsSL https://raw.githubusercontent.com/mattorb/rep/main/install.sh | REP_INSTALL_DIR="$HOME/bin" sh
+```
+
+If needed, add the install directory to your shell profile:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
 
 ## Usage
 
 The BEST way to use this TUI tool is in the agentic loop, with a skill, immediately after you ask AI to help generate a plan (to a file) to accomplish a goal. This allows you to tap a few keys, put some feedback and requests in context quickly.
 
-1. Ensure rep executable in on your PATH
-2. Install the agent skill: `./install-skills.sh'
+1. Ensure `rep` is on your PATH
+2. Install the agent skill: `./install-skills.sh`
 3. Launch tmux, and you Agentic coding tool inside of the tmux session.  Wrapping the agent in a tmux session is what allows rep to present modally and automatically continue the agentic loop on quit.
 ```
 $ tmux new-session -t tryrep
