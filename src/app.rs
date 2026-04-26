@@ -528,16 +528,8 @@ impl App {
             }
             KeyCode::Char('n') => self.jump_search(true),
             KeyCode::Char('N') => self.jump_search(false),
-            KeyCode::Char('c') => {
-                self.input_mode = InputMode::Change;
-                self.change_buffer.clear();
-                self.status = "Change mode: type text and press Enter. Esc cancels.".to_string();
-            }
-            KeyCode::Char('f') => {
-                self.input_mode = InputMode::Feedback;
-                self.feedback_buffer.clear();
-                self.status = "Feedback mode: type text and press Enter. Esc cancels.".to_string();
-            }
+            KeyCode::Char('c') => self.begin_change_or_edit(),
+            KeyCode::Char('f') => self.begin_feedback_or_edit(),
             KeyCode::Char('b') => {
                 self.input_mode = InputMode::InsertBefore;
                 self.insert_buffer.clear();
@@ -1123,6 +1115,62 @@ impl App {
 
     // ── Annotations ───────────────────────────────────────────────────────────
 
+    fn existing_change_for_cursor(&self) -> Option<usize> {
+        let sentence_idx = self.current_sentence_context().map(|(idx, _)| idx);
+        let changes = self.changes.get(&self.cursor_node)?;
+        if let Some(idx) = sentence_idx {
+            changes.iter().rposition(|c| c.sentence_index == Some(idx))
+        } else {
+            changes.len().checked_sub(1)
+        }
+    }
+
+    fn existing_feedback_for_cursor(&self) -> Option<usize> {
+        let sentence_idx = self.current_sentence_context().map(|(idx, _)| idx);
+        let feedbacks = self.feedbacks.get(&self.cursor_node)?;
+        if let Some(idx) = sentence_idx {
+            feedbacks
+                .iter()
+                .rposition(|f| f.sentence_index == Some(idx))
+        } else {
+            feedbacks.len().checked_sub(1)
+        }
+    }
+
+    fn begin_change_or_edit(&mut self) {
+        if let Some(change_idx) = self.existing_change_for_cursor()
+            && let Some(change) = self
+                .changes
+                .get(&self.cursor_node)
+                .and_then(|changes| changes.get(change_idx))
+        {
+            self.change_buffer = change.change.clone();
+            self.input_mode = InputMode::EditChange(self.cursor_node, change_idx);
+            self.status = "Edit mode: Enter saves, Esc cancels.".to_string();
+            return;
+        }
+        self.input_mode = InputMode::Change;
+        self.change_buffer.clear();
+        self.status = "Change mode: type text and press Enter. Esc cancels.".to_string();
+    }
+
+    fn begin_feedback_or_edit(&mut self) {
+        if let Some(feedback_idx) = self.existing_feedback_for_cursor()
+            && let Some(feedback) = self
+                .feedbacks
+                .get(&self.cursor_node)
+                .and_then(|feedbacks| feedbacks.get(feedback_idx))
+        {
+            self.feedback_buffer = feedback.feedback.clone();
+            self.input_mode = InputMode::EditFeedback(self.cursor_node, feedback_idx);
+            self.status = "Edit mode: Enter saves, Esc cancels.".to_string();
+            return;
+        }
+        self.input_mode = InputMode::Feedback;
+        self.feedback_buffer.clear();
+        self.status = "Feedback mode: type text and press Enter. Esc cancels.".to_string();
+    }
+
     fn begin_edit_annotation(&mut self) {
         match self.editable_annotation_at_cursor() {
             Some(EditableAnnotation::Change(change_idx)) => {
@@ -1637,19 +1685,35 @@ impl App {
             return;
         }
 
-        let popup_height = 4u16.min(list_inner.height);
         let popup_width = list_inner.width.clamp(20, 80);
+        let inner_width = popup_width.saturating_sub(2) as usize;
 
+        let hint_height =
+            wrap_styled_spans(vec![Span::raw(hint.to_owned())], inner_width).len() as u16;
+        let body_height = wrap_styled_spans(
+            vec![Span::raw(format!("{prompt}{buf}"))],
+            inner_width,
+        )
+        .len() as u16;
+        let needed_height = hint_height
+            .max(1)
+            .saturating_add(body_height.max(1))
+            .saturating_add(2);
+        let max_popup_height = list_inner.height.saturating_sub(2).max(4);
+        let popup_height = needed_height.clamp(4, max_popup_height);
+
+        let list_bottom = list_inner.y + list_inner.height;
         let preferred_below_y = list_inner.y
             + selected_top
                 .saturating_add(selected_height)
                 .min(list_inner.height.saturating_sub(1));
-        let list_bottom = list_inner.y + list_inner.height;
+        let anchor_above_top = list_inner.y + selected_top;
         let y = if preferred_below_y.saturating_add(popup_height) <= list_bottom {
             preferred_below_y
+        } else if anchor_above_top >= list_inner.y.saturating_add(popup_height) {
+            anchor_above_top - popup_height
         } else {
-            let anchor_y = list_inner.y + selected_top;
-            anchor_y.saturating_sub(popup_height)
+            list_bottom.saturating_sub(popup_height).max(list_inner.y)
         };
 
         let popup = Rect {
@@ -1922,34 +1986,27 @@ impl App {
     }
 
     fn node_indicator(&self, node_idx: usize) -> (&'static str, Style) {
-        let has_change = self
-            .changes
-            .get(&node_idx)
-            .map(|v| !v.is_empty())
-            .unwrap_or(false);
-        let has_feedback = self
-            .feedbacks
-            .get(&node_idx)
-            .map(|v| !v.is_empty())
-            .unwrap_or(false);
-        let has_insert = self
+        let change_count = self.changes.get(&node_idx).map(|v| v.len()).unwrap_or(0);
+        let feedback_count = self.feedbacks.get(&node_idx).map(|v| v.len()).unwrap_or(0);
+        let insert_count = self
             .inserts_before
             .get(&node_idx)
-            .map(|v| !v.is_empty())
-            .unwrap_or(false)
-            || self
+            .map(|v| v.len())
+            .unwrap_or(0)
+            + self
                 .inserts_after
                 .get(&node_idx)
-                .map(|v| !v.is_empty())
-                .unwrap_or(false);
-        let has_strike = self
-            .strikes
-            .get(&node_idx)
-            .map(|v| !v.is_empty())
-            .unwrap_or(false);
+                .map(|v| v.len())
+                .unwrap_or(0);
+        let strike_count = self.strikes.get(&node_idx).map(|v| v.len()).unwrap_or(0);
 
-        let count = has_change as u8 + has_feedback as u8 + has_insert as u8 + has_strike as u8;
-        if count > 1 {
+        let has_change = change_count > 0;
+        let has_feedback = feedback_count > 0;
+        let has_insert = insert_count > 0;
+        let has_strike = strike_count > 0;
+
+        let total = change_count + feedback_count + insert_count + strike_count;
+        if total > 1 {
             return (
                 "*",
                 Style::default()
@@ -2643,6 +2700,80 @@ mod tests {
         app.strikes.entry(0).or_default().insert(0);
         let t = render(&mut app);
         assert_eq!(cell(&t, 1, 1), '*', "expected combined indicator '*'");
+    }
+
+    #[test]
+    fn gutter_shows_star_for_two_changes_on_same_node() {
+        let mut app = test_app("A sentence.\n");
+        app.changes.entry(0).or_default().push(make_change("x"));
+        app.changes.entry(0).or_default().push(make_change("y"));
+        let t = render(&mut app);
+        assert_eq!(
+            cell(&t, 1, 1),
+            '*',
+            "expected '*' when multiple changes are stacked"
+        );
+    }
+
+    #[test]
+    fn gutter_shows_star_for_two_feedbacks_on_same_node() {
+        let mut app = test_app("A sentence.\n");
+        app.feedbacks.entry(0).or_default().push(make_feedback("x"));
+        app.feedbacks.entry(0).or_default().push(make_feedback("y"));
+        let t = render(&mut app);
+        assert_eq!(
+            cell(&t, 1, 1),
+            '*',
+            "expected '*' when multiple feedbacks are stacked"
+        );
+    }
+
+    #[test]
+    fn pressing_c_with_existing_change_enters_edit_mode() {
+        let mut app = test_app("A sentence here.\n");
+        app.changes
+            .entry(0)
+            .or_default()
+            .push(make_change("prior change"));
+        app.handle_key(key_char('c'));
+        assert_eq!(app.input_mode, InputMode::EditChange(0, 0));
+        assert_eq!(app.change_buffer, "prior change");
+    }
+
+    #[test]
+    fn pressing_f_with_existing_feedback_enters_edit_mode() {
+        let mut app = test_app("A sentence here.\n");
+        app.feedbacks
+            .entry(0)
+            .or_default()
+            .push(make_feedback("prior feedback"));
+        app.handle_key(key_char('f'));
+        assert_eq!(app.input_mode, InputMode::EditFeedback(0, 0));
+        assert_eq!(app.feedback_buffer, "prior feedback");
+    }
+
+    #[test]
+    fn pressing_c_without_existing_change_starts_new() {
+        let mut app = test_app("A sentence here.\n");
+        app.handle_key(key_char('c'));
+        assert_eq!(app.input_mode, InputMode::Change);
+        assert!(app.change_buffer.is_empty());
+    }
+
+    #[test]
+    fn pressing_c_on_other_sentence_does_not_edit_neighbor() {
+        let mut app = test_app("First sentence. Second sentence.\n");
+        // change is on sentence 0
+        app.changes
+            .entry(0)
+            .or_default()
+            .push(make_change("for first"));
+        // move cursor to sentence 1
+        app.handle_key(key_char('l'));
+        app.handle_key(key_char('c'));
+        // should start a NEW change, not edit the one on sentence 0
+        assert_eq!(app.input_mode, InputMode::Change);
+        assert!(app.change_buffer.is_empty());
     }
 
     #[test]
