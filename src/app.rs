@@ -1099,13 +1099,12 @@ impl App {
             .get(node_idx)
             .map(|n| n.source_start_line())
             .unwrap_or(0);
-        let (line, _) = self.where_for_annotation(
+        self.where_for_annotation(
             self.selection_state.anchor.unit,
             node_idx,
             Some(self.selection_state.anchor.unit_idx),
             node_first_line,
-        );
-        line
+        )
     }
 
     fn current_sentence_context(&self) -> Option<(usize, String)> {
@@ -2649,13 +2648,13 @@ impl App {
                     // Strike's WHERE: same per-sentence line resolution
                     // where_for_annotation does for Sentence-unit
                     // annotations.
-                    let (strike_line, _suffix) = self.where_for_annotation(
+                    let strike_line = self.where_for_annotation(
                         SelectionUnit::Sentence,
                         node_idx,
                         Some(sentence_idx),
                         source_line,
                     );
-                    Self::emit_action_header(&mut out, "delete this", strike_line, "");
+                    Self::emit_action_header(&mut out, "delete this", strike_line);
                     self.emit_context_block(&mut out, strike_line, &target);
                 }
             }
@@ -2683,12 +2682,12 @@ impl App {
         sentence_text: Option<&str>,
         payload_text: &str,
     ) {
-        let (where_line, sentence_suffix) =
+        let where_line =
             self.where_for_annotation(target_unit, node_idx, sentence_index, node_first_line);
         let target = sentence_text
             .map(|s| clean_context(s, EMIT_TARGET_MAX_CHARS))
             .unwrap_or_else(|| line_clean.to_owned());
-        Self::emit_action_header(out, action, where_line, &sentence_suffix);
+        Self::emit_action_header(out, action, where_line);
         self.emit_context_block(out, where_line, &target);
         out.push_str(&format!(
             "{payload_key}: \"{}\"\n",
@@ -2698,10 +2697,10 @@ impl App {
 
     /// Write `\nACTION: <name>\nWHERE: line N<suffix>\n` — shared by
     /// every emit shape (changes / feedbacks / inserts / strikes).
-    fn emit_action_header(out: &mut String, action: &str, where_line: usize, suffix: &str) {
+    fn emit_action_header(out: &mut String, action: &str, where_line: usize) {
         out.push('\n');
         out.push_str(&format!("ACTION: {action}\n"));
-        out.push_str(&format!("WHERE: line {}{}\n", where_line + 1, suffix));
+        out.push_str(&format!("WHERE: line {}\n", where_line + 1));
     }
 
     /// Write the CONTEXT block: `CONTEXT:\n  prev: "..." (if any)\n  target: "..."\n  next: "..." (if any)\n`.
@@ -2733,39 +2732,32 @@ impl App {
         (source_line, line_text)
     }
 
-    /// Returns `(where_line: usize, sentence_suffix: String)` for an
-    /// annotation. The suffix is always empty per the modular_plan
-    /// schema (no `, sentence M` postfix on any unit). The where-line
-    /// is the source line where the selection's text begins:
-    /// per-line for Line annotations, per-word for Word, per-sentence
-    /// for Sentence (computed from the rendered_nodes display plain
-    /// text `\n` count), and the node's first line for Paragraph /
-    /// Section (those emit their entire span anyway).
+    /// Returns the source line where an annotation's selection text
+    /// begins: per-line for Line annotations, per-word for Word,
+    /// per-sentence for Sentence (computed from the rendered_nodes
+    /// display plain text `\n` count), and the node's first line for
+    /// Paragraph / Section (those emit their entire span anyway).
     fn where_for_annotation(
         &self,
         target_unit: SelectionUnit,
         node_idx: usize,
         sentence_index: Option<usize>,
         node_first_line: usize,
-    ) -> (usize, String) {
+    ) -> usize {
         match target_unit {
             SelectionUnit::Line => {
                 let unit_idx = sentence_index.unwrap_or(0);
-                let where_line = self
-                    .index
+                self.index
                     .nodes
                     .get(node_idx)
                     .and_then(|n| n.source_line_ranges.get(unit_idx).map(|p| p.0))
-                    .unwrap_or(node_first_line);
-                (where_line, String::new())
+                    .unwrap_or(node_first_line)
             }
             SelectionUnit::Word => {
                 // Word emits at the source line where the word's bytes begin.
                 let unit_idx = sentence_index.unwrap_or(0);
-                let where_line = self
-                    .word_source_line(node_idx, unit_idx)
-                    .unwrap_or(node_first_line);
-                (where_line, String::new())
+                self.word_source_line(node_idx, unit_idx)
+                    .unwrap_or(node_first_line)
             }
             SelectionUnit::Sentence => {
                 // Sentence inside a multi-source-line node: emit the line
@@ -2773,16 +2765,15 @@ impl App {
                 // line. Computed by counting `\n` characters in the
                 // rendered display plain text up to the sentence range's
                 // start (mirrors the strike-emit logic above).
-                let where_line = sentence_index
+                sentence_index
                     .and_then(|si| {
                         let rn = self.rendered_nodes.get(node_idx)?;
                         let r = rn.sentence_ranges.get(si)?;
                         Some(node_first_line + newlines_before_byte(&rn.plain, r.start))
                     })
-                    .unwrap_or(node_first_line);
-                (where_line, String::new())
+                    .unwrap_or(node_first_line)
             }
-            SelectionUnit::Paragraph | SelectionUnit::Section => (node_first_line, String::new()),
+            SelectionUnit::Paragraph | SelectionUnit::Section => node_first_line,
         }
     }
 
