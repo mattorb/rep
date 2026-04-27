@@ -2635,25 +2635,25 @@ impl App {
 
             if let Some(strikes) = self.strikes.get(&node_idx) {
                 for &sentence_idx in strikes {
-                    let sentence_range = self
+                    let target = self
                         .rendered_nodes
                         .get(node_idx)
-                        .and_then(|rn| rn.sentence_ranges.get(sentence_idx))
-                        .cloned();
-                    let target = sentence_range
-                        .as_ref()
-                        .and_then(|r| self.rendered_nodes[node_idx].plain.get(r.clone()))
+                        .and_then(|rn| {
+                            rn.sentence_ranges
+                                .get(sentence_idx)
+                                .and_then(|r| rn.plain.get(r.clone()))
+                        })
                         .map(|s| clean_context(s, EMIT_TARGET_MAX_CHARS))
                         .unwrap_or_else(|| line_clean.clone());
-                    // Strike's WHERE: line where the struck sentence's
-                    // text begins, not the node's first line.
-                    let strike_line = sentence_range
-                        .as_ref()
-                        .and_then(|r| {
-                            let rn = self.rendered_nodes.get(node_idx)?;
-                            Some(source_line + newlines_before_byte(&rn.plain, r.start))
-                        })
-                        .unwrap_or(source_line);
+                    // Strike's WHERE: same per-sentence line resolution
+                    // where_for_annotation does for Sentence-unit
+                    // annotations.
+                    let (strike_line, _suffix) = self.where_for_annotation(
+                        SelectionUnit::Sentence,
+                        node_idx,
+                        Some(sentence_idx),
+                        source_line,
+                    );
                     Self::emit_action_header(&mut out, "delete this", strike_line, "");
                     self.emit_context_block(&mut out, strike_line, &target);
                 }
