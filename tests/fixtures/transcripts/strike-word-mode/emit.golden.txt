@@ -1,6 +1,3 @@
 FILE: <INPUT>
 
-ACTION: delete this
-WHERE: line 1
-CONTEXT:
-  target: "Second sentence."
+No actions.

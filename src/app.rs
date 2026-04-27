@@ -1471,6 +1471,18 @@ impl App {
             return;
         }
 
+        // Strike storage is sentence-keyed today (BTreeSet<usize> per node).
+        // Word- and line-level strikes need a wider storage model -- defer
+        // to a future iteration. For now `x` only operates in Sentence
+        // mode; in other units we surface a clear "not supported" message.
+        if self.selection_state.anchor.unit != SelectionUnit::Sentence {
+            self.status = format!(
+                "Strike (`x`) targets sentences only; current mode is {}. Cycle to sentence mode first.",
+                self.mode_indicator()
+            );
+            return;
+        }
+
         let Some((sentence_idx, _)) = self.current_sentence_context() else {
             self.status = format!(
                 "Node {} has no sentence to strike.",
