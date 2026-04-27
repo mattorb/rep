@@ -78,14 +78,8 @@ pub fn highlight_for(anchor: SelectionAnchor, index: &SelectionIndex) -> Highlig
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::document::Document;
+    use crate::selection::build_test_index as build;
     use crate::selection::model::SelectionUnit;
-
-    fn build(src: &str) -> SelectionIndex {
-        let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
-        let doc = Document::parse(src);
-        SelectionIndex::build(&doc, &lines)
-    }
 
     #[test]
     fn sentence_highlight_returns_byte_range_in_node_plain() {

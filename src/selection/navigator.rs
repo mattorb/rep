@@ -136,14 +136,7 @@ pub fn clamp(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::document::Document;
-    use crate::selection::index::SelectionIndex;
-
-    fn build(src: &str) -> SelectionIndex {
-        let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
-        let doc = Document::parse(src);
-        SelectionIndex::build(&doc, &lines)
-    }
+    use crate::selection::build_test_index as build;
 
     #[test]
     fn sentence_next_within_node_advances() {
