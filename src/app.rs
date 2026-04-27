@@ -1983,7 +1983,7 @@ impl App {
             .map(|l| {
                 l.spans
                     .iter()
-                    .map(|s| s.content.chars().count())
+                    .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
                     .sum::<usize>()
             })
             .max()
