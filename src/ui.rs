@@ -69,7 +69,7 @@ pub(crate) fn wrap_styled_spans(
     width: usize,
 ) -> Vec<Vec<Span<'static>>> {
     let mut w = Wrapper::new(width.max(1));
-    for span in spans {
+    for span in &spans {
         w.process_span(span);
     }
     w.finish()
@@ -140,7 +140,7 @@ impl Wrapper {
                 self.emit(word, style);
                 self.col = word_width;
             } else {
-                self.force_break(word, style);
+                self.force_break(&word, style);
             }
         } else if self.col + self.ws_width + word_width <= self.width {
             // Word fits on the current line with its preceding whitespace.
@@ -162,13 +162,13 @@ impl Wrapper {
                 self.emit(word, style);
                 self.col = word_width;
             } else {
-                self.force_break(word, style);
+                self.force_break(&word, style);
             }
         }
     }
 
     // Character-by-character fallback for words wider than the full line.
-    fn force_break(&mut self, word: String, style: Style) {
+    fn force_break(&mut self, word: &str, style: Style) {
         let mut buf = String::new();
         for ch in word.chars() {
             let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0).max(1);
@@ -182,7 +182,7 @@ impl Wrapper {
         self.emit(buf, style);
     }
 
-    fn process_span(&mut self, span: Span<'static>) {
+    fn process_span(&mut self, span: &Span<'static>) {
         let style = span.style;
         for ch in span.content.chars() {
             if ch == '\n' {
