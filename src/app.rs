@@ -318,10 +318,10 @@ pub struct App {
     rendered_nodes: Vec<RenderedNode>,
     /// Owned eager selection index built once at load time per Req 11.
     /// Drives navigation, per-unit emit, and unit-aware highlight lookup.
-    pub(crate) index: SelectionIndex,
+    index: SelectionIndex,
     /// Canonical selection state — `(node_idx, unit, unit_idx)`. Replaces the
     /// pre-phase-1 `cursor_node` + `cursor_sentence` pair.
-    pub(crate) selection_state: SelectionState,
+    selection_state: SelectionState,
     /// When set on entry to Section mode (or by `move_section`), highlights
     /// every node from the section start through `end_node_idx` inclusive.
     /// Cleared on the next non-Section move_active_unit step.
