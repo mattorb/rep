@@ -2711,13 +2711,9 @@ impl App {
                     // sentence range's start.
                     let strike_line = sentence_range
                         .as_ref()
-                        .map(|r| {
-                            let prefix = self
-                                .rendered_nodes
-                                .get(node_idx)
-                                .map(|rn| &rn.plain[..r.start])
-                                .unwrap_or("");
-                            source_line + prefix.bytes().filter(|&b| b == b'\n').count()
+                        .and_then(|r| {
+                            let rn = self.rendered_nodes.get(node_idx)?;
+                            Some(source_line + newlines_before_byte(&rn.plain, r.start))
                         })
                         .unwrap_or(source_line);
                     let (prev_clean_line, next_clean_line) = self.context_lines(strike_line);
@@ -2798,8 +2794,7 @@ impl App {
                     .and_then(|si| {
                         let rn = self.rendered_nodes.get(node_idx)?;
                         let r = rn.sentence_ranges.get(si)?;
-                        let prefix = rn.plain.get(..r.start)?;
-                        Some(node_first_line + prefix.bytes().filter(|&b| b == b'\n').count())
+                        Some(node_first_line + newlines_before_byte(&rn.plain, r.start))
                     })
                     .unwrap_or(node_first_line);
                 (where_line, String::new())
@@ -2837,8 +2832,7 @@ impl App {
             word_range.start,
         );
         let pos = nth_occurrence(&rn.plain, word_text, occurrence).unwrap_or(0);
-        let prefix = rn.plain.get(..pos).unwrap_or("");
-        Some(first_line + prefix.bytes().filter(|&b| b == b'\n').count())
+        Some(first_line + newlines_before_byte(&rn.plain, pos))
     }
 
     fn context_lines(&self, source_line: usize) -> (String, String) {
@@ -2865,6 +2859,15 @@ enum ClipboardOutcome {
     OsCommand,
     Osc52,
     Failed,
+}
+
+/// Count `\n` bytes in `plain[..byte]` — the number of source lines the
+/// byte position is past inside the rendered display plain text.
+fn newlines_before_byte(plain: &str, byte: usize) -> usize {
+    plain
+        .get(..byte)
+        .map(|p| p.bytes().filter(|&b| b == b'\n').count())
+        .unwrap_or(0)
 }
 
 /// Count occurrences of `needle` in `haystack[..before_byte]` (i.e. the
