@@ -3861,6 +3861,42 @@ mod tests {
     }
 
     #[test]
+    fn human_output_section_change_emits_full_section_text() {
+        // Section selection on heading + body: target should be the
+        // joined plain text of all constituent nodes, single-spaced,
+        // markers stripped, no embedded newlines (per modular_plan
+        // §"target / Section").
+        let mut app = test_app("# Section A\n\nBody of A.\n");
+        app.changes.entry(0).or_default().push(ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Section,
+            sentence_index: Some(0),
+            sentence_text: Some("Section A Body of A.".into()),
+            change: "Rewrite the section".into(),
+        });
+        let out = app.to_human_output();
+        assert!(out.contains("ACTION: change"), "{out}");
+        assert!(
+            out.contains("WHERE: line 1\n"),
+            "section emit keys on the heading line: {out}"
+        );
+        assert!(
+            out.contains("target: \"Section A Body of A.\""),
+            "section target = constituent node texts joined: {out}"
+        );
+        // The `target:` line itself must not have embedded newlines
+        // (single-line target invariant per modular_plan §"target").
+        let target_line = out
+            .lines()
+            .find(|l| l.contains("target: "))
+            .expect("target line present");
+        assert!(
+            !target_line.trim_end_matches('"').trim_start().contains('\n'),
+            "target text must be single-line: {target_line}"
+        );
+    }
+
+    #[test]
     fn human_output_with_no_annotations_contains_no_actions() {
         let app = test_app("Some text.\n");
         let out = app.to_human_output();
