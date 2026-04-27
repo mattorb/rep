@@ -5,14 +5,14 @@ use pulldown_cmark::{
 use ratatui::prelude::*;
 
 #[derive(Debug, Clone)]
-pub struct RenderedMarkdownLine {
+pub(crate) struct RenderedMarkdownLine {
     pub plain: String,
     pub spans: Vec<Span<'static>>,
     pub links: Vec<MarkdownLinkRange>,
 }
 
 #[derive(Debug, Clone)]
-pub struct MarkdownLinkRange {
+pub(crate) struct MarkdownLinkRange {
     pub start: usize,
     pub end: usize,
     pub url: String,
@@ -43,7 +43,7 @@ struct MarkdownLineRenderer {
     active_image_alt: Option<String>,
 }
 
-pub fn render_markdown_line(line: &str) -> RenderedMarkdownLine {
+pub(crate) fn render_markdown_line(line: &str) -> RenderedMarkdownLine {
     let parser = MdParser::new_ext(line, markdown_options());
     let mut renderer = MarkdownLineRenderer::default();
     for event in parser {
