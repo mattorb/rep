@@ -2279,6 +2279,8 @@ impl App {
                 // Re-segmenting display by `\n` and picking the unit_idx-th
                 // segment drifts on fenced code blocks (where fence lines
                 // are present in display but excluded from index lines).
+                // Count which occurrence in source so two identical lines
+                // map to the correct display position.
                 let node_idx = self.selection_state.anchor.node_idx;
                 let index_node = self.index.nodes.get(node_idx)?;
                 let (line, _) = index_node.source_line_ranges.get(unit_idx)?;
@@ -2286,7 +2288,15 @@ impl App {
                 if line_text.is_empty() {
                     return Some(0..plain.len());
                 }
-                let pos = plain.find(line_text.as_str()).unwrap_or(0);
+                let occurrence = index_node
+                    .source_line_ranges
+                    .iter()
+                    .take(unit_idx)
+                    .filter(|(l, _)| {
+                        self.source_lines.get(*l).map(|s| s.as_str()) == Some(line_text.as_str())
+                    })
+                    .count();
+                let pos = nth_occurrence(plain, line_text.as_str(), occurrence).unwrap_or(0);
                 Some(pos..pos + line_text.len())
             }
             SelectionUnit::Word => {
