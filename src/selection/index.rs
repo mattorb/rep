@@ -153,8 +153,7 @@ impl SelectionIndex {
 /// the resulting `NodeIndex::selection_plain_text` directly.
 pub(crate) fn node_selection_plain_text(node: &DocNode, source_lines: &[String]) -> String {
     match node {
-        DocNode::Heading { text, .. } => text.clone(),
-        DocNode::Paragraph { text, .. } => text.clone(),
+        DocNode::Heading { text, .. } | DocNode::Paragraph { text, .. } => text.clone(),
         DocNode::ListItem {
             source_lines: range,
             ..

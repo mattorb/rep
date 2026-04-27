@@ -53,8 +53,9 @@ impl DocNode {
     /// cursor lands at load time and where same-unit traversal jumps to.
     pub fn has_content(&self) -> bool {
         match self {
-            Self::Paragraph { text, .. } | Self::ListItem { text, .. } => !text.is_empty(),
-            Self::Heading { text, .. } => !text.is_empty(),
+            Self::Paragraph { text, .. }
+            | Self::ListItem { text, .. }
+            | Self::Heading { text, .. } => !text.is_empty(),
             Self::CodeBlock { content, .. } => !content.is_empty(),
             Self::ThematicBreak { .. } => false,
         }

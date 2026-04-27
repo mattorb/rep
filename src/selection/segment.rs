@@ -142,8 +142,7 @@ fn is_internal_continuation(prev: char, sep: char, next: char) -> bool {
         return false;
     }
     match sep {
-        '.' => true,
-        '\'' => true,
+        '.' | '\'' => true,
         '-' => {
             (prev.is_alphabetic() && next.is_alphabetic())
                 || (prev.is_ascii_digit() && next.is_ascii_digit())
