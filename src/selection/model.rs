@@ -13,7 +13,7 @@ pub enum SelectionUnit {
 }
 
 impl SelectionUnit {
-    /// Stable string identifier used in golden artifacts and the status line.
+    /// Stable capitalized identifier used in golden artifacts.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Section => "Section",
@@ -21,6 +21,17 @@ impl SelectionUnit {
             Self::Line => "Line",
             Self::Sentence => "Sentence",
             Self::Word => "Word",
+        }
+    }
+
+    /// Lowercase variant used for the footer mode indicator.
+    pub fn mode_str(self) -> &'static str {
+        match self {
+            Self::Section => "section",
+            Self::Paragraph => "paragraph",
+            Self::Line => "line",
+            Self::Sentence => "sentence",
+            Self::Word => "word",
         }
     }
 }

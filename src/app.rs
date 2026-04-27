@@ -978,13 +978,7 @@ impl App {
 
     /// Stable string for the mode indicator in the left zone of the footer.
     pub fn mode_indicator(&self) -> &'static str {
-        match self.selection_state.anchor.unit {
-            SelectionUnit::Section => "section",
-            SelectionUnit::Paragraph => "paragraph",
-            SelectionUnit::Line => "line",
-            SelectionUnit::Sentence => "sentence",
-            SelectionUnit::Word => "word",
-        }
+        self.selection_state.anchor.unit.mode_str()
     }
 
     /// Phase-3a compat shim still consumed by some legacy app tests; phase 6
