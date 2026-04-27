@@ -1,0 +1,25 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 1
+CONTEXT:
+  target: "First sentence here."
+CHANGE: "A"
+
+ACTION: revise-to-incorporate-feedback
+WHERE: line 1
+CONTEXT:
+  target: "Second sentence here."
+FEEDBACK: "B"
+
+ACTION: insert-before
+WHERE: line 3
+CONTEXT:
+  target: "Another paragraph."
+INSERT: "C"
+
+ACTION: insert-after
+WHERE: line 3
+CONTEXT:
+  target: "Another paragraph."
+INSERT: "D"

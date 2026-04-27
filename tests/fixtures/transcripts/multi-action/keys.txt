@@ -1,0 +1,17 @@
+# Apply change, feedback, insert-before, and insert-after on different
+# nodes; emit shows all four ACTION blocks.
+c
+A
+Enter
+j
+f
+B
+Enter
+j
+b
+C
+Enter
+a
+D
+Enter
+q
