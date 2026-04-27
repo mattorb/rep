@@ -1,8 +1,10 @@
 //! Selection index — the eager, owned navigation cache built from a parsed
-//! `Document` at load time. Holds per-node selection plain text, sentence
-//! ranges, source-line ranges, word ranges, the document-level
-//! paragraph/line/sentence/word linear-order tables, and the section table.
-//! See `modular_plan.md` § "Internal representation" for the contract.
+//! `Document` at load time.
+//!
+//! Holds per-node selection plain text, sentence ranges, source-line ranges,
+//! word ranges, the document-level paragraph/line/sentence/word linear-order
+//! tables, and the section table. See `modular_plan.md` § "Internal
+//! representation" for the contract.
 
 use std::ops::Range;
 

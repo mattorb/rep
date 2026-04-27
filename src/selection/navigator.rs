@@ -1,7 +1,8 @@
-//! Pure navigation: `next`, `prev`, `clamp`. Operates against an immutable
-//! `SelectionIndex` and a `SelectionAnchor`. Returns `NavOutcome::Boundary`
-//! when there is no further anchor of the requested unit; selection state is
-//! unchanged on a boundary outcome.
+//! Pure navigation: `next`, `prev`, `clamp`.
+//!
+//! Operates against an immutable `SelectionIndex` and a `SelectionAnchor`.
+//! Returns `NavOutcome::Boundary` when there is no further anchor of the
+//! requested unit; selection state is unchanged on a boundary outcome.
 //!
 //! All five units (Section / Paragraph / Line / Sentence / Word) traverse via
 //! the linear-order tables in `SelectionIndex`; clamp re-anchors via the same
@@ -86,6 +87,7 @@ fn locate(table: &[(usize, usize)], node_idx: usize, unit_idx: usize) -> Option<
 }
 
 /// Re-anchor onto the requested target unit per the pinned `clamp` rules.
+///
 /// Looks up the target's linear table; for upgrades and downgrades within
 /// the current node, returns the matching entry. Out-of-current-node
 /// targets walk backward then forward in document order; if neither

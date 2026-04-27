@@ -1,7 +1,9 @@
 //! Selection model types: `SelectionUnit`, `SelectionAnchor`, `SelectionState`,
-//! `NavOutcome`. The canonical `(node_idx, unit, unit_idx)` anchor lives on
-//! `SelectionAnchor`; `SelectionState` is a thin wrapper to give future
-//! state (mode-cycle history, etc.) a home without changing call sites.
+//! `NavOutcome`.
+//!
+//! The canonical `(node_idx, unit, unit_idx)` anchor lives on `SelectionAnchor`;
+//! `SelectionState` is a thin wrapper to give future state (mode-cycle
+//! history, etc.) a home without changing call sites.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SelectionUnit {

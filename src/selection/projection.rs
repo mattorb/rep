@@ -1,7 +1,9 @@
-//! Anchor → highlight projection. Given a `SelectionAnchor` and the
-//! `SelectionIndex`, return what the render layer should paint:
-//! `Highlight::Range(node, byte_range)` for Word / Sentence / Line /
-//! Paragraph and `Highlight::Section(Vec<node_idx>)` for Section.
+//! Anchor → highlight projection.
+//!
+//! Given a `SelectionAnchor` and the `SelectionIndex`, return what the
+//! render layer should paint: `Highlight::Range(node, byte_range)` for
+//! Word / Sentence / Line / Paragraph and `Highlight::Section(Vec<node_idx>)`
+//! for Section.
 //!
 //! The byte ranges live in selection plain text — the renderer's display
 //! plain text may differ for nodes with markers (footnote refs, task
