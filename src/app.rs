@@ -379,7 +379,11 @@ impl App {
             .with_context(|| format!("failed to read markdown file: {}", path.display()))?;
 
         let source_lines: Vec<String> = raw.lines().map(ToOwned::to_owned).collect();
-        let ast_text = markdown::to_mdast(&raw, &markdown::ParseOptions::default())
+        // Match Document::parse's options so the AST popup shows the same
+        // tree the selection layer reads — otherwise tables, strikethrough,
+        // and footnote refs would render in the popup with one shape and
+        // be parsed by Document with another.
+        let ast_text = markdown::to_mdast(&raw, &markdown::ParseOptions::gfm())
             .map(|node| format!("{node:#?}"))
             .unwrap_or_else(|_| "Failed to parse AST".to_string());
         let ast_lines: Vec<String> = ast_text.lines().map(ToOwned::to_owned).collect();
