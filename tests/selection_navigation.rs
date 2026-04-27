@@ -59,15 +59,16 @@ fn line_walk_visits_every_line_in_a_multiline_paragraph() {
 fn word_walk_skips_punctuation_between_words() {
     let src = "First, second; third!";
     let idx = build(src);
-    let words: Vec<String> = idx.sentences.iter().map(|(n, _)| n).fold(
-        Vec::new(),
-        |mut acc, &n| {
-            for r in &idx.nodes[n].word_ranges {
-                acc.push(idx.nodes[n].selection_plain_text[r.clone()].to_string());
-            }
-            acc
-        },
-    );
+    let words: Vec<String> =
+        idx.sentences
+            .iter()
+            .map(|(n, _)| n)
+            .fold(Vec::new(), |mut acc, &n| {
+                for r in &idx.nodes[n].word_ranges {
+                    acc.push(idx.nodes[n].selection_plain_text[r.clone()].to_string());
+                }
+                acc
+            });
     // No punctuation should appear inside the word ranges.
     for w in &words {
         assert!(

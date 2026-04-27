@@ -35,7 +35,14 @@ fn word_segmentation_round_trips_per_unit_text() {
     let words: Vec<&str> = segment_words(s).into_iter().map(|r| &s[r]).collect();
     assert_eq!(
         words,
-        vec!["state-of-the-art", "foo", "bar", "2026-04-24", "don't", "U.S.A"]
+        vec![
+            "state-of-the-art",
+            "foo",
+            "bar",
+            "2026-04-24",
+            "don't",
+            "U.S.A"
+        ]
     );
 }
 

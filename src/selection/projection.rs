@@ -8,7 +8,7 @@
 
 use std::ops::Range;
 
-use crate::selection::index::{SectionKind, SelectionIndex};
+use crate::selection::index::SelectionIndex;
 use crate::selection::model::{SelectionAnchor, SelectionUnit};
 
 /// What the render layer paints for a single anchor.

@@ -7,7 +7,8 @@
 //! segmentation logic — every reader of sentence ranges goes through this
 //! function.
 //!
-//! `segment_words` is reserved for phase 5.
+//! `segment_words` follows the pinned word-boundary rules and is the
+//! canonical word segmenter.
 
 use std::ops::Range;
 
@@ -15,9 +16,9 @@ use crate::document::DocNode;
 
 /// Selection plain text for a single node, with markdown markers stripped per
 /// the pinned visibility rules (footnote refs, task markers, image wrappers,
-/// code-block fences). Phase 1's implementation is the conservative one in
-/// `selection::index`; phase 2 keeps that for now and expands the rules in
-/// later phases.
+/// code-block fences). The canonical implementation lives in
+/// `selection::index::node_selection_plain_text`; this is the single
+/// entrypoint the rest of the selection / annotation layer reads.
 pub fn plain_text_for_node(node: &DocNode, source_lines: &[String]) -> String {
     crate::selection::index::node_selection_plain_text(node, source_lines)
 }

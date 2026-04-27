@@ -1,9 +1,8 @@
 //! Selection index — the eager, owned navigation cache built from a parsed
-//! `Document` at load time. Phase-1 ships per-node selection plain text,
-//! sentence ranges, source-line ranges, paragraph/line/sentence linear-order
-//! tables, and the section table. Word ranges come in phase 5.
-
-#![allow(unused)]
+//! `Document` at load time. Holds per-node selection plain text, sentence
+//! ranges, source-line ranges, word ranges, the document-level
+//! paragraph/line/sentence/word linear-order tables, and the section table.
+//! See `modular_plan.md` § "Internal representation" for the contract.
 
 use std::ops::Range;
 
@@ -31,7 +30,7 @@ pub struct NodeIndex {
     pub source_line_ranges: Vec<(usize, Range<usize>)>,
     /// Sentence byte ranges within `selection_plain_text`.
     pub sentence_ranges: Vec<Range<usize>>,
-    /// Word byte ranges within `selection_plain_text`. Empty until phase 5.
+    /// Word byte ranges within `selection_plain_text`.
     pub word_ranges: Vec<Range<usize>>,
 }
 
@@ -139,10 +138,8 @@ impl SelectionIndex {
 }
 
 /// Compute selection plain text for a node, stripping markers per Req 11.
-///
-/// Phase-1 implementation routes through existing helpers where it can.
-/// Phase-2 will own the canonical visibility-rule implementation and delete
-/// duplicates elsewhere.
+/// This is the canonical implementation; `selection::segment::plain_text_for_node`
+/// re-exports it as the single visible entrypoint.
 pub(crate) fn node_selection_plain_text(node: &DocNode, source_lines: &[String]) -> String {
     match node {
         DocNode::Heading { text, .. } => text.clone(),

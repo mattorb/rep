@@ -1,10 +1,7 @@
 //! Selection model types: `SelectionUnit`, `SelectionAnchor`, `SelectionState`,
-//! `NavOutcome`.
-//!
-//! Phase-1 will land the canonical `(node_idx, unit, unit_idx)` anchor; this
-//! file is the stub.
-
-#![allow(unused)]
+//! `NavOutcome`. The canonical `(node_idx, unit, unit_idx)` anchor lives on
+//! `SelectionAnchor`; `SelectionState` is a thin wrapper to give future
+//! state (mode-cycle history, etc.) a home without changing call sites.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SelectionUnit {

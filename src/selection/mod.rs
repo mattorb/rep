@@ -5,8 +5,6 @@
 //! per-node selection-plain-text view, the eager selection index, the pure
 //! navigator, and anchor-to-highlight projection.
 
-#![allow(unused)]
-
 pub mod index;
 pub mod model;
 pub mod navigator;
