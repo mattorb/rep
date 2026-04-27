@@ -1859,7 +1859,7 @@ impl App {
         }
 
         if self.show_help {
-            self.draw_help(frame, area);
+            Self::draw_help(frame, area);
         }
 
         if self.ast_view_scroll.is_some() {
@@ -1958,7 +1958,7 @@ impl App {
         );
     }
 
-    fn draw_help(&self, frame: &mut Frame, area: Rect) {
+    fn draw_help(frame: &mut Frame, area: Rect) {
         let help_lines = vec![
             Line::from(Span::styled(
                 "  nav  next/prev",
