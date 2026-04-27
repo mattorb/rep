@@ -308,8 +308,14 @@ fn clamp_range(r: &Range<usize>, len: usize) -> Range<usize> {
 
 /// Truncate `s` to fit within `max_cols` terminal columns, accounting for
 /// wide-width characters (CJK, emoji). Wraps zero-width chars (combining
-/// marks) into the preceding character's column count.
+/// marks) into the preceding character's column count. Returns an empty
+/// string when `max_cols == 0`, including for inputs that begin with a
+/// zero-width character (an orphaned combining mark renders unpredictably
+/// across terminals; "no output" is the safer choice).
 fn truncate_to_columns(s: &str, max_cols: usize) -> String {
+    if max_cols == 0 {
+        return String::new();
+    }
     let mut out = String::new();
     let mut used = 0usize;
     for ch in s.chars() {
@@ -3854,6 +3860,15 @@ mod tests {
         let s = "cafe\u{0301}";
         assert_eq!(super::truncate_to_columns(s, 4), s);
         assert_eq!(super::truncate_to_columns(s, 3), "caf");
+    }
+
+    #[test]
+    fn truncate_to_columns_zero_budget_yields_empty_even_for_combining_mark() {
+        // Edge case: a string starting with a zero-width char and a budget
+        // of 0. Without the explicit guard the loop's "used + 0 > 0" check
+        // is false, so the orphaned mark would slip through. Guard wins.
+        assert_eq!(super::truncate_to_columns("\u{0301}abc", 0), "");
+        assert_eq!(super::truncate_to_columns("abc", 0), "");
     }
 
     #[test]
