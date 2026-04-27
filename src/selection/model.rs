@@ -107,6 +107,41 @@ mod tests {
     }
 
     #[test]
+    fn as_str_is_capitalized_for_goldens() {
+        // anchor.golden.txt fixtures store the unit name capitalized;
+        // a typo here would break every transcript fixture.
+        assert_eq!(SelectionUnit::Section.as_str(), "Section");
+        assert_eq!(SelectionUnit::Paragraph.as_str(), "Paragraph");
+        assert_eq!(SelectionUnit::Line.as_str(), "Line");
+        assert_eq!(SelectionUnit::Sentence.as_str(), "Sentence");
+        assert_eq!(SelectionUnit::Word.as_str(), "Word");
+    }
+
+    #[test]
+    fn mode_str_is_lowercase_for_footer() {
+        // footer renders `mode: <name>`; the mode_str values are visible
+        // in the TUI status zone.
+        assert_eq!(SelectionUnit::Section.mode_str(), "section");
+        assert_eq!(SelectionUnit::Word.mode_str(), "word");
+    }
+
+    #[test]
+    fn cycle_order_is_section_to_word_coarsest_first() {
+        // Space cycles forward through this array; the order matters for
+        // the keymap contract and is consumed by App::mode_cycle.
+        assert_eq!(
+            SelectionUnit::CYCLE_ORDER,
+            [
+                SelectionUnit::Section,
+                SelectionUnit::Paragraph,
+                SelectionUnit::Line,
+                SelectionUnit::Sentence,
+                SelectionUnit::Word,
+            ]
+        );
+    }
+
+    #[test]
     fn anchors_compare_by_components() {
         let a = SelectionAnchor::new(2, SelectionUnit::Sentence, 1);
         let b = SelectionAnchor::new(2, SelectionUnit::Sentence, 1);
