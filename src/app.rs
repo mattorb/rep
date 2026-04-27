@@ -3777,6 +3777,17 @@ mod tests {
     }
 
     #[test]
+    fn newlines_before_byte_basic() {
+        assert_eq!(super::newlines_before_byte("a\nb\nc", 0), 0);
+        assert_eq!(super::newlines_before_byte("a\nb\nc", 1), 0);
+        assert_eq!(super::newlines_before_byte("a\nb\nc", 2), 1);
+        assert_eq!(super::newlines_before_byte("a\nb\nc", 4), 2);
+        assert_eq!(super::newlines_before_byte("a\nb\nc", 5), 2);
+        // out-of-range byte is clamped silently — falls back to zero.
+        assert_eq!(super::newlines_before_byte("abc", 999), 0);
+    }
+
+    #[test]
     fn count_occurrences_before_basic() {
         assert_eq!(super::count_occurrences_before("a b a c a", "a", 0), 0);
         assert_eq!(super::count_occurrences_before("a b a c a", "a", 1), 1);
