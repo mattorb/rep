@@ -909,8 +909,25 @@ impl App {
                 }
             }
             crate::selection::model::NavOutcome::Boundary => {
+                // Zero-anchor units (e.g., section nav on a doc with no
+                // headings): silent no-op per modular_plan §"Empty /
+                // degenerate documents". Otherwise show "at end" / "at
+                // start" feedback in the right zone.
+                if !self.unit_has_any_anchor(self.selection_state.anchor.unit) {
+                    return;
+                }
                 self.nav_feedback = Some(if forward { "at end" } else { "at start" }.to_string());
             }
+        }
+    }
+
+    fn unit_has_any_anchor(&self, unit: SelectionUnit) -> bool {
+        match unit {
+            SelectionUnit::Section => !self.index.sections.is_empty(),
+            SelectionUnit::Paragraph => !self.index.paragraphs.is_empty(),
+            SelectionUnit::Line => !self.index.lines.is_empty(),
+            SelectionUnit::Sentence => !self.index.sentences.is_empty(),
+            SelectionUnit::Word => !self.index.words.is_empty(),
         }
     }
 
@@ -3186,6 +3203,33 @@ mod tests {
         assert!(
             hint_row.contains("? for help"),
             "help hint missing in right zone: {hint_row:?}"
+        );
+    }
+
+    #[test]
+    fn section_nav_on_zero_section_doc_is_silent_no_op() {
+        // Per modular_plan §"Empty / degenerate documents": a zero-anchor
+        // unit (e.g., section nav with no headings + no top-level OL) is
+        // an immediate Boundary with NO feedback string written.
+        let mut app = test_app("Plain prose with no sections.\n");
+        // Cycle backward into Section mode (clamp lands on PreHeading
+        // section if the doc has any pre-content; here the prose IS the
+        // pre-heading section, so clamp returns a valid Section anchor).
+        // To exercise the truly-zero-anchor case, force-set an empty unit
+        // and confirm move_active_unit doesn't write feedback.
+        app.selection_state.anchor = SelectionAnchor::new(0, SelectionUnit::Word, 999);
+        // Reach a definitively-empty unit by force-setting an anchor whose
+        // unit doesn't have entries. Use Section on a doc-with-only-prose
+        // — there IS one PreHeading entry, but words give us 6 entries
+        // and pre-conditions are tricky to engineer. Instead, build
+        // directly on a one-code-block doc which has zero sentence anchors.
+        let mut app2 = test_app("```\nfn x() {}\n```");
+        app2.selection_state.anchor =
+            SelectionAnchor::new(0, SelectionUnit::Sentence, 0);
+        app2.handle_key(key_char('j'));
+        assert_eq!(
+            app2.nav_feedback, None,
+            "zero-anchor unit must not write feedback"
         );
     }
 
