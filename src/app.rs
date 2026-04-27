@@ -410,6 +410,13 @@ pub struct App {
     nav_feedback: Option<String>,
     pub should_quit: bool,
     pub silent_quit: bool,
+    /// True after `q` is pressed but before the user has confirmed or
+    /// cancelled. While pending, `handle_normal_key` only accepts keys
+    /// that resolve the prompt (y/Y/q/Enter to confirm, n/N/Esc to
+    /// cancel); other keys are ignored so the user can re-read the
+    /// prompt without losing it. `Q` and Ctrl-C bypass confirmation
+    /// entirely (already-deliberate exits).
+    quit_confirm_pending: bool,
     /// Some(urls) when the link popup is visible; None when hidden. The
     /// urls and the visibility flag used to be two separate fields, which
     /// allowed inconsistent state (visible-but-empty / hidden-with-urls).
@@ -479,6 +486,7 @@ impl App {
             status: "Loaded file. Press q to quit and print annotations.".to_string(),
             should_quit: false,
             silent_quit: false,
+            quit_confirm_pending: false,
             link_popup_urls: None,
             show_help: false,
             ast_view_scroll: None,
@@ -521,6 +529,23 @@ impl App {
 
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.should_quit = true;
+            return;
+        }
+
+        if self.quit_confirm_pending {
+            match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Char('q') | KeyCode::Enter => {
+                    self.should_quit = true;
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                    self.quit_confirm_pending = false;
+                    self.status = "Quit cancelled.".to_string();
+                }
+                _ => {
+                    // Other keys are ignored so a stray keystroke doesn't
+                    // accidentally answer the prompt.
+                }
+            }
             return;
         }
 
@@ -572,7 +597,10 @@ impl App {
         }
 
         match key.code {
-            KeyCode::Char('q') => self.should_quit = true,
+            KeyCode::Char('q') => {
+                self.quit_confirm_pending = true;
+                self.status = "Are you sure? (results go to stdout)  y / n".to_string();
+            }
             KeyCode::Char('Q') => {
                 self.silent_quit = true;
                 self.should_quit = true;
@@ -2079,7 +2107,7 @@ impl App {
             Line::from("  e  edit existing change/feedback"),
             Line::from("  x  clear annotation, or strike (sentence mode only)"),
             Line::from("  r  copy result to clipboard"),
-            Line::from("  q  Q          quit · silent quit"),
+            Line::from("  q  Q          quit (confirm y/n) · silent quit"),
             Line::from("  ? / Esc       help · close"),
         ];
 
@@ -4780,5 +4808,63 @@ mod tests {
             highlighted.ends_with("working the plan."),
             "highlight must cover trailing text, got highlighted={highlighted:?}"
         );
+    }
+
+    #[test]
+    fn q_requires_confirmation_then_y_quits() {
+        let mut app = test_app("Body.\n");
+        app.handle_key(key_char('q'));
+        assert!(
+            !app.should_quit,
+            "first q must arm the confirmation, not quit"
+        );
+        assert!(app.quit_confirm_pending);
+        assert!(app.status.contains("Are you sure?"));
+
+        app.handle_key(key_char('y'));
+        assert!(app.should_quit, "y after q must confirm the quit");
+        assert!(
+            !app.silent_quit,
+            "regular q-quit emits results — silent_quit must stay false"
+        );
+    }
+
+    #[test]
+    fn q_then_n_cancels_quit() {
+        let mut app = test_app("Body.\n");
+        app.handle_key(key_char('q'));
+        app.handle_key(key_char('n'));
+        assert!(!app.should_quit, "n must cancel the quit");
+        assert!(!app.quit_confirm_pending, "n must clear the pending flag");
+        assert!(app.status.contains("cancelled") || app.status.contains("Cancel"));
+    }
+
+    #[test]
+    fn q_then_q_double_tap_confirms() {
+        let mut app = test_app("Body.\n");
+        app.handle_key(key_char('q'));
+        app.handle_key(key_char('q'));
+        assert!(app.should_quit, "q-q double tap should confirm the quit");
+    }
+
+    #[test]
+    fn unrelated_key_during_confirm_is_ignored() {
+        let mut app = test_app("Body.\n");
+        app.handle_key(key_char('q'));
+        app.handle_key(key_char('j'));
+        assert!(!app.should_quit, "unrelated key must not confirm quit");
+        assert!(
+            app.quit_confirm_pending,
+            "unrelated key must leave the prompt pending"
+        );
+    }
+
+    #[test]
+    fn capital_q_quits_silently_without_confirmation() {
+        let mut app = test_app("Body.\n");
+        app.handle_key(KeyEvent::new(KeyCode::Char('Q'), KeyModifiers::NONE));
+        assert!(app.should_quit, "Q must quit immediately");
+        assert!(app.silent_quit, "Q must set silent_quit");
+        assert!(!app.quit_confirm_pending, "Q must not arm the confirmation");
     }
 }
