@@ -1731,11 +1731,12 @@ impl App {
                 } = node
                 {
                     let raw = &self.source_lines[clamp_range(range, self.source_lines.len())];
+                    let range_start = range.start;
                     let mut display_lines: Vec<Line> = raw
                         .iter()
                         .enumerate()
                         .map(|(i, line)| {
-                            let style = if line.trim_start().starts_with("```") {
+                            let base_style = if line.trim_start().starts_with("```") {
                                 Style::default().fg(Color::DarkGray)
                             } else {
                                 Style::default().fg(Color::White).bg(Color::DarkGray)
@@ -1745,7 +1746,23 @@ impl App {
                             } else {
                                 Span::raw("  ")
                             }];
-                            spans.push(Span::styled(line.clone(), style));
+                            // Overlay highlight + strikes on this source
+                            // line by mapping the active anchor's
+                            // selection-view byte range (and each strike
+                            // range) into bytes within `line`. Without
+                            // this, code blocks rendered with no visible
+                            // cursor — the special draw path used to
+                            // bypass render_node_spans entirely so
+                            // word-mode highlight on a fenced code block
+                            // (e.g. YAML frontmatter folded as a
+                            // CodeBlock) showed nothing.
+                            self.push_codeblock_line_spans(
+                                &mut spans,
+                                node_idx,
+                                range_start + i,
+                                line,
+                                base_style,
+                            );
                             Line::from(spans)
                         })
                         .collect();
@@ -2380,6 +2397,145 @@ impl App {
                 Some(pos..pos + word_text.len())
             }
             SelectionUnit::Section => None,
+        }
+    }
+
+    /// Push styled span(s) for one source line of a code block, overlaying
+    /// the active highlight and any strike ranges that intersect this line.
+    /// `node_idx` identifies the code block; `source_line` is the absolute
+    /// line index in `self.source_lines`; `line` is its raw text;
+    /// `base_style` is the code-block paint (DarkGray fence vs
+    /// White-on-DarkGray content). The active anchor and strike entries
+    /// store byte ranges in selection_plain_text — we map each into bytes
+    /// within `line` via the index's source_line_ranges table, then split
+    /// the span at the overlap so the highlight paints precisely.
+    fn push_codeblock_line_spans(
+        &self,
+        spans: &mut Vec<Span<'static>>,
+        node_idx: usize,
+        source_line: usize,
+        line: &str,
+        base_style: Style,
+    ) {
+        // Translate a (selection-view) byte range to a (line-local)
+        // byte range when the active node's source_line_ranges has an
+        // entry for this source line.
+        let line_local = |range: Range<usize>| -> Option<Range<usize>> {
+            let node = self.index.nodes.get(node_idx)?;
+            let (_, line_range) = node
+                .source_line_ranges
+                .iter()
+                .find(|(l, _)| *l == source_line)?;
+            if range.end <= line_range.start || range.start >= line_range.end {
+                return None;
+            }
+            let start = range.start.max(line_range.start) - line_range.start;
+            let end = range.end.min(line_range.end) - line_range.start;
+            // Don't paint a zero-width highlight on an empty intersection.
+            if end <= start {
+                return None;
+            }
+            Some(start..end)
+        };
+
+        // Active anchor → highlight range on this line. Section-mode
+        // whole-node highlight is handled separately below.
+        let highlight_local = if self
+            .section_highlight_range
+            .as_ref()
+            .is_some_and(|r| r.contains(&node_idx))
+        {
+            Some(0..line.len())
+        } else if node_idx == self.selection_state.anchor.node_idx {
+            let unit = self.selection_state.anchor.unit;
+            let unit_idx = self.selection_state.anchor.unit_idx;
+            // Use the index's selection-view byte ranges directly so we
+            // don't double-walk through unit_byte_range_in_display
+            // (which is for paragraph-style display plain text).
+            let node = self.index.nodes.get(node_idx);
+            let active_range = node.and_then(|n| match unit {
+                SelectionUnit::Word => n.word_ranges.get(unit_idx).cloned(),
+                SelectionUnit::Sentence => n.sentence_ranges.get(unit_idx).cloned(),
+                SelectionUnit::Line => n.source_line_ranges.get(unit_idx).map(|(_, r)| r.clone()),
+                SelectionUnit::Paragraph => Some(0..n.selection_plain_text.len()),
+                SelectionUnit::Section => None,
+            });
+            active_range.and_then(line_local)
+        } else {
+            None
+        };
+
+        // Strike ranges on this line.
+        let strike_local: Vec<Range<usize>> = self
+            .strikes
+            .get(&node_idx)
+            .map(|set| {
+                set.iter()
+                    .filter_map(|&(unit, idx)| {
+                        let node = self.index.nodes.get(node_idx)?;
+                        let r = match unit {
+                            SelectionUnit::Word => node.word_ranges.get(idx).cloned()?,
+                            SelectionUnit::Sentence => node.sentence_ranges.get(idx).cloned()?,
+                            SelectionUnit::Line => {
+                                node.source_line_ranges.get(idx).map(|(_, r)| r.clone())?
+                            }
+                            SelectionUnit::Paragraph => 0..node.selection_plain_text.len(),
+                            SelectionUnit::Section => return None,
+                        };
+                        line_local(r)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Build segment boundaries.
+        let mut bounds = vec![0, line.len()];
+        if let Some(r) = &highlight_local {
+            bounds.push(r.start);
+            bounds.push(r.end);
+        }
+        for r in &strike_local {
+            bounds.push(r.start);
+            bounds.push(r.end);
+        }
+        bounds.sort_unstable();
+        bounds.dedup();
+
+        for pair in bounds.windows(2) {
+            let (start, end) = (pair[0], pair[1]);
+            if start >= end {
+                continue;
+            }
+            let Some(text) = line.get(start..end) else {
+                continue;
+            };
+            if text.is_empty() {
+                continue;
+            }
+            let mut style = base_style;
+            if highlight_local
+                .as_ref()
+                .is_some_and(|r| start < r.end && end > r.start)
+            {
+                style = style.patch(
+                    Style::default()
+                        .bg(Color::Blue)
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD),
+                );
+            }
+            if strike_local.iter().any(|r| start < r.end && end > r.start) {
+                style = style.patch(
+                    Style::default()
+                        .fg(Color::Red)
+                        .add_modifier(Modifier::CROSSED_OUT | Modifier::DIM),
+                );
+            }
+            spans.push(Span::styled(text.to_string(), style));
+        }
+
+        if spans.is_empty() {
+            spans.push(Span::styled(line.to_string(), base_style));
         }
     }
 
@@ -4079,6 +4235,52 @@ mod tests {
         app.handle_key(key_char('j'));
         let spans2 = app.render_node_spans(0);
         assert_eq!(highlighted_text(&spans2), "in");
+    }
+
+    #[test]
+    fn word_mode_highlight_paints_inside_code_block_yaml_frontmatter() {
+        // Regression: the special code-block draw branch in App::draw used
+        // to bypass render_node_spans entirely, so word-mode highlight on a
+        // code block (including YAML frontmatter folded as CodeBlock(yaml))
+        // showed nothing on screen even though the anchor advanced.
+        //
+        // Render the full frame to a TestBackend and scan the output for a
+        // cell with the highlight bg color (Color::Blue). The frontmatter
+        // must paint the active anchor on every j step.
+        let mut app = test_app("---\ntitle: Hello\n---\n\nBody.\n");
+        // Cycle into Word mode (Space x1) — anchor is now on the first
+        // word in the YAML CodeBlock.
+        app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+        assert_eq!(app.selection_state.anchor.node_idx, 0);
+
+        let terminal = render(&mut app);
+        let buf = terminal.backend().buffer();
+        // Hunt for any cell with bg=Blue, the highlight color used by
+        // both render_node_spans and the new code-block overlay.
+        let mut highlighted = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                let cell = buf
+                    .cell(ratatui::layout::Position::new(x, y))
+                    .expect("cell");
+                if cell.bg == Color::Blue {
+                    highlighted.push_str(cell.symbol());
+                }
+            }
+        }
+        assert!(
+            !highlighted.is_empty(),
+            "expected a Blue-bg highlight cell on the YAML frontmatter word; \
+             scanned buffer found none"
+        );
+        // The active anchor on Space-cycle is the first word; the
+        // frontmatter content is `title: Hello`, so word 0 is "title".
+        // Allow a substring match so we don't overspecify.
+        assert!(
+            highlighted.contains("title") || highlighted.contains("Hello"),
+            "highlight cells didn't include a frontmatter word; got {highlighted:?}"
+        );
     }
 
     #[test]
