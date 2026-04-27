@@ -2174,6 +2174,53 @@ impl App {
         (" ", Style::default().fg(Color::DarkGray))
     }
 
+    /// Compute the byte range in the rendered display plain text that the
+    /// active selection unit should paint. Returns None when the active
+    /// anchor doesn't resolve to a paintable range on this node (the
+    /// section_highlight_range path covers Section selections).
+    fn unit_highlight_for(
+        &self,
+        _node_idx: usize,
+        plain: &str,
+        sentence_ranges: &[Range<usize>],
+    ) -> Option<Range<usize>> {
+        let unit_idx = self.selection_state.anchor.unit_idx;
+        match self.selection_state.anchor.unit {
+            SelectionUnit::Sentence => sentence_ranges.get(unit_idx).cloned(),
+            SelectionUnit::Paragraph => Some(0..plain.len()),
+            SelectionUnit::Line => {
+                // Paint the unit_idx-th `\n`-delimited segment of plain.
+                // For single-line nodes this is the whole plain text.
+                let mut start = 0usize;
+                let mut current = 0usize;
+                let bytes = plain.as_bytes();
+                let mut i = 0usize;
+                while i < bytes.len() {
+                    if bytes[i] == b'\n' {
+                        if current == unit_idx {
+                            return Some(start..i);
+                        }
+                        current += 1;
+                        start = i + 1;
+                    }
+                    i += 1;
+                }
+                if current == unit_idx {
+                    Some(start..plain.len())
+                } else {
+                    Some(0..plain.len())
+                }
+            }
+            SelectionUnit::Word => {
+                // Best-effort: find the unit_idx-th word in the rendered
+                // display plain text using the canonical word segmenter.
+                let words = crate::selection::segment::segment_words(plain);
+                words.get(unit_idx).cloned().or(Some(0..plain.len()))
+            }
+            SelectionUnit::Section => None,
+        }
+    }
+
     fn render_node_spans(&self, node_idx: usize) -> Vec<Span<'static>> {
         let Some(rn) = self.rendered_nodes.get(node_idx) else {
             return vec![Span::styled(
@@ -2232,9 +2279,7 @@ impl App {
         {
             Some(0..plain_len)
         } else if node_idx == self.selection_state.anchor.node_idx {
-            sentence_ranges
-                .get(self.selection_state.anchor.unit_idx)
-                .cloned()
+            self.unit_highlight_for(node_idx, plain, sentence_ranges)
         } else {
             None
         };
