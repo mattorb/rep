@@ -788,7 +788,6 @@ impl App {
         // search jump always anchors at sentence granularity regardless of
         // the active unit at search time.
         self.selection_state.anchor = SelectionAnchor::new(ni, SelectionUnit::Sentence, si);
-        self.section_highlight_range = None;
         self.clamp_sentence();
         self.status = format!(
             "Match {}/{} for \"{}\".",
@@ -881,7 +880,6 @@ impl App {
             return;
         }
         self.selection_state.anchor.node_idx = target;
-        self.section_highlight_range = None;
         self.clamp_sentence();
         self.status = format!(
             "Node {}/{}",
@@ -1077,11 +1075,17 @@ impl App {
         } else {
             self.selection_state.anchor.unit_idx.min(total - 1)
         };
-        self.selection_state.anchor = SelectionAnchor::new(
+        let new_anchor = SelectionAnchor::new(
             self.selection_state.anchor.node_idx,
             SelectionUnit::Sentence,
             unit_idx,
         );
+        self.selection_state.anchor = new_anchor;
+        // Forced unit change (always to Sentence) — clear any stale section
+        // highlight from a prior Section-mode anchor; without this,
+        // jump_to_annotation / mouse-click / search-jump from Section mode
+        // would leave the section span painted.
+        self.refresh_section_highlight(new_anchor);
     }
 
     fn current_source_line(&self) -> usize {
@@ -4290,6 +4294,35 @@ mod tests {
         assert!(
             app.section_highlight_range.is_none(),
             "highlight cleared after cycling out of Section mode"
+        );
+    }
+
+    #[test]
+    fn jump_to_annotation_from_section_mode_clears_section_highlight() {
+        // In Section mode, []/[ jump to annotated nodes via clamp_sentence
+        // which forces unit -> Sentence. Without the refresh inside
+        // clamp_sentence the previous Section-mode highlight stuck around
+        // and the renderer kept painting the section span.
+        let mut app = test_app("# A\n\nfirst.\n\n# B\n\nsecond.\n");
+        app.changes.entry(2).or_default().push(ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Sentence,
+            sentence_index: Some(0),
+            sentence_text: Some("first.".into()),
+            change: "x".into(),
+        });
+        // Enter Section mode (Backspace x3 from Sentence default).
+        for _ in 0..3 {
+            app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        }
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Section);
+        assert!(app.section_highlight_range.is_some());
+        // `]` jumps forward to the next annotated node; clamp_sentence runs.
+        app.handle_key(key_char(']'));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Sentence);
+        assert!(
+            app.section_highlight_range.is_none(),
+            "section highlight must clear when clamp_sentence forces unit -> Sentence"
         );
     }
 
