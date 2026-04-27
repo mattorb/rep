@@ -11,10 +11,14 @@
 use crate::selection::index::SelectionIndex;
 use crate::selection::model::{NavOutcome, SelectionAnchor, SelectionUnit};
 
+/// Advance the anchor one step forward in its unit's linear-order table.
+/// Returns `Boundary` when no further anchor exists; selection state is
+/// the caller's responsibility to update on `Moved`.
 pub fn next(index: &SelectionIndex, anchor: SelectionAnchor) -> NavOutcome {
     step(index, anchor, true)
 }
 
+/// Symmetric to `next` — retreat one step in the active unit's table.
 pub fn prev(index: &SelectionIndex, anchor: SelectionAnchor) -> NavOutcome {
     step(index, anchor, false)
 }
