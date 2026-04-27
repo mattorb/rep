@@ -269,11 +269,6 @@ fn node_source_line_ranges(
     }
 }
 
-#[allow(dead_code)]
-fn node_is_sentence_bearing(node: &DocNode) -> bool {
-    !matches!(node, DocNode::ThematicBreak { .. })
-}
-
 /// True when a source line is a GFM table header-separator row, e.g.
 /// `| --- | --- |` with optional alignment colons.
 fn is_table_separator_line(line: &str) -> bool {
