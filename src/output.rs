@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 #[derive(Debug)]
-pub(crate) struct AgentOutput {
+pub struct AgentOutput {
     pub source_file: String,
     pub generated_at: String,
     pub keymap: KeymapOutput,
@@ -11,7 +11,7 @@ pub(crate) struct AgentOutput {
 
 #[cfg(test)]
 #[derive(Debug)]
-pub(crate) struct KeymapOutput {
+pub struct KeymapOutput {
     pub line_prev: String,
     pub line_next: String,
     pub sentence_prev: String,
@@ -35,7 +35,7 @@ pub(crate) struct KeymapOutput {
 
 #[cfg(test)]
 #[derive(Debug)]
-pub(crate) struct LineAnnotationOutput {
+pub struct LineAnnotationOutput {
     pub line_number: usize,
     pub line_text: String,
     pub context: LineContext,
@@ -48,7 +48,7 @@ pub(crate) struct LineAnnotationOutput {
 
 #[cfg(test)]
 #[derive(Debug)]
-pub(crate) struct LineContext {
+pub struct LineContext {
     pub previous_line: Option<String>,
     pub current_line: String,
     pub next_line: Option<String>,
@@ -56,7 +56,7 @@ pub(crate) struct LineContext {
 
 #[cfg(test)]
 #[derive(Debug)]
-pub(crate) struct ChangeOutput {
+pub struct ChangeOutput {
     pub created_at: String,
     pub sentence_index: Option<usize>,
     pub sentence_text: Option<String>,
@@ -65,7 +65,7 @@ pub(crate) struct ChangeOutput {
 
 #[cfg(test)]
 #[derive(Debug)]
-pub(crate) struct FeedbackOutput {
+pub struct FeedbackOutput {
     pub created_at: String,
     pub sentence_index: Option<usize>,
     pub sentence_text: Option<String>,
@@ -74,7 +74,7 @@ pub(crate) struct FeedbackOutput {
 
 #[cfg(test)]
 #[derive(Debug)]
-pub(crate) struct InsertOutput {
+pub struct InsertOutput {
     pub created_at: String,
     pub sentence_index: Option<usize>,
     pub sentence_text: Option<String>,
@@ -83,13 +83,13 @@ pub(crate) struct InsertOutput {
 
 #[cfg(test)]
 #[derive(Debug)]
-pub(crate) struct ReactionOutput {
+pub struct ReactionOutput {
     pub kind: String,
     pub sentence_index: usize,
     pub sentence_text: String,
 }
 
-pub(crate) fn clean_context(value: &str, max_chars: usize) -> String {
+pub fn clean_context(value: &str, max_chars: usize) -> String {
     if max_chars == 0 {
         return String::new();
     }
