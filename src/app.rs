@@ -982,7 +982,7 @@ impl App {
     }
 
     /// Stable string for the mode indicator in the left zone of the footer.
-    pub fn mode_indicator(&self) -> &'static str {
+    fn mode_indicator(&self) -> &'static str {
         self.selection_state.anchor.unit.mode_str()
     }
 
