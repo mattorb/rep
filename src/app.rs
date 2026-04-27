@@ -1792,10 +1792,18 @@ impl App {
         let mode_text = format!(" mode: {}", self.mode_indicator());
         let mode_style = Style::default().fg(Color::Cyan);
         let hint_style = Style::default().fg(Color::DarkGray);
+        // Right zone priority: transient nav_feedback (one-keypress
+        // boundary message) > transient notification (clipboard result) >
+        // persistent status (current mode / last action context) > help
+        // hint. The status field accumulates input-mode prompts and
+        // action-confirmation messages; without showing it the user never
+        // sees mode prompts like "Change mode: type text and press Enter."
         let right_text = if let Some(fb) = &self.nav_feedback {
             (fb.clone(), Style::default().fg(Color::Yellow))
         } else if let Some(note) = &self.notification {
             (note.clone(), Style::default().fg(Color::Green))
+        } else if !self.status.is_empty() {
+            (self.status.clone(), Style::default().fg(Color::Gray))
         } else {
             ("? for help ".to_string(), hint_style)
         };
@@ -3270,8 +3278,13 @@ mod tests {
     }
 
     #[test]
-    fn footer_shows_mode_indicator_and_help_hint() {
+    fn footer_shows_mode_indicator_and_status_or_hint() {
+        // Right zone priority is nav_feedback > notification > status >
+        // help hint. After test_app() the status carries the load
+        // confirmation, so it pre-empts the hint. Force-clear status to
+        // verify the help-hint fallback path.
         let mut app = test_app("line\n");
+        app.status.clear();
         let t = render(&mut app);
         let hint_row = row(&t, 23);
         assert!(
@@ -3280,7 +3293,19 @@ mod tests {
         );
         assert!(
             hint_row.contains("? for help"),
-            "help hint missing in right zone: {hint_row:?}"
+            "help hint missing in right zone (with empty status): {hint_row:?}"
+        );
+    }
+
+    #[test]
+    fn footer_shows_status_in_right_zone() {
+        let mut app = test_app("line\n");
+        app.status = "Match 1/2 for \"foo\".".to_string();
+        let t = render(&mut app);
+        let hint_row = row(&t, 23);
+        assert!(
+            hint_row.contains("Match 1/2"),
+            "status missing in right zone: {hint_row:?}"
         );
     }
 
