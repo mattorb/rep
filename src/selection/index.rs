@@ -282,7 +282,7 @@ fn build_section_table(doc: &Document) -> Vec<Section> {
         DocNode::ThematicBreak { .. } => false,
         DocNode::Heading { text, .. } => !text.is_empty(),
         DocNode::Paragraph { text, .. } => !text.is_empty(),
-        DocNode::ListItem { sentences, .. } => !sentences.is_empty(),
+        DocNode::ListItem { text, .. } => !text.is_empty(),
         DocNode::CodeBlock { content, .. } => !content.is_empty(),
     });
     if first_starter > 0 && pre_has_content {

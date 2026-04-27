@@ -12,6 +12,8 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use crate::document::{DocNode, Document};
 use crate::markdown::{MarkdownLinkRange, render_markdown_line};
 use crate::output::clean_context;
+use crate::selection::index::SelectionIndex;
+use crate::selection::model::{SelectionAnchor, SelectionState, SelectionUnit};
 #[cfg(test)]
 use crate::output::{
     AgentOutput, ChangeOutput, FeedbackOutput, InsertOutput, KeymapOutput, LineAnnotationOutput,
@@ -351,8 +353,13 @@ pub struct App {
     source_lines: Vec<String>,
     doc: Document,
     rendered_nodes: Vec<RenderedNode>,
-    cursor_node: usize,
-    cursor_sentence: usize,
+    /// Owned eager selection index built once at load time per Req 11.
+    /// Read by phase 3a's navigator extraction; stub-referenced today.
+    #[allow(dead_code)]
+    pub(crate) index: SelectionIndex,
+    /// Canonical selection state — `(node_idx, unit, unit_idx)`. Replaces the
+    /// pre-phase-1 `cursor_node` + `cursor_sentence` pair.
+    pub(crate) selection_state: SelectionState,
     /// When set by J/K, highlights every node from the section start through the node
     /// before the next section boundary. Cleared on the next j/k/h/l press.
     section_highlight_range: Option<Range<usize>>,
@@ -395,16 +402,22 @@ impl App {
         let ast_lines: Vec<String> = ast_text.lines().map(ToOwned::to_owned).collect();
         let doc = Document::parse(&raw);
         let rendered_nodes = build_rendered_nodes(&doc, &source_lines);
+        let index = SelectionIndex::build(&doc, &source_lines);
 
-        let cursor_node = doc.next_node_with_sentences(0).unwrap_or(0);
+        let initial_node = doc.next_node_with_sentences(0).unwrap_or(0);
+        let selection_state = SelectionState::new(SelectionAnchor::new(
+            initial_node,
+            SelectionUnit::Sentence,
+            0,
+        ));
 
         Ok(Self {
             source_path: path,
             source_lines,
             doc,
             rendered_nodes,
-            cursor_node,
-            cursor_sentence: 0,
+            index,
+            selection_state,
             section_highlight_range: None,
             changes: BTreeMap::new(),
             feedbacks: BTreeMap::new(),
@@ -433,13 +446,11 @@ impl App {
         })
     }
 
-    /// Phase-0 anchor adapter: returns the current selection in the canonical
-    /// `(node_idx, unit, unit_idx)` shape. Today's `App` only tracks
-    /// `cursor_node` + `cursor_sentence`, so the unit is always `Sentence`.
-    /// Phase 1 replaces `cursor_*` with `SelectionState` and this method reads
-    /// from there directly.
+    /// Returns the current selection in the canonical
+    /// `(node_idx, unit, unit_idx)` shape, used by the transcript harness.
     pub fn current_anchor(&self) -> (usize, &'static str, usize) {
-        (self.cursor_node, "Sentence", self.cursor_sentence)
+        let a = &self.selection_state.anchor;
+        (a.node_idx, a.unit.as_str(), a.unit_idx)
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
@@ -620,12 +631,12 @@ impl App {
                         change: trimmed,
                     };
                     self.changes
-                        .entry(self.cursor_node)
+                        .entry(self.selection_state.anchor.node_idx)
                         .or_default()
                         .push(annotation);
                     self.status = format!(
                         "Change saved on node {} (line {}).",
-                        self.cursor_node + 1,
+                        self.selection_state.anchor.node_idx + 1,
                         self.current_source_line() + 1
                     );
                 }
@@ -675,11 +686,11 @@ impl App {
                     } else {
                         &mut self.inserts_after
                     };
-                    bucket.entry(self.cursor_node).or_default().push(annotation);
+                    bucket.entry(self.selection_state.anchor.node_idx).or_default().push(annotation);
                     let label = if before { "before" } else { "after" };
                     self.status = format!(
                         "Insert {label} saved on node {} (line {}).",
-                        self.cursor_node + 1,
+                        self.selection_state.anchor.node_idx + 1,
                         self.current_source_line() + 1
                     );
                 }
@@ -768,7 +779,7 @@ impl App {
             self.status = format!("No matches for \"{query}\".");
             return;
         }
-        let current = (self.cursor_node, self.cursor_sentence);
+        let current = (self.selection_state.anchor.node_idx, self.selection_state.anchor.unit_idx);
         let target_idx = if forward {
             matches.iter().position(|m| *m >= current).unwrap_or(0)
         } else {
@@ -790,7 +801,7 @@ impl App {
             self.status = format!("No matches for \"{query}\".");
             return;
         }
-        let current = (self.cursor_node, self.cursor_sentence);
+        let current = (self.selection_state.anchor.node_idx, self.selection_state.anchor.unit_idx);
         let target_idx = if forward {
             matches.iter().position(|m| *m > current).unwrap_or(0)
         } else {
@@ -804,8 +815,8 @@ impl App {
 
     fn apply_search_target(&mut self, query: &str, matches: &[(usize, usize)], target_idx: usize) {
         let (ni, si) = matches[target_idx];
-        self.cursor_node = ni;
-        self.cursor_sentence = si;
+        self.selection_state.anchor.node_idx = ni;
+        self.selection_state.anchor.unit_idx = si;
         self.section_highlight_range = None;
         self.clamp_sentence();
         self.status = format!(
@@ -841,12 +852,12 @@ impl App {
                         feedback: trimmed,
                     };
                     self.feedbacks
-                        .entry(self.cursor_node)
+                        .entry(self.selection_state.anchor.node_idx)
                         .or_default()
                         .push(annotation);
                     self.status = format!(
                         "Feedback saved on node {} (line {}).",
-                        self.cursor_node + 1,
+                        self.selection_state.anchor.node_idx + 1,
                         self.current_source_line() + 1
                     );
                 }
@@ -872,7 +883,7 @@ impl App {
         }
         let steps = delta.unsigned_abs();
         let forward = delta.is_positive();
-        let mut target = self.cursor_node;
+        let mut target = self.selection_state.anchor.node_idx;
         let mut moved = 0usize;
 
         for _ in 0..steps {
@@ -894,10 +905,10 @@ impl App {
             };
             return;
         }
-        self.cursor_node = target;
+        self.selection_state.anchor.node_idx = target;
         self.section_highlight_range = None;
         self.clamp_sentence();
-        self.status = format!("Node {}/{}", self.cursor_node + 1, self.doc.node_count());
+        self.status = format!("Node {}/{}", self.selection_state.anchor.node_idx + 1, self.doc.node_count());
     }
 
     /// h/j/k/l: move sentence by sentence, crossing node boundaries.
@@ -909,20 +920,20 @@ impl App {
 
         let current_count = self
             .rendered_nodes
-            .get(self.cursor_node)
+            .get(self.selection_state.anchor.node_idx)
             .map(|rn| rn.sentence_ranges.len())
             .unwrap_or(0);
 
         if current_count == 0 {
             let next = if forward {
-                self.doc.next_node_with_sentences(self.cursor_node + 1)
+                self.doc.next_node_with_sentences(self.selection_state.anchor.node_idx + 1)
             } else {
-                self.doc.prev_node_with_sentences(self.cursor_node)
+                self.doc.prev_node_with_sentences(self.selection_state.anchor.node_idx)
             };
             match next {
                 Some(idx) => {
-                    self.cursor_node = idx;
-                    self.cursor_sentence = if forward {
+                    self.selection_state.anchor.node_idx = idx;
+                    self.selection_state.anchor.unit_idx = if forward {
                         0
                     } else {
                         self.rendered_nodes[idx]
@@ -937,17 +948,17 @@ impl App {
                 }
             }
         } else if forward {
-            if self.cursor_sentence + 1 < current_count {
-                self.cursor_sentence += 1;
-            } else if let Some(idx) = self.doc.next_node_with_sentences(self.cursor_node + 1) {
-                self.cursor_node = idx;
-                self.cursor_sentence = 0;
+            if self.selection_state.anchor.unit_idx + 1 < current_count {
+                self.selection_state.anchor.unit_idx += 1;
+            } else if let Some(idx) = self.doc.next_node_with_sentences(self.selection_state.anchor.node_idx + 1) {
+                self.selection_state.anchor.node_idx = idx;
+                self.selection_state.anchor.unit_idx = 0;
             }
-        } else if self.cursor_sentence > 0 {
-            self.cursor_sentence -= 1;
-        } else if let Some(idx) = self.doc.prev_node_with_sentences(self.cursor_node) {
-            self.cursor_node = idx;
-            self.cursor_sentence = self.rendered_nodes[idx]
+        } else if self.selection_state.anchor.unit_idx > 0 {
+            self.selection_state.anchor.unit_idx -= 1;
+        } else if let Some(idx) = self.doc.prev_node_with_sentences(self.selection_state.anchor.node_idx) {
+            self.selection_state.anchor.node_idx = idx;
+            self.selection_state.anchor.unit_idx = self.rendered_nodes[idx]
                 .sentence_ranges
                 .len()
                 .saturating_sub(1);
@@ -955,17 +966,17 @@ impl App {
 
         let total = self
             .rendered_nodes
-            .get(self.cursor_node)
+            .get(self.selection_state.anchor.node_idx)
             .map(|rn| rn.sentence_ranges.len())
             .unwrap_or(0);
         self.status = if total == 0 {
-            format!("Node {} has no sentences.", self.cursor_node + 1)
+            format!("Node {} has no sentences.", self.selection_state.anchor.node_idx + 1)
         } else {
             format!(
                 "Sentence {}/{} on node {}",
-                self.cursor_sentence + 1,
+                self.selection_state.anchor.unit_idx + 1,
                 total,
-                self.cursor_node + 1
+                self.selection_state.anchor.node_idx + 1
             )
         };
     }
@@ -973,15 +984,15 @@ impl App {
     /// J/K: jump to the next/prev section heading or top-level ordered list item.
     fn move_section(&mut self, forward: bool) {
         let target = if forward {
-            self.doc.next_section(self.cursor_node.saturating_add(1))
+            self.doc.next_section(self.selection_state.anchor.node_idx.saturating_add(1))
         } else {
-            self.doc.prev_section(self.cursor_node)
+            self.doc.prev_section(self.selection_state.anchor.node_idx)
         };
 
         match target {
             Some(idx) => {
-                self.cursor_node = idx;
-                self.cursor_sentence = 0;
+                self.selection_state.anchor.node_idx = idx;
+                self.selection_state.anchor.unit_idx = 0;
                 let end = self
                     .doc
                     .next_section(idx + 1)
@@ -1002,15 +1013,15 @@ impl App {
     /// H/L: jump to the next/prev content block (entire lists count as one block).
     fn move_block(&mut self, forward: bool) {
         let target = if forward {
-            self.doc.next_block(self.cursor_node.saturating_add(1))
+            self.doc.next_block(self.selection_state.anchor.node_idx.saturating_add(1))
         } else {
-            self.doc.prev_block(self.cursor_node)
+            self.doc.prev_block(self.selection_state.anchor.node_idx)
         };
 
         match target {
             Some(idx) => {
-                self.cursor_node = idx;
-                self.cursor_sentence = 0;
+                self.selection_state.anchor.node_idx = idx;
+                self.selection_state.anchor.unit_idx = 0;
                 let end = self.doc.block_end(idx);
                 self.section_highlight_range = Some(idx..end + 1);
                 self.status = format!("Block at node {}.", idx + 1);
@@ -1027,9 +1038,9 @@ impl App {
 
     fn jump_to_annotation(&mut self, forward: bool) {
         let from = if forward {
-            self.cursor_node + 1
+            self.selection_state.anchor.node_idx + 1
         } else {
-            self.cursor_node
+            self.selection_state.anchor.node_idx
         };
         let n = self.doc.node_count();
         let target = if forward {
@@ -1040,7 +1051,7 @@ impl App {
 
         match target {
             Some(idx) => {
-                self.cursor_node = idx;
+                self.selection_state.anchor.node_idx = idx;
                 self.clamp_sentence();
                 self.status = format!("Annotated node {}.", idx + 1);
             }
@@ -1060,7 +1071,7 @@ impl App {
             MouseEventKind::ScrollDown => self.move_node(1),
             MouseEventKind::Down(MouseButton::Left) => {
                 if let Some(node_idx) = self.click_to_node(mouse.row) {
-                    self.cursor_node = node_idx;
+                    self.selection_state.anchor.node_idx = node_idx;
                     self.clamp_sentence();
                     self.status = format!("Node {}/{}", node_idx + 1, self.doc.node_count());
                 }
@@ -1097,36 +1108,36 @@ impl App {
     fn clamp_sentence(&mut self) {
         let total = self
             .rendered_nodes
-            .get(self.cursor_node)
+            .get(self.selection_state.anchor.node_idx)
             .map(|rn| rn.sentence_ranges.len())
             .unwrap_or(0);
         if total == 0 {
-            self.cursor_sentence = 0;
+            self.selection_state.anchor.unit_idx = 0;
         } else {
-            self.cursor_sentence = self.cursor_sentence.min(total - 1);
+            self.selection_state.anchor.unit_idx = self.selection_state.anchor.unit_idx.min(total - 1);
         }
     }
 
     fn current_source_line(&self) -> usize {
         self.doc
             .nodes
-            .get(self.cursor_node)
+            .get(self.selection_state.anchor.node_idx)
             .map(|n| n.source_start_line())
             .unwrap_or(0)
     }
 
     fn current_sentence_context(&self) -> Option<(usize, String)> {
-        let rn = self.rendered_nodes.get(self.cursor_node)?;
-        let range = rn.sentence_ranges.get(self.cursor_sentence)?;
+        let rn = self.rendered_nodes.get(self.selection_state.anchor.node_idx)?;
+        let range = rn.sentence_ranges.get(self.selection_state.anchor.unit_idx)?;
         let text = rn.plain.get(range.clone())?.trim().to_string();
-        Some((self.cursor_sentence, text))
+        Some((self.selection_state.anchor.unit_idx, text))
     }
 
     // ── Annotations ───────────────────────────────────────────────────────────
 
     fn existing_change_for_cursor(&self) -> Option<usize> {
         let sentence_idx = self.current_sentence_context().map(|(idx, _)| idx);
-        let changes = self.changes.get(&self.cursor_node)?;
+        let changes = self.changes.get(&self.selection_state.anchor.node_idx)?;
         if let Some(idx) = sentence_idx {
             changes.iter().rposition(|c| c.sentence_index == Some(idx))
         } else {
@@ -1136,7 +1147,7 @@ impl App {
 
     fn existing_feedback_for_cursor(&self) -> Option<usize> {
         let sentence_idx = self.current_sentence_context().map(|(idx, _)| idx);
-        let feedbacks = self.feedbacks.get(&self.cursor_node)?;
+        let feedbacks = self.feedbacks.get(&self.selection_state.anchor.node_idx)?;
         if let Some(idx) = sentence_idx {
             feedbacks
                 .iter()
@@ -1150,11 +1161,11 @@ impl App {
         if let Some(change_idx) = self.existing_change_for_cursor()
             && let Some(change) = self
                 .changes
-                .get(&self.cursor_node)
+                .get(&self.selection_state.anchor.node_idx)
                 .and_then(|changes| changes.get(change_idx))
         {
             self.change_buffer = change.change.clone();
-            self.input_mode = InputMode::EditChange(self.cursor_node, change_idx);
+            self.input_mode = InputMode::EditChange(self.selection_state.anchor.node_idx, change_idx);
             self.status = "Edit mode: Enter saves, Esc cancels.".to_string();
             return;
         }
@@ -1167,11 +1178,11 @@ impl App {
         if let Some(feedback_idx) = self.existing_feedback_for_cursor()
             && let Some(feedback) = self
                 .feedbacks
-                .get(&self.cursor_node)
+                .get(&self.selection_state.anchor.node_idx)
                 .and_then(|feedbacks| feedbacks.get(feedback_idx))
         {
             self.feedback_buffer = feedback.feedback.clone();
-            self.input_mode = InputMode::EditFeedback(self.cursor_node, feedback_idx);
+            self.input_mode = InputMode::EditFeedback(self.selection_state.anchor.node_idx, feedback_idx);
             self.status = "Edit mode: Enter saves, Esc cancels.".to_string();
             return;
         }
@@ -1185,27 +1196,27 @@ impl App {
             Some(EditableAnnotation::Change(change_idx)) => {
                 let Some(change) = self
                     .changes
-                    .get(&self.cursor_node)
+                    .get(&self.selection_state.anchor.node_idx)
                     .and_then(|changes| changes.get(change_idx))
                 else {
                     self.status = "No change or feedback to edit on this node.".to_string();
                     return;
                 };
                 self.change_buffer = change.change.clone();
-                self.input_mode = InputMode::EditChange(self.cursor_node, change_idx);
+                self.input_mode = InputMode::EditChange(self.selection_state.anchor.node_idx, change_idx);
                 self.status = "Edit mode: Enter saves, Esc cancels.".to_string();
             }
             Some(EditableAnnotation::Feedback(feedback_idx)) => {
                 let Some(feedback) = self
                     .feedbacks
-                    .get(&self.cursor_node)
+                    .get(&self.selection_state.anchor.node_idx)
                     .and_then(|feedbacks| feedbacks.get(feedback_idx))
                 else {
                     self.status = "No change or feedback to edit on this node.".to_string();
                     return;
                 };
                 self.feedback_buffer = feedback.feedback.clone();
-                self.input_mode = InputMode::EditFeedback(self.cursor_node, feedback_idx);
+                self.input_mode = InputMode::EditFeedback(self.selection_state.anchor.node_idx, feedback_idx);
                 self.status = "Edit mode: Enter saves, Esc cancels.".to_string();
             }
             None => {
@@ -1236,13 +1247,13 @@ impl App {
         let sentence_idx = self.current_sentence_context().map(|(idx, _)| idx);
 
         let sentence_match = sentence_idx.and_then(|idx| {
-            let change = self.changes.get(&self.cursor_node).and_then(|changes| {
+            let change = self.changes.get(&self.selection_state.anchor.node_idx).and_then(|changes| {
                 changes
                     .iter()
                     .rposition(|c| c.sentence_index == Some(idx))
                     .map(|change_idx| (change_idx, &changes[change_idx]))
             });
-            let feedback = self.feedbacks.get(&self.cursor_node).and_then(|feedbacks| {
+            let feedback = self.feedbacks.get(&self.selection_state.anchor.node_idx).and_then(|feedbacks| {
                 feedbacks
                     .iter()
                     .rposition(|f| f.sentence_index == Some(idx))
@@ -1252,13 +1263,13 @@ impl App {
         });
 
         sentence_match.or_else(|| {
-            let change = self.changes.get(&self.cursor_node).and_then(|changes| {
+            let change = self.changes.get(&self.selection_state.anchor.node_idx).and_then(|changes| {
                 changes
                     .len()
                     .checked_sub(1)
                     .map(|change_idx| (change_idx, &changes[change_idx]))
             });
-            let feedback = self.feedbacks.get(&self.cursor_node).and_then(|feedbacks| {
+            let feedback = self.feedbacks.get(&self.selection_state.anchor.node_idx).and_then(|feedbacks| {
                 feedbacks
                     .len()
                     .checked_sub(1)
@@ -1273,7 +1284,7 @@ impl App {
             Some(EditableAnnotation::Change(change_idx)) => {
                 let mut removed = false;
                 let mut empty = false;
-                if let Some(changes) = self.changes.get_mut(&self.cursor_node)
+                if let Some(changes) = self.changes.get_mut(&self.selection_state.anchor.node_idx)
                     && change_idx < changes.len()
                 {
                     changes.remove(change_idx);
@@ -1282,16 +1293,16 @@ impl App {
                 }
                 if removed {
                     if empty {
-                        self.changes.remove(&self.cursor_node);
+                        self.changes.remove(&self.selection_state.anchor.node_idx);
                     }
-                    self.status = format!("Removed change from node {}.", self.cursor_node + 1);
+                    self.status = format!("Removed change from node {}.", self.selection_state.anchor.node_idx + 1);
                 }
                 removed
             }
             Some(EditableAnnotation::Feedback(feedback_idx)) => {
                 let mut removed = false;
                 let mut empty = false;
-                if let Some(feedbacks) = self.feedbacks.get_mut(&self.cursor_node)
+                if let Some(feedbacks) = self.feedbacks.get_mut(&self.selection_state.anchor.node_idx)
                     && feedback_idx < feedbacks.len()
                 {
                     feedbacks.remove(feedback_idx);
@@ -1300,9 +1311,9 @@ impl App {
                 }
                 if removed {
                     if empty {
-                        self.feedbacks.remove(&self.cursor_node);
+                        self.feedbacks.remove(&self.selection_state.anchor.node_idx);
                     }
-                    self.status = format!("Removed feedback from node {}.", self.cursor_node + 1);
+                    self.status = format!("Removed feedback from node {}.", self.selection_state.anchor.node_idx + 1);
                 }
                 removed
             }
@@ -1376,27 +1387,27 @@ impl App {
         }
 
         let Some((sentence_idx, _)) = self.current_sentence_context() else {
-            self.status = format!("Node {} has no sentence to strike.", self.cursor_node + 1);
+            self.status = format!("Node {} has no sentence to strike.", self.selection_state.anchor.node_idx + 1);
             return;
         };
 
-        let entry = self.strikes.entry(self.cursor_node).or_default();
+        let entry = self.strikes.entry(self.selection_state.anchor.node_idx).or_default();
         if entry.contains(&sentence_idx) {
             entry.remove(&sentence_idx);
-            let node = self.cursor_node;
+            let node = self.selection_state.anchor.node_idx;
             if entry.is_empty() {
                 self.strikes.remove(&node);
             }
             self.status = format!(
                 "Removed strike from node {}, sentence {}.",
-                self.cursor_node + 1,
+                self.selection_state.anchor.node_idx + 1,
                 sentence_idx + 1
             );
         } else {
             entry.insert(sentence_idx);
             self.status = format!(
                 "Struck node {}, sentence {}.",
-                self.cursor_node + 1,
+                self.selection_state.anchor.node_idx + 1,
                 sentence_idx + 1
             );
         }
@@ -1417,10 +1428,10 @@ impl App {
     }
 
     fn current_sentence_links(&self) -> Vec<String> {
-        let Some(rn) = self.rendered_nodes.get(self.cursor_node) else {
+        let Some(rn) = self.rendered_nodes.get(self.selection_state.anchor.node_idx) else {
             return Vec::new();
         };
-        let Some(range) = rn.sentence_ranges.get(self.cursor_sentence) else {
+        let Some(range) = rn.sentence_ranges.get(self.selection_state.anchor.unit_idx) else {
             return Vec::new();
         };
         let mut urls = Vec::new();
@@ -1673,22 +1684,22 @@ impl App {
         buf: &str,
     ) {
         let heights = &self.cached_node_heights;
-        if list_inner.width < 12 || list_inner.height < 4 || self.cursor_node >= heights.len() {
+        if list_inner.width < 12 || list_inner.height < 4 || self.selection_state.anchor.node_idx >= heights.len() {
             return;
         }
 
         let list_offset = self.scroll_offset;
-        if self.cursor_node < list_offset {
+        if self.selection_state.anchor.node_idx < list_offset {
             return;
         }
 
         let selected_top: u16 = heights
             .iter()
             .skip(list_offset)
-            .take(self.cursor_node - list_offset)
+            .take(self.selection_state.anchor.node_idx - list_offset)
             .copied()
             .sum();
-        let selected_height = heights[self.cursor_node].max(1);
+        let selected_height = heights[self.selection_state.anchor.node_idx].max(1);
 
         if selected_top >= list_inner.height {
             return;
@@ -1891,14 +1902,14 @@ impl App {
         let n = heights.len();
         self.scroll_offset = self.scroll_offset.min(n.saturating_sub(1));
 
-        if self.cursor_node < self.scroll_offset {
-            self.scroll_offset = self.cursor_node;
+        if self.selection_state.anchor.node_idx < self.scroll_offset {
+            self.scroll_offset = self.selection_state.anchor.node_idx;
             return;
         }
 
-        let cursor_height = heights.get(self.cursor_node).copied().unwrap_or(1);
+        let cursor_height = heights.get(self.selection_state.anchor.node_idx).copied().unwrap_or(1);
         let rows_before: u16 = heights
-            .get(self.scroll_offset..self.cursor_node)
+            .get(self.scroll_offset..self.selection_state.anchor.node_idx)
             .map(|s| s.iter().copied().sum())
             .unwrap_or(0);
 
@@ -1912,9 +1923,9 @@ impl App {
         // cursor lines shown. If the cursor is taller than the screen, put it at top.
         let target_start = inner_height.saturating_sub(cursor_height);
 
-        let mut new_offset = self.cursor_node;
+        let mut new_offset = self.selection_state.anchor.node_idx;
         let mut cum: u16 = 0;
-        for i in (0..self.cursor_node).rev() {
+        for i in (0..self.selection_state.anchor.node_idx).rev() {
             let h = heights.get(i).copied().unwrap_or(0);
             if cum + h > target_start {
                 break;
@@ -1953,7 +1964,7 @@ impl App {
             _ => return,
         };
 
-        if partial_idx <= self.cursor_node {
+        if partial_idx <= self.selection_state.anchor.node_idx {
             return; // cursor-based logic already handles this
         }
 
@@ -1965,7 +1976,7 @@ impl App {
         }
 
         // Try to advance scroll_offset by `needed` rows, while keeping cursor visible.
-        let cursor_h = heights.get(self.cursor_node).copied().unwrap_or(1);
+        let cursor_h = heights.get(self.selection_state.anchor.node_idx).copied().unwrap_or(1);
         let mut skipped: u16 = 0;
         let mut new_offset = self.scroll_offset;
         for i in self.scroll_offset..partial_idx {
@@ -1975,11 +1986,11 @@ impl App {
             }
             // Verify cursor stays visible after advancing past item i.
             let candidate = i + 1;
-            if candidate > self.cursor_node {
+            if candidate > self.selection_state.anchor.node_idx {
                 break; // would push cursor above offset
             }
             let rows_before_cursor: u16 = heights
-                .get(candidate..self.cursor_node)
+                .get(candidate..self.selection_state.anchor.node_idx)
                 .map(|s| s.iter().copied().sum())
                 .unwrap_or(0);
             if rows_before_cursor + cursor_h > inner_height {
@@ -2107,8 +2118,8 @@ impl App {
             .is_some_and(|r| r.contains(&node_idx))
         {
             Some(0..plain_len)
-        } else if node_idx == self.cursor_node {
-            sentence_ranges.get(self.cursor_sentence).cloned()
+        } else if node_idx == self.selection_state.anchor.node_idx {
+            sentence_ranges.get(self.selection_state.anchor.unit_idx).cloned()
         } else {
             None
         };
@@ -2956,16 +2967,16 @@ mod tests {
     fn search_jumps_cursor_to_first_match() {
         let mut app = test_app("Alpha paragraph.\n\nBeta paragraph with target here.\n\nGamma.\n");
         type_search(&mut app, "target");
-        assert_eq!(app.cursor_node, 1, "cursor should land on Beta node");
+        assert_eq!(app.selection_state.anchor.node_idx, 1, "cursor should land on Beta node");
         assert!(app.status.contains("Match 1/1"), "status: {}", app.status);
     }
 
     #[test]
     fn search_no_match_leaves_cursor_in_place() {
         let mut app = test_app("Alpha.\n\nBeta.\n");
-        let node_before = app.cursor_node;
+        let node_before = app.selection_state.anchor.node_idx;
         type_search(&mut app, "notfound");
-        assert_eq!(app.cursor_node, node_before);
+        assert_eq!(app.selection_state.anchor.node_idx, node_before);
         assert!(app.status.contains("No matches"), "status: {}", app.status);
     }
 
@@ -2973,7 +2984,7 @@ mod tests {
     fn search_is_case_insensitive_by_default() {
         let mut app = test_app("First.\n\nthe TARGET lives here.\n");
         type_search(&mut app, "target");
-        assert_eq!(app.cursor_node, 1);
+        assert_eq!(app.selection_state.anchor.node_idx, 1);
     }
 
     #[test]
@@ -2981,7 +2992,7 @@ mod tests {
         let mut app = test_app("First has Target.\n\nSecond has target.\n");
         type_search(&mut app, "Target");
         assert_eq!(
-            app.cursor_node, 0,
+            app.selection_state.anchor.node_idx, 0,
             "should find capital 'Target' on first node"
         );
     }
@@ -2990,13 +3001,13 @@ mod tests {
     fn n_key_advances_to_next_match_and_wraps() {
         let mut app = test_app("foo one.\n\nfoo two.\n\nfoo three.\n");
         type_search(&mut app, "foo");
-        assert_eq!(app.cursor_node, 0);
+        assert_eq!(app.selection_state.anchor.node_idx, 0);
         app.handle_key(key_char('n'));
-        assert_eq!(app.cursor_node, 1);
+        assert_eq!(app.selection_state.anchor.node_idx, 1);
         app.handle_key(key_char('n'));
-        assert_eq!(app.cursor_node, 2);
+        assert_eq!(app.selection_state.anchor.node_idx, 2);
         app.handle_key(key_char('n'));
-        assert_eq!(app.cursor_node, 0, "n should wrap to first match");
+        assert_eq!(app.selection_state.anchor.node_idx, 0, "n should wrap to first match");
     }
 
     #[test]
@@ -3004,9 +3015,9 @@ mod tests {
         let mut app = test_app("foo one.\n\nfoo two.\n\nfoo three.\n");
         type_search(&mut app, "foo");
         app.handle_key(key_char('n'));
-        assert_eq!(app.cursor_node, 1);
+        assert_eq!(app.selection_state.anchor.node_idx, 1);
         app.handle_key(KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT));
-        assert_eq!(app.cursor_node, 0);
+        assert_eq!(app.selection_state.anchor.node_idx, 0);
     }
 
     #[test]
@@ -3042,8 +3053,8 @@ mod tests {
     fn search_matches_within_same_node_multiple_sentences() {
         let mut app = test_app("The foo sentence. The bar sentence.\n");
         type_search(&mut app, "foo");
-        assert_eq!(app.cursor_node, 0);
-        assert_eq!(app.cursor_sentence, 0, "should land on first sentence");
+        assert_eq!(app.selection_state.anchor.node_idx, 0);
+        assert_eq!(app.selection_state.anchor.unit_idx, 0, "should land on first sentence");
     }
 
     #[test]
@@ -3206,24 +3217,24 @@ mod tests {
         // Blank lines don't exist as nodes — moving 'l' from last sentence of
         // node 0 should land on first sentence of node 1.
         let mut app = test_app("First sentence.\n\nSecond sentence.\n");
-        assert_eq!(app.cursor_node, 0);
-        assert_eq!(app.cursor_sentence, 0);
+        assert_eq!(app.selection_state.anchor.node_idx, 0);
+        assert_eq!(app.selection_state.anchor.unit_idx, 0);
         app.move_sentence(true);
-        assert_eq!(app.cursor_node, 1, "should cross to next node");
-        assert_eq!(app.cursor_sentence, 0);
+        assert_eq!(app.selection_state.anchor.node_idx, 1, "should cross to next node");
+        assert_eq!(app.selection_state.anchor.unit_idx, 0);
     }
 
     #[test]
     fn node_navigation_moves_through_every_node() {
         // "one", blank, blank, "two", blank, "three" → 3 Paragraph nodes.
         let mut app = test_app("one\n\n\ntwo\n\nthree\n");
-        assert_eq!(app.cursor_node, 0);
+        assert_eq!(app.selection_state.anchor.node_idx, 0);
         app.move_node(1);
-        assert_eq!(app.cursor_node, 1, "should move to next node");
+        assert_eq!(app.selection_state.anchor.node_idx, 1, "should move to next node");
         app.move_node(1);
-        assert_eq!(app.cursor_node, 2, "should move to next node");
+        assert_eq!(app.selection_state.anchor.node_idx, 2, "should move to next node");
         app.move_node(-1);
-        assert_eq!(app.cursor_node, 1, "should move back");
+        assert_eq!(app.selection_state.anchor.node_idx, 1, "should move back");
     }
 
     #[test]
@@ -3231,15 +3242,15 @@ mod tests {
         // Title / Para / ListItem / Tail → nodes 0..3
         let mut app =
             test_app("Title\n\nPara one line one\nline two\n\n- list item\nwrapped\n\nTail\n");
-        assert_eq!(app.cursor_node, 0);
+        assert_eq!(app.selection_state.anchor.node_idx, 0);
         app.move_block(true);
-        assert_eq!(app.cursor_node, 1, "should jump to next content node");
+        assert_eq!(app.selection_state.anchor.node_idx, 1, "should jump to next content node");
         app.move_block(true);
-        assert_eq!(app.cursor_node, 2, "should jump to list item");
+        assert_eq!(app.selection_state.anchor.node_idx, 2, "should jump to list item");
         app.move_block(true);
-        assert_eq!(app.cursor_node, 3, "should jump to tail");
+        assert_eq!(app.selection_state.anchor.node_idx, 3, "should jump to tail");
         app.move_block(false);
-        assert_eq!(app.cursor_node, 2, "should jump back");
+        assert_eq!(app.selection_state.anchor.node_idx, 2, "should jump back");
     }
 
     #[test]
@@ -3247,41 +3258,41 @@ mod tests {
         // Intro / ## Heading A / text / 1. Heading B / text / - list item
         let mut app =
             test_app("Intro\n\n## Heading A\ntext\n\n1. Heading B\ntext\n\n- list item\n");
-        assert_eq!(app.cursor_node, 0);
+        assert_eq!(app.selection_state.anchor.node_idx, 0);
         app.move_section(true);
         // node 1 = Heading "Heading A"
-        let heading_node = app.cursor_node;
+        let heading_node = app.selection_state.anchor.node_idx;
         assert!(
             app.doc.nodes[heading_node].is_heading(),
             "should land on heading: node {heading_node}"
         );
         app.move_section(true);
         // node 3 = ordered ListItem "Heading B" (top-level numbered section)
-        let section_node = app.cursor_node;
+        let section_node = app.selection_state.anchor.node_idx;
         assert!(
             app.doc.nodes[section_node].is_section(),
             "should land on section: node {section_node}"
         );
         app.move_section(false);
-        assert_eq!(app.cursor_node, heading_node, "should jump back to heading");
+        assert_eq!(app.selection_state.anchor.node_idx, heading_node, "should jump back to heading");
     }
 
     #[test]
     fn section_navigation_works_for_numbered_sections() {
         let mut app = test_app("Intro\n\n  1. First section\nline\n\n  2. Second section\n");
-        assert_eq!(app.cursor_node, 0);
+        assert_eq!(app.selection_state.anchor.node_idx, 0);
         app.move_section(true);
-        let first = app.cursor_node;
+        let first = app.selection_state.anchor.node_idx;
         assert!(app.doc.nodes[first].is_section(), "first numbered section");
         app.move_section(true);
-        let second = app.cursor_node;
+        let second = app.selection_state.anchor.node_idx;
         assert!(
             app.doc.nodes[second].is_section(),
             "second numbered section"
         );
         assert!(second > first, "should be a later node");
         app.move_section(false);
-        assert_eq!(app.cursor_node, first, "should jump back");
+        assert_eq!(app.selection_state.anchor.node_idx, first, "should jump back");
     }
 
     // ── Sentence context and highlight ────────────────────────────────────────
@@ -3312,8 +3323,8 @@ mod tests {
     #[test]
     fn sentence_highlight_covers_full_node_when_cursor_on_it() {
         let mut app = test_app("Hello world. Goodbye world.\n");
-        app.cursor_node = 0;
-        app.cursor_sentence = 0;
+        app.selection_state.anchor.node_idx = 0;
+        app.selection_state.anchor.unit_idx = 0;
         let spans = app.render_node_spans(0);
         assert!(
             has_sentence_highlight(&spans),
@@ -3324,8 +3335,8 @@ mod tests {
     #[test]
     fn sentence_highlight_absent_on_other_nodes() {
         let mut app = test_app("Para one.\n\nPara two.\n");
-        app.cursor_node = 0;
-        app.cursor_sentence = 0;
+        app.selection_state.anchor.node_idx = 0;
+        app.selection_state.anchor.unit_idx = 0;
         let spans = app.render_node_spans(1);
         assert!(
             !has_sentence_highlight(&spans),
@@ -3443,25 +3454,25 @@ mod tests {
     fn move_sentence_forward_at_last_sentence_stays_put() {
         let mut app = test_app("Single sentence.");
         app.move_sentence(true);
-        assert_eq!(app.cursor_node, 0, "no next node — cursor must stay");
-        assert_eq!(app.cursor_sentence, 0);
+        assert_eq!(app.selection_state.anchor.node_idx, 0, "no next node — cursor must stay");
+        assert_eq!(app.selection_state.anchor.unit_idx, 0);
     }
 
     #[test]
     fn move_sentence_backward_at_first_sentence_stays_put() {
         let mut app = test_app("Single sentence.");
         app.move_sentence(false);
-        assert_eq!(app.cursor_node, 0);
-        assert_eq!(app.cursor_sentence, 0);
+        assert_eq!(app.selection_state.anchor.node_idx, 0);
+        assert_eq!(app.selection_state.anchor.unit_idx, 0);
     }
 
     #[test]
     fn move_sentence_forward_stays_on_last_sentence_of_multi_sentence_node() {
         let mut app = test_app("One. Two. Three.");
-        app.cursor_sentence = 2;
+        app.selection_state.anchor.unit_idx = 2;
         app.move_sentence(true);
-        assert_eq!(app.cursor_node, 0);
-        assert_eq!(app.cursor_sentence, 2, "should stay on last sentence");
+        assert_eq!(app.selection_state.anchor.node_idx, 0);
+        assert_eq!(app.selection_state.anchor.unit_idx, 2, "should stay on last sentence");
     }
 
     #[test]
@@ -3470,11 +3481,11 @@ mod tests {
         let mut app = test_app("First. Second.\n\nThird.\n");
         app.move_sentence(true); // → node 0, sentence 1
         app.move_sentence(true); // → node 1, sentence 0
-        assert_eq!(app.cursor_node, 1);
+        assert_eq!(app.selection_state.anchor.node_idx, 1);
         app.move_sentence(false); // ← should land on last sentence of node 0
-        assert_eq!(app.cursor_node, 0);
+        assert_eq!(app.selection_state.anchor.node_idx, 0);
         assert_eq!(
-            app.cursor_sentence, 1,
+            app.selection_state.anchor.unit_idx, 1,
             "must land on last sentence of previous node"
         );
     }
@@ -3498,11 +3509,11 @@ mod tests {
     fn move_node_clamps_cursor_sentence_to_destination_node_length() {
         // node 0: 3 sentences; node 1: 1 sentence
         let mut app = test_app("One. Two. Three.\n\nSingle.\n");
-        app.cursor_sentence = 2;
+        app.selection_state.anchor.unit_idx = 2;
         app.move_node(1);
-        assert_eq!(app.cursor_node, 1);
+        assert_eq!(app.selection_state.anchor.node_idx, 1);
         assert_eq!(
-            app.cursor_sentence, 0,
+            app.selection_state.anchor.unit_idx, 0,
             "cursor_sentence must clamp to last valid index"
         );
     }
@@ -3511,9 +3522,9 @@ mod tests {
     fn move_node_skips_thematic_break() {
         // nodes: [Para, ThematicBreak, Para]
         let mut app = test_app("First paragraph.\n\n---\n\nSecond paragraph.\n");
-        assert_eq!(app.cursor_node, 0);
+        assert_eq!(app.selection_state.anchor.node_idx, 0);
         app.move_node(1);
-        assert_eq!(app.cursor_node, 2, "should skip ThematicBreak at node 1");
+        assert_eq!(app.selection_state.anchor.node_idx, 2, "should skip ThematicBreak at node 1");
     }
 
     // ── current_sentence_links ────────────────────────────────────────────────
@@ -3525,7 +3536,7 @@ mod tests {
         );
         // sentence 0: "Click here for info."  — contains first link
         // sentence 1: "Other link elsewhere." — contains second link
-        app.cursor_sentence = 0;
+        app.selection_state.anchor.unit_idx = 0;
         let links = app.current_sentence_links();
         assert_eq!(
             links.len(),
@@ -3534,7 +3545,7 @@ mod tests {
         );
         assert!(links[0].contains("example.com"), "{links:?}");
 
-        app.cursor_sentence = 1;
+        app.selection_state.anchor.unit_idx = 1;
         let links = app.current_sentence_links();
         assert_eq!(
             links.len(),
@@ -3549,23 +3560,23 @@ mod tests {
     #[test]
     fn move_section_in_doc_with_no_sections_stays_put() {
         let mut app = test_app("Just a paragraph. No headings.");
-        let start = app.cursor_node;
+        let start = app.selection_state.anchor.node_idx;
         app.move_section(true);
         assert_eq!(
-            app.cursor_node, start,
+            app.selection_state.anchor.node_idx, start,
             "no section found — cursor must not move"
         );
         app.move_section(false);
-        assert_eq!(app.cursor_node, start);
+        assert_eq!(app.selection_state.anchor.node_idx, start);
     }
 
     #[test]
     fn move_block_forward_at_last_block_stays_put() {
         let mut app = test_app("Only one block.");
-        let start = app.cursor_node;
+        let start = app.selection_state.anchor.node_idx;
         app.move_block(true);
         assert_eq!(
-            app.cursor_node, start,
+            app.selection_state.anchor.node_idx, start,
             "already at last block — must not move"
         );
     }
@@ -3575,7 +3586,7 @@ mod tests {
         // nodes: [Para(intro), Heading(A), Para(text), Heading(B), Para(final)]
         let mut app = test_app("Intro\n\n# A\ntext\n\n# B\nfinal\n");
         app.move_section(true); // jumps to Heading A = node 1
-        assert_eq!(app.cursor_node, 1);
+        assert_eq!(app.selection_state.anchor.node_idx, 1);
         let range = app
             .section_highlight_range
             .clone()
@@ -3584,7 +3595,7 @@ mod tests {
         assert_eq!(range.end, 3, "section A spans nodes 1..3");
 
         app.move_section(true); // jumps to Heading B = node 3
-        assert_eq!(app.cursor_node, 3);
+        assert_eq!(app.selection_state.anchor.node_idx, 3);
         let range = app
             .section_highlight_range
             .clone()
@@ -3712,7 +3723,7 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(app.cursor_node, 1, "cursor should be on the tall node");
+        assert_eq!(app.selection_state.anchor.node_idx, 1, "cursor should be on the tall node");
         assert!(
             inner_rows[0].contains("tall line 0"),
             "move_sentence to tall node must also bottom-align it: got {:?}",

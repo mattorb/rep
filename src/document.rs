@@ -23,9 +23,7 @@ pub enum DocNode {
         source_line: usize,
     },
     Paragraph {
-        #[cfg_attr(not(test), allow(dead_code))]
         text: String,
-        sentences: Vec<String>,
         source_lines: Range<usize>,
     },
     ListItem {
@@ -36,7 +34,7 @@ pub enum DocNode {
         /// Identifies which root-level list this item belongs to; all items in
         /// the same outermost list (including nested) share one id.
         list_id: usize,
-        sentences: Vec<String>,
+        text: String,
         source_lines: Range<usize>,
     },
     CodeBlock {
@@ -51,19 +49,11 @@ pub enum DocNode {
 }
 
 impl DocNode {
-    #[allow(dead_code)]
-    pub fn sentences(&self) -> &[String] {
-        match self {
-            Self::Paragraph { sentences, .. } | Self::ListItem { sentences, .. } => sentences,
-            _ => &[],
-        }
-    }
-
+    /// Whether the node has selectable content. Used to decide where the
+    /// cursor lands at load time and where same-unit traversal jumps to.
     pub fn has_sentences(&self) -> bool {
         match self {
-            Self::Paragraph { sentences, .. } | Self::ListItem { sentences, .. } => {
-                !sentences.is_empty()
-            }
+            Self::Paragraph { text, .. } | Self::ListItem { text, .. } => !text.is_empty(),
             Self::Heading { text, .. } => !text.is_empty(),
             Self::CodeBlock { content, .. } => !content.is_empty(),
             Self::ThematicBreak { .. } => false,
@@ -145,17 +135,12 @@ fn collect_nodes(
         mdast::Node::Paragraph(p) => {
             let raw = extract_plain_text(node);
             let text = normalize_whitespace(&raw);
-            let sentences = text_to_sentences(&text);
             let source_lines = p
                 .position
                 .as_ref()
                 .map(|pos| (pos.start.line - 1)..pos.end.line)
                 .unwrap_or(0..1);
-            out.push(DocNode::Paragraph {
-                text,
-                sentences,
-                source_lines,
-            });
+            out.push(DocNode::Paragraph { text, source_lines });
         }
         mdast::Node::List(list) => {
             // All items that share the same outermost list get the same list_id.
@@ -174,7 +159,6 @@ fn collect_nodes(
                     };
                     let raw = extract_list_item_text(li);
                     let text = normalize_whitespace(&raw);
-                    let sentences = text_to_sentences(&text);
                     let source_lines = li
                         .position
                         .as_ref()
@@ -185,7 +169,7 @@ fn collect_nodes(
                         ordered,
                         prefix,
                         list_id: this_list_id,
-                        sentences,
+                        text,
                         source_lines,
                     });
                     // Recurse into nested lists, passing the same outer list_id.
@@ -246,11 +230,7 @@ fn collect_nodes(
                 .as_ref()
                 .map(|pos| (pos.start.line - 1)..pos.end.line)
                 .unwrap_or(0..1);
-            out.push(DocNode::Paragraph {
-                text,
-                sentences: Vec::new(),
-                source_lines,
-            });
+            out.push(DocNode::Paragraph { text, source_lines });
         }
         mdast::Node::FootnoteDefinition(fd) => {
             // Footnote definition body becomes a Paragraph. The body text is the
@@ -262,11 +242,7 @@ fn collect_nodes(
                 .as_ref()
                 .map(|pos| (pos.start.line - 1)..pos.end.line)
                 .unwrap_or(0..1);
-            out.push(DocNode::Paragraph {
-                text,
-                sentences: Vec::new(),
-                source_lines,
-            });
+            out.push(DocNode::Paragraph { text, source_lines });
         }
         mdast::Node::Html(h) => {
             // Block-level HTML folds into the existing CodeBlock variant per
@@ -312,41 +288,6 @@ fn extract_plain_text(node: &mdast::Node) -> String {
 /// Collapse internal newlines and runs of whitespace to single spaces.
 fn normalize_whitespace(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn text_to_sentences(text: &str) -> Vec<String> {
-    if text.trim().is_empty() {
-        return Vec::new();
-    }
-    let bytes = text.as_bytes();
-    let len = bytes.len();
-    let mut result: Vec<String> = Vec::new();
-    let mut start = 0usize;
-    let mut i = 0usize;
-    while i < len {
-        if matches!(bytes[i], b'.' | b'!' | b'?')
-            && i + 2 < len
-            && bytes[i + 1] == b' '
-            && bytes[i + 2].is_ascii_uppercase()
-        {
-            let s = text[start..i + 1].trim();
-            if !s.is_empty() {
-                result.push(s.to_string());
-            }
-            i += 2;
-            start = i;
-            continue;
-        }
-        i += 1;
-    }
-    let s = text[start..].trim();
-    if !s.is_empty() {
-        result.push(s.to_string());
-    }
-    if result.is_empty() {
-        result.push(text.trim().to_string());
-    }
-    result
 }
 
 // ── Navigation helpers ────────────────────────────────────────────────────────
@@ -494,19 +435,13 @@ mod tests {
     fn joins_soft_wrapped_paragraph_lines() {
         let doc = Document::parse("This is a sentence that\ncontinues here. Next sentence.");
         assert_eq!(doc.nodes.len(), 1);
-        let DocNode::Paragraph {
-            text, sentences, ..
-        } = &doc.nodes[0]
-        else {
+        let DocNode::Paragraph { text, .. } = &doc.nodes[0] else {
             panic!("expected Paragraph")
         };
         assert_eq!(
             text,
             "This is a sentence that continues here. Next sentence."
         );
-        assert_eq!(sentences.len(), 2);
-        assert_eq!(sentences[0], "This is a sentence that continues here.");
-        assert_eq!(sentences[1], "Next sentence.");
     }
 
     #[test]
@@ -516,14 +451,11 @@ mod tests {
         for node in &doc.nodes {
             assert!(matches!(node, DocNode::ListItem { ordered: false, .. }));
         }
-        let DocNode::ListItem {
-            prefix, sentences, ..
-        } = &doc.nodes[0]
-        else {
+        let DocNode::ListItem { prefix, text, .. } = &doc.nodes[0] else {
             panic!()
         };
         assert_eq!(prefix, "• ");
-        assert!(sentences[0].starts_with("First item"), "got: {sentences:?}");
+        assert!(text.starts_with("First item"), "got: {text:?}");
     }
 
     #[test]
@@ -592,16 +524,6 @@ mod tests {
     }
 
     #[test]
-    fn list_item_with_multiple_sentences() {
-        let doc = Document::parse("- First sentence. Second sentence. Third.");
-        assert_eq!(doc.nodes.len(), 1);
-        let DocNode::ListItem { sentences, .. } = &doc.nodes[0] else {
-            panic!()
-        };
-        assert_eq!(sentences.len(), 3);
-    }
-
-    #[test]
     fn nested_list_produces_flat_nodes_with_depth() {
         let src = "- Top\n  - Nested\n- Top2";
         let doc = Document::parse(src);
@@ -627,30 +549,6 @@ mod tests {
         let doc = Document::parse(src);
         assert_eq!(doc.nodes[0].source_start_line(), 0); // "# Title" on line 0
         assert_eq!(doc.nodes[1].source_start_line(), 2); // paragraph starts on line 2
-    }
-
-    // ── text_to_sentences ─────────────────────────────────────────────────────
-
-    #[test]
-    fn text_to_sentences_splits_on_question_and_exclamation() {
-        let result = text_to_sentences("Is it done? Yes it is! Now move on.");
-        assert_eq!(result.len(), 3, "{result:?}");
-        assert_eq!(result[0], "Is it done?");
-        assert_eq!(result[1], "Yes it is!");
-        assert_eq!(result[2], "Now move on.");
-    }
-
-    #[test]
-    fn text_to_sentences_no_terminal_punctuation_is_one_sentence() {
-        let result = text_to_sentences("A sentence without a period");
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0], "A sentence without a period");
-    }
-
-    #[test]
-    fn text_to_sentences_empty_and_whitespace_returns_empty() {
-        assert!(text_to_sentences("").is_empty());
-        assert!(text_to_sentences("   ").is_empty());
     }
 
     // ── block_end / is_block_start ────────────────────────────────────────────
