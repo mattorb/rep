@@ -60,14 +60,9 @@ impl DocNode {
         }
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub fn is_heading(&self) -> bool {
         matches!(self, Self::Heading { .. })
-    }
-
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn is_paragraph(&self) -> bool {
-        matches!(self, Self::Paragraph { .. })
     }
 
     /// True for markdown headings and top-level ordered list items (numbered sections).
@@ -302,61 +297,17 @@ impl Document {
         self.nodes.len()
     }
 
-    /// Next node of any type at or after `from`.
-    #[allow(dead_code)]
-    pub fn next_node(&self, from: usize) -> Option<usize> {
-        if from < self.nodes.len() {
-            Some(from)
-        } else {
-            None
-        }
-    }
-
-    /// Previous node of any type strictly before `before`.
-    #[allow(dead_code)]
-    pub fn prev_node(&self, before: usize) -> Option<usize> {
-        before.checked_sub(1).filter(|&i| i < self.nodes.len())
-    }
-
     /// First node at or after `from` that has at least one sentence.
+    /// Used by `App::load` to pick the initial cursor and by the mouse
+    /// scroll handler in `move_node`.
     pub fn next_node_with_sentences(&self, from: usize) -> Option<usize> {
         (from..self.nodes.len()).find(|&i| self.nodes[i].has_sentences())
     }
 
     /// Last node strictly before `before` that has at least one sentence.
+    /// Used by the mouse scroll handler in `move_node`.
     pub fn prev_node_with_sentences(&self, before: usize) -> Option<usize> {
         (0..before).rev().find(|&i| self.nodes[i].has_sentences())
-    }
-
-    /// First section node (heading or top-level ordered list) at or after `from`.
-    pub fn next_section(&self, from: usize) -> Option<usize> {
-        (from..self.nodes.len()).find(|&i| self.nodes[i].is_section())
-    }
-
-    /// Last section node strictly before `before`.
-    pub fn prev_section(&self, before: usize) -> Option<usize> {
-        (0..before).rev().find(|&i| self.nodes[i].is_section())
-    }
-
-    // kept for tests
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn next_heading(&self, from: usize) -> Option<usize> {
-        (from..self.nodes.len()).find(|&i| self.nodes[i].is_heading())
-    }
-
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn prev_heading(&self, before: usize) -> Option<usize> {
-        (0..before).rev().find(|&i| self.nodes[i].is_heading())
-    }
-
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn next_paragraph(&self, from: usize) -> Option<usize> {
-        (from..self.nodes.len()).find(|&i| self.nodes[i].is_paragraph())
-    }
-
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn prev_paragraph(&self, before: usize) -> Option<usize> {
-        (0..before).rev().find(|&i| self.nodes[i].is_paragraph())
     }
 
     /// True when `idx` is the first node of a new content block.
@@ -482,28 +433,6 @@ mod tests {
         };
         assert_eq!(language.as_deref(), Some("rust"));
         assert!(content.contains("fn main"));
-    }
-
-    #[test]
-    fn navigation_next_and_prev_heading() {
-        let src = "# Section 1\n\nParagraph.\n\n## Section 2\n\nMore text.";
-        let doc = Document::parse(src);
-        // nodes: [Heading(1), Paragraph, Heading(2), Paragraph]
-        assert_eq!(doc.next_heading(0), Some(0));
-        assert_eq!(doc.next_heading(1), Some(2));
-        assert_eq!(doc.prev_heading(2), Some(0));
-        assert_eq!(doc.prev_heading(0), None);
-    }
-
-    #[test]
-    fn navigation_next_and_prev_paragraph() {
-        let src = "# Section 1\n\nFirst paragraph.\n\nSecond paragraph.";
-        let doc = Document::parse(src);
-        // nodes: [Heading, Paragraph, Paragraph]
-        assert_eq!(doc.next_paragraph(0), Some(1));
-        assert_eq!(doc.next_paragraph(2), Some(2));
-        assert_eq!(doc.prev_paragraph(2), Some(1));
-        assert_eq!(doc.prev_paragraph(1), None);
     }
 
     #[test]
