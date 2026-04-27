@@ -363,8 +363,10 @@ pub struct App {
     nav_feedback: Option<String>,
     pub should_quit: bool,
     pub silent_quit: bool,
-    show_link_popup: bool,
-    link_popup_urls: Vec<String>,
+    /// Some(urls) when the link popup is visible; None when hidden. The
+    /// urls and the visibility flag used to be two separate fields, which
+    /// allowed inconsistent state (visible-but-empty / hidden-with-urls).
+    link_popup_urls: Option<Vec<String>>,
     show_help: bool,
     show_ast: bool,
     ast_scroll: u16,
@@ -421,8 +423,7 @@ impl App {
             status: "Loaded file. Press q to quit and print annotations.".to_string(),
             should_quit: false,
             silent_quit: false,
-            show_link_popup: false,
-            link_popup_urls: Vec::new(),
+            link_popup_urls: None,
             show_help: false,
             show_ast: false,
             ast_scroll: 0,
@@ -485,16 +486,14 @@ impl App {
             return;
         }
 
-        if self.show_link_popup {
+        if self.link_popup_urls.is_some() {
             match key.code {
                 KeyCode::Esc | KeyCode::Char('u') => {
-                    self.show_link_popup = false;
-                    self.link_popup_urls.clear();
+                    self.link_popup_urls = None;
                     self.status = "Closed link popup.".to_string();
                 }
                 _ => {
-                    self.show_link_popup = false;
-                    self.link_popup_urls.clear();
+                    self.link_popup_urls = None;
                 }
             }
             return;
@@ -1576,12 +1575,9 @@ impl App {
         if urls.is_empty() {
             return false;
         }
-        self.link_popup_urls = urls;
-        self.show_link_popup = true;
-        self.status = format!(
-            "Showing {} link(s) from current sentence.",
-            self.link_popup_urls.len()
-        );
+        let count = urls.len();
+        self.link_popup_urls = Some(urls);
+        self.status = format!("Showing {count} link(s) from current sentence.");
         true
     }
 
@@ -1854,7 +1850,7 @@ impl App {
             self.draw_input_popup(frame, list_inner, title, hint, prompt, buf);
         }
 
-        if self.show_link_popup {
+        if self.link_popup_urls.is_some() {
             self.draw_link_popup(frame, area);
         }
 
@@ -2057,11 +2053,13 @@ impl App {
     }
 
     fn draw_link_popup(&self, frame: &mut Frame, area: Rect) {
+        // Caller in draw() gates on link_popup_urls.is_some(), so the
+        // None case here is unreachable; default to an empty slice if
+        // it ever fires.
+        let urls: &[String] = self.link_popup_urls.as_deref().unwrap_or(&[]);
         let popup_width = area.width.saturating_sub(10).clamp(40, 100);
         let max_height = area.height.saturating_sub(6).max(6);
-        let desired_height = (self.link_popup_urls.len() as u16)
-            .saturating_add(5)
-            .clamp(6, max_height);
+        let desired_height = (urls.len() as u16).saturating_add(5).clamp(6, max_height);
         let popup = Rect {
             x: area.x + area.width.saturating_sub(popup_width) / 2,
             y: area.y + area.height.saturating_sub(desired_height) / 2,
@@ -2072,7 +2070,7 @@ impl App {
         let mut lines = Vec::new();
         lines.push(Line::from("Links in current sentence:"));
         lines.push(Line::from(""));
-        for (idx, url) in self.link_popup_urls.iter().enumerate() {
+        for (idx, url) in urls.iter().enumerate() {
             lines.push(Line::from(format!("{}. {}", idx + 1, url)));
         }
         lines.push(Line::from(""));
