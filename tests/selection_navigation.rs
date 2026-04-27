@@ -73,6 +73,93 @@ fn word_walk_skips_punctuation_between_words() {
     }
 }
 
+/// Walk every word anchor forward via navigator::next from the first
+/// anchor; collect the (node_idx, word_text) sequence and compare to
+/// expected. Helps assert linear-order word coverage on real docs.
+fn word_walk(idx: &rep::selection::index::SelectionIndex) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    let Some(&(start_n, start_u)) = idx.words.first() else {
+        return out;
+    };
+    let mut anchor = SelectionAnchor::new(start_n, SelectionUnit::Word, start_u);
+    let word_text = |n: usize, u: usize| {
+        let r = idx.nodes[n].word_ranges[u].clone();
+        idx.nodes[n].selection_plain_text[r].to_string()
+    };
+    out.push((start_n, word_text(start_n, start_u)));
+    while let NavOutcome::Moved(a) = navigator::next(idx, anchor) {
+        out.push((a.node_idx, word_text(a.node_idx, a.unit_idx)));
+        anchor = a;
+    }
+    out
+}
+
+#[test]
+fn word_walk_crosses_paragraph_boundaries() {
+    // Two paragraphs; word j should bridge the node boundary cleanly,
+    // visiting every word in document order with no skips and no
+    // duplicates. Checks the navigator's cross-node fall-through for
+    // the Word unit specifically.
+    let idx = build("alpha beta.\n\ngamma delta.");
+    let walk = word_walk(&idx);
+    let words: Vec<&str> = walk.iter().map(|(_, w)| w.as_str()).collect();
+    assert_eq!(words, vec!["alpha", "beta", "gamma", "delta"]);
+    // Boundary check: nodes are 0 and 1; ensure both contributed.
+    let nodes: Vec<usize> = walk.iter().map(|(n, _)| *n).collect();
+    assert!(nodes.contains(&0) && nodes.contains(&1));
+}
+
+#[test]
+fn word_walk_visits_every_node_kind_in_document_order() {
+    // Mixed-shape doc: heading + soft-wrapped paragraph + list item +
+    // fenced code block. Word j walks every word across all four
+    // content kinds in source order, in one continuous sequence.
+    let src = "\
+# Title head\n\
+\n\
+prose alpha\n\
+prose beta.\n\
+\n\
+- list item words\n\
+\n\
+```rust\n\
+fn code() {}\n\
+```\n";
+    let idx = build(src);
+    let walk = word_walk(&idx);
+    let words: Vec<&str> = walk.iter().map(|(_, w)| w.as_str()).collect();
+    // Expected in source order:
+    //   heading: "Title", "head"
+    //   paragraph: "prose", "alpha", "prose", "beta"
+    //   list item: "list", "item", "words"
+    //   code block: "fn", "code"
+    assert_eq!(
+        words,
+        vec![
+            "Title", "head", "prose", "alpha", "prose", "beta", "list", "item", "words", "fn",
+            "code"
+        ],
+        "{walk:?}"
+    );
+}
+
+#[test]
+fn word_walk_round_trip_holds_for_every_word() {
+    // For every word anchor, prev(next(x)) == x. Covers cross-node
+    // transitions (last word of node N → first word of node N+1, then
+    // back to last of N) — the trickiest case for the cross-node
+    // fallback in navigator::step.
+    let idx = build("alpha beta.\n\ngamma delta epsilon.\n\nzeta.");
+    for (n, u) in &idx.words {
+        let a = SelectionAnchor::new(*n, SelectionUnit::Word, *u);
+        if let NavOutcome::Moved(b) = navigator::next(&idx, a)
+            && let NavOutcome::Moved(c) = navigator::prev(&idx, b)
+        {
+            assert_eq!(a, c, "prev(next({a:?})) must roundtrip");
+        }
+    }
+}
+
 #[test]
 fn boundary_at_last_sentence_returns_boundary() {
     // Single-sentence document: next on the only anchor is Boundary,
