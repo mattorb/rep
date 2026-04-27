@@ -161,6 +161,133 @@ fn word_walk_round_trip_holds_for_every_word() {
 }
 
 #[test]
+fn toml_frontmatter_is_a_codeblock_not_a_setext_heading() {
+    // Sibling to the YAML frontmatter case: TOML frontmatter delimited
+    // by `+++` produces an mdast Toml node, which we fold into a
+    // CodeBlock with `language="toml"`. Less common in the wild but
+    // used by Hugo, Zola, Jekyll alternatives.
+    let src = "+++\n\
+title = \"Example post\"\n\
+draft = true\n\
++++\n\
+\n\
+# First heading\n\
+\n\
+Body paragraph here.\n";
+    let idx = build(src);
+    let plain0 = &idx.nodes[0].selection_plain_text;
+    assert!(
+        plain0.contains("title") && plain0.contains("Example post"),
+        "TOML frontmatter content missing from node 0: {plain0:?}"
+    );
+    let kinds_have_real_heading = idx
+        .nodes
+        .iter()
+        .skip(1)
+        .any(|n| n.selection_plain_text.contains("First heading"));
+    assert!(
+        kinds_have_real_heading,
+        "expected the actual `# First heading` to land on a later node"
+    );
+}
+
+#[test]
+fn word_walk_visits_code_block_content_lines() {
+    // Per modular_plan §"Block-type coverage": code blocks are excluded
+    // from sentence-level navigation but allowed at word level. Verify
+    // each non-fence content line contributes word anchors and they're
+    // walked in order.
+    let src = "Prose first.\n\n```rust\nfn alpha() {}\nfn beta() {}\n```\n\nProse last.";
+    let idx = build(src);
+    let walk = word_walk(&idx);
+    let words: Vec<&str> = walk.iter().map(|(_, w)| w.as_str()).collect();
+    // Expected: "Prose", "first" (paragraph 1), "fn", "alpha", "fn", "beta" (code), "Prose", "last" (paragraph 2).
+    // Code-block words appear between the two prose paragraphs.
+    let code_start = words.iter().position(|w| *w == "fn").expect("fn in walk");
+    assert_eq!(words[code_start], "fn");
+    assert_eq!(words[code_start + 1], "alpha");
+    assert_eq!(words[code_start + 2], "fn");
+    assert_eq!(words[code_start + 3], "beta");
+    // Prose words must appear on both sides of the code block.
+    assert!(words[..code_start].contains(&"Prose"));
+    assert!(words[code_start + 4..].contains(&"Prose"));
+}
+
+#[test]
+fn word_walk_through_inline_formatting() {
+    // Bold / italic / inline code don't introduce word boundaries
+    // beyond what segment_words sees in selection plain text. The
+    // markdown markers (`**`, `*`, backticks) are stripped during
+    // index construction, so word boundaries fall on whitespace and
+    // punctuation only.
+    let src = "alpha **bold word** italic *more* and `code` end.";
+    let idx = build(src);
+    let walk = word_walk(&idx);
+    let words: Vec<&str> = walk.iter().map(|(_, w)| w.as_str()).collect();
+    assert_eq!(
+        words,
+        vec![
+            "alpha", "bold", "word", "italic", "more", "and", "code", "end"
+        ],
+        "inline formatting markers must not corrupt word boundaries: {walk:?}"
+    );
+}
+
+#[test]
+fn line_walk_through_blockquote() {
+    // Blockquote contents flatten into Paragraph anchors per the
+    // modular_plan flatten rule. Each source line of a multi-line
+    // blockquote should still get its own line anchor — so line-mode
+    // j walks blockquote lines individually.
+    let src = "> first quoted line\n> second quoted line\n> third quoted line";
+    let idx = build(src);
+    // Blockquote produces one paragraph node; line anchors per source
+    // line.
+    let line_count = idx.lines.len();
+    assert!(
+        line_count >= 3,
+        "expected at least 3 line anchors for a 3-line blockquote, got {line_count}"
+    );
+    // Each anchor's source line should be sequential 0, 1, 2.
+    let source_lines: Vec<usize> = idx
+        .lines
+        .iter()
+        .map(|&(n, u)| idx.nodes[n].source_line_ranges[u].0)
+        .collect();
+    for w in source_lines.windows(2) {
+        assert!(
+            w[0] < w[1],
+            "blockquote line anchors must be in source order: {source_lines:?}"
+        );
+    }
+}
+
+#[test]
+fn section_walk_through_nested_headings() {
+    // # A / ## sub / # B — section nav (next/prev on Section unit)
+    // visits all three section starters in source order. Even though
+    // ## sub is subordinate and # A's section span includes it, sub
+    // is itself addressable as a section.
+    let src = "# A\n\nbody A\n\n## sub of A\n\nsub body\n\n# B\n\nbody B";
+    let idx = build(src);
+    let mut anchor = SelectionAnchor::new(0, SelectionUnit::Section, 0);
+    let mut walk = vec![anchor.node_idx];
+    while let NavOutcome::Moved(a) = navigator::next(&idx, anchor) {
+        walk.push(a.node_idx);
+        anchor = a;
+    }
+    // Three section starters; their start_node_idx values should be
+    // strictly increasing.
+    assert_eq!(walk.len(), 3, "expected 3 sections walked, got {walk:?}");
+    for w in walk.windows(2) {
+        assert!(
+            w[0] < w[1],
+            "section walk must be in source order: {walk:?}"
+        );
+    }
+}
+
+#[test]
 fn yaml_frontmatter_is_a_codeblock_not_a_setext_heading() {
     // Regression: real-world Astro / Hugo posts open with a YAML
     // frontmatter block delimited by `---`. Without explicit
