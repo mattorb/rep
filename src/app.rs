@@ -216,68 +216,11 @@ fn single_range(s: &str) -> Vec<std::ops::Range<usize>> {
     }
 }
 
-/// Split plain rendered text into sentence byte ranges.
-///
-/// Splits on `\n` (newline separators between source lines) and on `. `/`! `/`? `
-/// followed by an ASCII uppercase letter (prose sentence boundaries).
-/// Works directly on the original text, so byte ranges are always valid.
+/// Convenience wrapper that delegates to the canonical segmenter in
+/// `selection::segment`. Kept as a local alias to minimize the diff at call
+/// sites; remove in phase 6 when sentence-related app tests migrate out.
 fn sentence_ranges_from_plain(plain: &str) -> Vec<Range<usize>> {
-    if plain.trim().is_empty() {
-        return Vec::new();
-    }
-    let mut ranges: Vec<Range<usize>> = Vec::new();
-    let bytes = plain.as_bytes();
-    let len = bytes.len();
-    let mut start = 0usize;
-    let mut i = 0usize;
-    while i < len {
-        if bytes[i] == b'\n' {
-            // Look past the newline and any leading spaces to the first content char.
-            // If it's a lowercase letter the line is a hard-wrap continuation of the
-            // current sentence, not a new item — so don't split here.
-            let mut j = i + 1;
-            while j < len && bytes[j] == b' ' {
-                j += 1;
-            }
-            if j < len && bytes[j].is_ascii_lowercase() {
-                i += 1;
-                continue;
-            }
-            push_trimmed_range(&mut ranges, plain, start, i);
-            i += 1;
-            start = i;
-            continue;
-        }
-        if matches!(bytes[i], b'.' | b'!' | b'?')
-            && i + 2 < len
-            && bytes[i + 1] == b' '
-            && bytes[i + 2].is_ascii_uppercase()
-        {
-            push_trimmed_range(&mut ranges, plain, start, i + 1);
-            i += 2;
-            start = i;
-            continue;
-        }
-        i += 1;
-    }
-    push_trimmed_range(&mut ranges, plain, start, len);
-    if ranges.is_empty() {
-        ranges.push(0..len);
-    }
-    ranges
-}
-
-fn push_trimmed_range(ranges: &mut Vec<Range<usize>>, plain: &str, start: usize, end: usize) {
-    if start >= end {
-        return;
-    }
-    let slice = &plain[start..end];
-    if slice.trim().is_empty() {
-        return;
-    }
-    let leading = slice.len() - slice.trim_start().len();
-    let trailing = slice.len() - slice.trim_end().len();
-    ranges.push((start + leading)..(end - trailing));
+    crate::selection::segment::segment_sentences(plain)
 }
 
 fn join_node_source_lines(lines: &[String]) -> String {

@@ -72,53 +72,6 @@ pub fn render_markdown_line(line: &str) -> RenderedMarkdownLine {
     }
 }
 
-#[cfg(test)]
-pub fn split_sentences(line: &str) -> Vec<Range<usize>> {
-    if line.trim().is_empty() {
-        return Vec::new();
-    }
-
-    let mut ranges = Vec::new();
-    let mut chars = line.char_indices().peekable();
-    let mut sentence_start = 0usize;
-
-    while let Some((idx, ch)) = chars.next() {
-        if matches!(ch, '.' | '!' | '?') {
-            let end = idx + ch.len_utf8();
-            let next_is_end_or_ws = chars
-                .peek()
-                .map(|(_, next)| next.is_whitespace())
-                .unwrap_or(true);
-            let is_abbreviation_period = ch == '.' && is_non_boundary_period(line, idx);
-
-            if next_is_end_or_ws && !is_abbreviation_period {
-                if sentence_start < end {
-                    ranges.push(sentence_start..end);
-                }
-                let mut next_start = end;
-                while let Some((ws_idx, ws_ch)) = chars.peek().copied() {
-                    if ws_ch.is_whitespace() {
-                        chars.next();
-                        next_start = ws_idx + ws_ch.len_utf8();
-                    } else {
-                        break;
-                    }
-                }
-                sentence_start = next_start;
-            }
-        }
-    }
-
-    if sentence_start < line.len() {
-        ranges.push(sentence_start..line.len());
-    }
-
-    if ranges.is_empty() {
-        ranges.push(0..line.len());
-    }
-
-    ranges
-}
 
 #[cfg(test)]
 pub fn is_section_heading(line: &str) -> bool {
@@ -193,60 +146,6 @@ pub fn heading_style(level: HeadingLevel) -> Style {
             .fg(Color::White)
             .add_modifier(Modifier::BOLD),
     }
-}
-
-#[cfg(test)]
-fn is_non_boundary_period(line: &str, period_idx: usize) -> bool {
-    let token = token_before_idx(line, period_idx);
-    let is_abbreviation = matches!(
-        token.as_str(),
-        "vs" | "mr" | "mrs" | "ms" | "dr" | "prof" | "sr" | "jr" | "st" | "etc"
-    );
-
-    is_abbreviation || is_numbered_bullet_period(line, period_idx, &token)
-}
-
-#[cfg(test)]
-fn is_numbered_bullet_period(line: &str, period_idx: usize, token: &str) -> bool {
-    if token.is_empty() || !token.chars().all(|ch| ch.is_ascii_digit()) {
-        return false;
-    }
-
-    let token_start = period_idx.saturating_sub(token.len());
-    let prev_non_ws = line[..token_start]
-        .chars()
-        .rev()
-        .find(|ch| !ch.is_whitespace());
-    let before_looks_list_like = matches!(
-        prev_non_ws,
-        None | Some(',')
-            | Some(';')
-            | Some(':')
-            | Some('(')
-            | Some('[')
-            | Some('{')
-            | Some('-')
-            | Some('.')
-    );
-    if !before_looks_list_like {
-        return false;
-    }
-
-    line[period_idx + 1..].chars().any(|ch| !ch.is_whitespace())
-}
-
-#[cfg(test)]
-fn token_before_idx(line: &str, idx: usize) -> String {
-    let prefix = &line[..idx];
-    let mut start = prefix.len();
-    for (pos, ch) in prefix.char_indices().rev() {
-        if ch.is_alphanumeric() {
-            start = pos;
-        } else {
-            break;
-        }
-    }
-    prefix[start..].to_ascii_lowercase()
 }
 
 impl MarkdownLineRenderer {
@@ -552,41 +451,7 @@ impl MarkdownLineRenderer {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_section_heading, render_markdown_line, split_sentences};
-
-    #[test]
-    fn does_not_split_vs_abbreviation() {
-        let line = "A vs. B is common. Next sentence.";
-        let ranges = split_sentences(line);
-        assert_eq!(ranges.len(), 2);
-        assert_eq!(&line[ranges[0].clone()], "A vs. B is common.");
-        assert_eq!(&line[ranges[1].clone()], "Next sentence.");
-    }
-
-    #[test]
-    fn does_not_split_on_numbered_bullet_markers() {
-        let line = "1. item one, 2. item two";
-        let ranges = split_sentences(line);
-        assert_eq!(ranges.len(), 1);
-        assert_eq!(&line[ranges[0].clone()], line);
-    }
-
-    #[test]
-    fn does_not_split_on_markdown_numbered_bullets_with_formatting() {
-        let line = "1. **item one**, 2. `item two`";
-        let ranges = split_sentences(line);
-        assert_eq!(ranges.len(), 1);
-        assert_eq!(&line[ranges[0].clone()], line);
-    }
-
-    #[test]
-    fn still_splits_regular_numeric_sentence_end() {
-        let line = "We ranked it 1. Then moved on.";
-        let ranges = split_sentences(line);
-        assert_eq!(ranges.len(), 2);
-        assert_eq!(&line[ranges[0].clone()], "We ranked it 1.");
-        assert_eq!(&line[ranges[1].clone()], "Then moved on.");
-    }
+    use super::{is_section_heading, render_markdown_line};
 
     #[test]
     fn renders_markdown_headings() {

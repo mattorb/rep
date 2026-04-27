@@ -57,7 +57,7 @@ impl SelectionIndex {
             let plain = node_selection_plain_text(node, source_lines);
             let source_line_ranges = node_source_line_ranges(node, source_lines, &plain);
             let sentence_ranges = if node_is_sentence_bearing(node) {
-                segment_sentences_internal(&plain)
+                crate::selection::segment::segment_sentences(&plain)
             } else {
                 Vec::new()
             };
@@ -306,99 +306,41 @@ fn build_section_table(doc: &Document) -> Vec<Section> {
     sections
 }
 
-/// Sentence segmenter operating on selection plain text.
-///
-/// Phase-1 internal duplicate of `app.rs::sentence_ranges_from_plain`.
-/// Phase-2 will move this into `selection::segment` as the canonical
-/// implementation and delete the duplicate.
-pub(crate) fn segment_sentences_internal(plain: &str) -> Vec<Range<usize>> {
-    if plain.trim().is_empty() {
-        return Vec::new();
-    }
-    let mut ranges: Vec<Range<usize>> = Vec::new();
-    let bytes = plain.as_bytes();
-    let len = bytes.len();
-    let mut start = 0usize;
-    let mut i = 0usize;
-    while i < len {
-        if bytes[i] == b'\n' {
-            let mut j = i + 1;
-            while j < len && bytes[j] == b' ' {
-                j += 1;
-            }
-            if j < len && bytes[j].is_ascii_lowercase() {
-                i += 1;
-                continue;
-            }
-            // Trim trailing whitespace on the segment.
-            let mut end = i;
-            while end > start && (bytes[end - 1] == b' ' || bytes[end - 1] == b'\n') {
-                end -= 1;
-            }
-            if end > start {
-                ranges.push(start..end);
-            }
-            start = j;
-            i = j;
-            continue;
-        }
-        if matches!(bytes[i], b'.' | b'!' | b'?')
-            && i + 2 < len
-            && bytes[i + 1] == b' '
-            && bytes[i + 2].is_ascii_uppercase()
-        {
-            ranges.push(start..i + 1);
-            i += 2;
-            start = i;
-            continue;
-        }
-        i += 1;
-    }
-    if start < len {
-        let mut end = len;
-        while end > start && (bytes[end - 1] == b' ' || bytes[end - 1] == b'\n') {
-            end -= 1;
-        }
-        if end > start {
-            ranges.push(start..end);
-        }
-    }
-    if ranges.is_empty() {
-        let trimmed_start = plain.bytes().take_while(|b| *b == b' ' || *b == b'\n').count();
-        let mut end = plain.len();
-        while end > trimmed_start
-            && (plain.as_bytes()[end - 1] == b' ' || plain.as_bytes()[end - 1] == b'\n')
-        {
-            end -= 1;
-        }
-        if end > trimmed_start {
-            ranges.push(trimmed_start..end);
-        }
-    }
-    ranges
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::document::Document;
 
     #[test]
-    fn segment_sentences_splits_on_period_space_uppercase() {
-        let r = segment_sentences_internal("First sentence. Second sentence.");
-        assert_eq!(r.len(), 2);
-        assert_eq!(r[0], 0..15);
+    fn empty_doc_index_is_empty() {
+        let doc = Document::parse("");
+        let idx = SelectionIndex::build(&doc, &[]);
+        assert!(idx.nodes.is_empty());
+        assert!(idx.sections.is_empty());
+        assert!(idx.paragraphs.is_empty());
+        assert!(idx.sentences.is_empty());
     }
 
     #[test]
-    fn segment_sentences_empty_yields_empty() {
-        assert!(segment_sentences_internal("").is_empty());
-        assert!(segment_sentences_internal("   ").is_empty());
+    fn paragraph_sentences_round_trip() {
+        let src = "First sentence here. Second one too.";
+        let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
+        let doc = Document::parse(src);
+        let idx = SelectionIndex::build(&doc, &lines);
+        assert_eq!(idx.nodes.len(), 1);
+        assert_eq!(idx.nodes[0].sentence_ranges.len(), 2);
+        assert_eq!(idx.sentences.len(), 2);
     }
 
     #[test]
-    fn segment_sentences_no_terminal_punct_one_segment() {
-        let r = segment_sentences_internal("just words no period");
-        assert_eq!(r.len(), 1);
-        assert_eq!(r[0], 0..20);
+    fn section_table_pre_heading_then_heading() {
+        let src = "Pre-heading prose.\n\n# Heading\n\nUnder heading.";
+        let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
+        let doc = Document::parse(src);
+        let idx = SelectionIndex::build(&doc, &lines);
+        // Sections: PreHeading (node 0..0), Heading (1..2)
+        assert_eq!(idx.sections.len(), 2);
+        assert_eq!(idx.sections[0].kind, SectionKind::PreHeading);
+        assert_eq!(idx.sections[1].kind, SectionKind::Heading);
     }
 }
