@@ -431,6 +431,45 @@ mod tests {
     }
 
     #[test]
+    fn section_table_top_level_ol_is_one_section_pre_heading() {
+        // Top-level OL with no preceding heading is a single section that
+        // spans every contiguous top-level OL item; the items don't each
+        // become their own section starter.
+        let src = "1. first\n2. second\n3. third";
+        let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
+        let doc = Document::parse(src);
+        let idx = SelectionIndex::build(&doc, &lines);
+        assert_eq!(idx.sections.len(), 1, "{:?}", idx.sections);
+        assert_eq!(idx.sections[0].kind, SectionKind::Ol);
+        assert_eq!(idx.sections[0].start_node_idx, 0);
+        assert_eq!(idx.sections[0].end_node_idx, doc.nodes.len() - 1);
+    }
+
+    #[test]
+    fn section_table_ol_after_heading_does_not_start_section() {
+        // Once any heading is seen, a later top-level OL no longer starts
+        // its own section — it folds into the surrounding heading section.
+        let src = "# Top\n\n1. a\n2. b";
+        let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
+        let doc = Document::parse(src);
+        let idx = SelectionIndex::build(&doc, &lines);
+        assert_eq!(idx.sections.len(), 1);
+        assert_eq!(idx.sections[0].kind, SectionKind::Heading);
+    }
+
+    #[test]
+    fn section_table_pre_heading_skipped_when_only_thematic_break() {
+        // `---` alone before a heading does not contribute selectable
+        // content, so no PreHeading section is emitted.
+        let src = "---\n\n# Heading";
+        let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
+        let doc = Document::parse(src);
+        let idx = SelectionIndex::build(&doc, &lines);
+        assert_eq!(idx.sections.len(), 1);
+        assert_eq!(idx.sections[0].kind, SectionKind::Heading);
+    }
+
+    #[test]
     fn is_table_separator_recognizes_canonical_shapes() {
         assert!(is_table_separator_line("| --- | --- |"));
         assert!(is_table_separator_line("|---|---|"));
