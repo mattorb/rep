@@ -10,6 +10,3 @@ pub mod model;
 pub mod navigator;
 pub mod projection;
 pub mod segment;
-
-pub use index::{NodeIndex, Section, SectionKind, SelectionIndex};
-pub use model::{NavOutcome, SelectionAnchor, SelectionState, SelectionUnit};
