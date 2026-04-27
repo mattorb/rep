@@ -765,8 +765,11 @@ impl App {
 
     fn apply_search_target(&mut self, query: &str, matches: &[(usize, usize)], target_idx: usize) {
         let (ni, si) = matches[target_idx];
-        self.selection_state.anchor.node_idx = ni;
-        self.selection_state.anchor.unit_idx = si;
+        // find_search_matches returns sentence-keyed positions, so the
+        // search jump always anchors at sentence granularity regardless of
+        // the active unit at search time.
+        self.selection_state.anchor =
+            SelectionAnchor::new(ni, SelectionUnit::Sentence, si);
         self.section_highlight_range = None;
         self.clamp_sentence();
         self.status = format!(
@@ -3270,6 +3273,25 @@ mod tests {
             "cursor should land on Beta node"
         );
         assert!(app.status.contains("Match 1/1"), "status: {}", app.status);
+    }
+
+    #[test]
+    fn search_from_word_mode_resets_to_sentence_anchor() {
+        // When the user is in Word mode and triggers a search, the match
+        // table is sentence-keyed; the anchor must reset to Sentence so
+        // unit_idx is interpreted correctly.
+        let mut app = test_app("Alpha sentence.\n\nBeta paragraph with target here.\n");
+        // Cycle into Word mode and step through a few words.
+        app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        app.handle_key(key_char('j'));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+        type_search(&mut app, "target");
+        assert_eq!(app.selection_state.anchor.node_idx, 1);
+        assert_eq!(
+            app.selection_state.anchor.unit,
+            SelectionUnit::Sentence,
+            "search must re-anchor to Sentence"
+        );
     }
 
     #[test]
