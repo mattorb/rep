@@ -3,6 +3,11 @@
 //! See `implementation.md` § "Scaffolding" and `modular_plan.md` §
 //! "Fixture tooling and goldens" for the specification.
 
+// Each tests/* file compiled as its own crate sees a separate copy of
+// this module and uses different subsets of the helpers — silence the
+// per-crate "unused" warnings that result.
+#![allow(dead_code)]
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rep::app::App;
 use std::path::{Path, PathBuf};
@@ -172,4 +177,14 @@ pub fn transcripts_root() -> PathBuf {
         .join("tests")
         .join("fixtures")
         .join("transcripts")
+}
+
+/// Parse a markdown source string into a `(Document, SelectionIndex)`
+/// pair, mirroring how `App::load` builds them. Shared by the
+/// `selection_navigation` / `selection_projection` integration tests
+/// to avoid each carrying its own copy.
+pub fn build_index(src: &str) -> rep::selection::index::SelectionIndex {
+    let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
+    let doc = rep::document::Document::parse(src);
+    rep::selection::index::SelectionIndex::build(&doc, &lines)
 }

@@ -2,16 +2,11 @@
 //! public API (`rep::selection::*`) end-to-end on parsed real-shape
 //! Markdown documents.
 
-use rep::document::Document;
-use rep::selection::index::SelectionIndex;
+mod common;
+
+use common::build_index as build;
 use rep::selection::model::{NavOutcome, SelectionAnchor, SelectionUnit};
 use rep::selection::navigator;
-
-fn build(src: &str) -> SelectionIndex {
-    let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
-    let doc = Document::parse(src);
-    SelectionIndex::build(&doc, &lines)
-}
 
 #[test]
 fn full_doc_walk_visits_every_sentence_anchor() {

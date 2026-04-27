@@ -1,16 +1,11 @@
 //! Integration tests for `rep::selection::projection::highlight_for`.
 //! Exercises the public API the way the renderer would.
 
-use rep::document::Document;
-use rep::selection::index::SelectionIndex;
+mod common;
+
+use common::build_index as build;
 use rep::selection::model::{SelectionAnchor, SelectionUnit};
 use rep::selection::projection::{Highlight, highlight_for};
-
-fn build(src: &str) -> SelectionIndex {
-    let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
-    let doc = Document::parse(src);
-    SelectionIndex::build(&doc, &lines)
-}
 
 #[test]
 fn word_unit_returns_byte_range_inside_node_plain() {
