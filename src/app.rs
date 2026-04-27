@@ -2281,10 +2281,19 @@ impl App {
                 }
             }
             SelectionUnit::Word => {
-                // Best-effort: find the unit_idx-th word in the rendered
-                // display plain text using the canonical word segmenter.
-                let words = crate::selection::segment::segment_words(plain);
-                words.get(unit_idx).cloned().or(Some(0..plain.len()))
+                // Locate the index's word text in the rendered display plain
+                // text. Re-segmenting display text with segment_words can
+                // drift when markers (footnote refs, task markers, etc.)
+                // appear in display but not in selection plain text — the
+                // word index aligns to selection plain text, not display.
+                // Match by text instead so the painted range tracks the
+                // right word regardless of marker visibility.
+                let node_idx = self.selection_state.anchor.node_idx;
+                let index_node = self.index.nodes.get(node_idx)?;
+                let word_range = index_node.word_ranges.get(unit_idx)?;
+                let word_text = index_node.selection_plain_text.get(word_range.clone())?;
+                let pos = plain.find(word_text)?;
+                Some(pos..pos + word_text.len())
             }
             SelectionUnit::Section => None,
         }
