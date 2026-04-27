@@ -988,48 +988,6 @@ impl App {
         self.selection_state.anchor.unit.mode_str()
     }
 
-    /// Test-only helper that reproduces the legacy section-mode jump
-    /// without touching the main keymap. Used by app-level tests that
-    /// haven't migrated to the navigator API directly.
-    #[cfg(test)]
-    #[allow(dead_code)]
-    fn move_section(&mut self, forward: bool) {
-        // Build a Section anchor from the current selection. If currently in
-        // sentence mode, find the section that contains the current node.
-        let current_node = self.selection_state.anchor.node_idx;
-        let containing_section_start = self
-            .index
-            .sections
-            .iter()
-            .find(|s| s.start_node_idx <= current_node && current_node <= s.end_node_idx)
-            .map(|s| s.start_node_idx);
-        let section_anchor = SelectionAnchor::new(
-            containing_section_start.unwrap_or(current_node),
-            SelectionUnit::Section,
-            0,
-        );
-        let outcome = if forward {
-            crate::selection::navigator::next(&self.index, section_anchor)
-        } else {
-            crate::selection::navigator::prev(&self.index, section_anchor)
-        };
-        match outcome {
-            crate::selection::model::NavOutcome::Moved(a) => {
-                self.selection_state.anchor.node_idx = a.node_idx;
-                self.selection_state.anchor.unit_idx = 0;
-                self.section_highlight_range = self.section_span_for(a.node_idx);
-                self.status = format!("Section at node {}.", a.node_idx + 1);
-            }
-            crate::selection::model::NavOutcome::Boundary => {
-                self.status = if forward {
-                    "Already at the last section.".to_string()
-                } else {
-                    "Already at the first section.".to_string()
-                };
-            }
-        }
-    }
-
     fn jump_to_annotation(&mut self, forward: bool) {
         let from = if forward {
             self.selection_state.anchor.node_idx + 1
@@ -4231,17 +4189,26 @@ mod tests {
     }
 
     #[test]
-    fn move_sentence_clears_section_highlight_range() {
+    fn cycling_out_of_section_mode_clears_section_highlight_range() {
+        // Cycle into Section mode (Backspace x3: Sentence -> Line ->
+        // Paragraph -> Section). mode_cycle sets section_highlight_range
+        // for Section anchors and clears it for any other unit on the
+        // way out.
         let mut app = test_app("Intro\n\n# A\ntext\n");
-        app.move_section(true);
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Section);
         assert!(
             app.section_highlight_range.is_some(),
-            "should be set after move_section"
+            "highlight set on Section-mode entry"
         );
-        app.handle_key(key_char('j'));
+        // Forward cycle Section -> Paragraph; expect highlight cleared.
+        app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Paragraph);
         assert!(
             app.section_highlight_range.is_none(),
-            "should be cleared after move_sentence"
+            "highlight cleared after cycling out of Section mode"
         );
     }
 
@@ -4301,37 +4268,53 @@ mod tests {
     // ── move_section / move_block boundary conditions ─────────────────────────
 
     #[test]
-    fn move_section_in_doc_with_no_sections_stays_put() {
+    fn section_nav_in_doc_with_only_pre_heading_section_stays_put() {
+        // No headings → only a PreHeading section spanning the prose.
+        // Cycling into Section mode lands there; j / k both immediately
+        // hit Boundary on the only section, leaving node_idx unchanged.
         let mut app = test_app("Just a paragraph. No headings.");
         let start = app.selection_state.anchor.node_idx;
-        app.move_section(true);
+        // Cycle to Section.
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Section);
+        app.handle_key(key_char('j'));
         assert_eq!(
             app.selection_state.anchor.node_idx, start,
-            "no section found — cursor must not move"
+            "boundary forward — cursor must not move"
         );
-        app.move_section(false);
+        app.handle_key(key_char('k'));
         assert_eq!(app.selection_state.anchor.node_idx, start);
     }
 
     #[test]
-    fn move_section_sets_highlight_range_to_section_boundary() {
+    fn section_nav_sets_highlight_range_to_section_boundary() {
         // nodes: [Para(intro), Heading(A), Para(text), Heading(B), Para(final)]
+        // Cycle into Section mode (lands on PreHeading at node 0), then
+        // step j twice to walk Section A then Section B; assert each
+        // section_highlight_range matches the section table's span.
         let mut app = test_app("Intro\n\n# A\ntext\n\n# B\nfinal\n");
-        app.move_section(true); // jumps to Heading A = node 1
-        assert_eq!(app.selection_state.anchor.node_idx, 1);
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        // Section 0 (PreHeading): nodes [0..0].
         let range = app
             .section_highlight_range
             .clone()
-            .expect("highlight should be set");
+            .expect("highlight set on Section entry");
+        assert_eq!(range.start, 0);
+        assert_eq!(range.end, 1);
+
+        app.handle_key(key_char('j')); // → Heading A section
+        assert_eq!(app.selection_state.anchor.node_idx, 1);
+        let range = app.section_highlight_range.clone().expect("set");
         assert_eq!(range.start, 1);
         assert_eq!(range.end, 3, "section A spans nodes 1..3");
 
-        app.move_section(true); // jumps to Heading B = node 3
+        app.handle_key(key_char('j')); // → Heading B section
         assert_eq!(app.selection_state.anchor.node_idx, 3);
-        let range = app
-            .section_highlight_range
-            .clone()
-            .expect("highlight should be set");
+        let range = app.section_highlight_range.clone().expect("set");
         assert_eq!(range.start, 3);
         assert_eq!(range.end, 5, "last section spans to end of doc");
     }
