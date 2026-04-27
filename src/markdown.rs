@@ -80,7 +80,7 @@ fn markdown_options() -> MdOptions {
     options
 }
 
-fn heading_level_number(level: HeadingLevel) -> usize {
+const fn heading_level_number(level: HeadingLevel) -> usize {
     match level {
         HeadingLevel::H1 => 1,
         HeadingLevel::H2 => 2,

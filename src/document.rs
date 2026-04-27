@@ -62,11 +62,11 @@ impl DocNode {
     }
 
     #[cfg(test)]
-    fn is_heading(&self) -> bool {
+    const fn is_heading(&self) -> bool {
         matches!(self, Self::Heading { .. })
     }
 
-    pub fn source_start_line(&self) -> usize {
+    pub const fn source_start_line(&self) -> usize {
         match self {
             Self::Heading { source_line, .. } | Self::ThematicBreak { source_line } => *source_line,
             Self::Paragraph { source_lines, .. }

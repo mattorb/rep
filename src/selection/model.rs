@@ -14,7 +14,7 @@ pub enum SelectionUnit {
 
 impl SelectionUnit {
     /// Stable capitalized identifier used in golden artifacts.
-    pub fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Section => "Section",
             Self::Paragraph => "Paragraph",
@@ -25,7 +25,7 @@ impl SelectionUnit {
     }
 
     /// Lowercase variant used for the footer mode indicator.
-    pub fn mode_str(self) -> &'static str {
+    pub const fn mode_str(self) -> &'static str {
         match self {
             Self::Section => "section",
             Self::Paragraph => "paragraph",
@@ -54,7 +54,7 @@ pub struct SelectionAnchor {
 }
 
 impl SelectionAnchor {
-    pub fn new(node_idx: usize, unit: SelectionUnit, unit_idx: usize) -> Self {
+    pub const fn new(node_idx: usize, unit: SelectionUnit, unit_idx: usize) -> Self {
         let unit_idx = match unit {
             SelectionUnit::Paragraph | SelectionUnit::Section => 0,
             _ => unit_idx,
@@ -73,7 +73,7 @@ pub struct SelectionState {
 }
 
 impl SelectionState {
-    pub fn new(anchor: SelectionAnchor) -> Self {
+    pub const fn new(anchor: SelectionAnchor) -> Self {
         Self { anchor }
     }
 }
