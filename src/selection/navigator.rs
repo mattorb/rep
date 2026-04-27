@@ -221,4 +221,32 @@ mod tests {
         let b = clamp(&idx, a, SelectionUnit::Sentence);
         assert_eq!(a, b);
     }
+
+    #[test]
+    fn clamp_matrix_full_doc_covers_every_unit_pair() {
+        // Document with all five units present: heading, multi-sentence
+        // paragraph, multi-line paragraph. Verify clamp lands on a valid
+        // anchor of the requested unit for every (from, to) pair.
+        let (_doc, idx, _lines) = build(
+            "# Top heading\n\nFirst sentence here. Second sentence here.\n\nA second paragraph\nwrapping two lines.",
+        );
+        let units = [
+            SelectionUnit::Section,
+            SelectionUnit::Paragraph,
+            SelectionUnit::Line,
+            SelectionUnit::Sentence,
+            SelectionUnit::Word,
+        ];
+        // Start anchor: paragraph 1, sentence 0.
+        let start = SelectionAnchor::new(1, SelectionUnit::Sentence, 0);
+        for &from in &units {
+            // Move to `from` first.
+            let a = clamp(&idx, start, from);
+            assert_eq!(a.unit, from, "clamp should land on {:?}", from);
+            for &to in &units {
+                let b = clamp(&idx, a, to);
+                assert_eq!(b.unit, to, "clamp({:?} -> {:?}) failed", from, to);
+            }
+        }
+    }
 }
