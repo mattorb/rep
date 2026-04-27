@@ -8,6 +8,8 @@
 //! tables with backward-then-forward fallback when the target unit is
 //! unavailable in the current node.
 
+use std::borrow::Cow;
+
 use crate::selection::index::SelectionIndex;
 use crate::selection::model::{NavOutcome, SelectionAnchor, SelectionUnit};
 
@@ -61,17 +63,19 @@ fn step(index: &SelectionIndex, anchor: SelectionAnchor, forward: bool) -> NavOu
     NavOutcome::Moved(SelectionAnchor::new(n, anchor.unit, u))
 }
 
-fn unit_table(index: &SelectionIndex, unit: SelectionUnit) -> Vec<(usize, usize)> {
+fn unit_table(index: &SelectionIndex, unit: SelectionUnit) -> Cow<'_, [(usize, usize)]> {
     match unit {
-        SelectionUnit::Sentence => index.sentences.clone(),
-        SelectionUnit::Paragraph => index.paragraphs.clone(),
-        SelectionUnit::Line => index.lines.clone(),
-        SelectionUnit::Word => index.words.clone(),
-        SelectionUnit::Section => index
-            .sections
-            .iter()
-            .map(|s| (s.start_node_idx, 0))
-            .collect(),
+        SelectionUnit::Sentence => Cow::Borrowed(&index.sentences),
+        SelectionUnit::Paragraph => Cow::Borrowed(&index.paragraphs),
+        SelectionUnit::Line => Cow::Borrowed(&index.lines),
+        SelectionUnit::Word => Cow::Borrowed(&index.words),
+        SelectionUnit::Section => Cow::Owned(
+            index
+                .sections
+                .iter()
+                .map(|s| (s.start_node_idx, 0))
+                .collect(),
+        ),
     }
 }
 
