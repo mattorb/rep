@@ -3,10 +3,10 @@
 //! when there is no further anchor of the requested unit; selection state is
 //! unchanged on a boundary outcome.
 //!
-//! Parity-preserving phase 3a: Sentence and Section units use the linear-order
-//! tables from the index. Paragraph traversal walks block-level nodes with
-//! paragraph anchors. Line and Word are no-ops in phase 3a (Line lands in
-//! phase 4, Word in phase 5).
+//! All five units (Section / Paragraph / Line / Sentence / Word) traverse via
+//! the linear-order tables in `SelectionIndex`; clamp re-anchors via the same
+//! tables with backward-then-forward fallback when the target unit is
+//! unavailable in the current node.
 
 use crate::selection::index::SelectionIndex;
 use crate::selection::model::{NavOutcome, SelectionAnchor, SelectionUnit};
@@ -78,8 +78,11 @@ fn locate(table: &[(usize, usize)], node_idx: usize, unit_idx: usize) -> Option<
 }
 
 /// Re-anchor onto the requested target unit per the pinned `clamp` rules.
-/// Phase 3a uses the linear tables for upgrade/downgrade; out-of-current-node
-/// targets walk backward then forward in document order.
+/// Looks up the target's linear table; for upgrades and downgrades within
+/// the current node, returns the matching entry. Out-of-current-node
+/// targets walk backward then forward in document order; if neither
+/// direction finds an entry, the unit switch is a silent no-op (returns
+/// the original anchor).
 pub fn clamp(
     index: &SelectionIndex,
     anchor: SelectionAnchor,

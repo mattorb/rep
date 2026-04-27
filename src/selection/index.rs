@@ -252,8 +252,12 @@ fn node_source_line_ranges(
             source_lines: range,
             ..
         } => {
-            // One anchor per non-fence source line. We emit `(line, full-range)` as a
-            // phase-1 simplification; phase 4 narrows to per-line slices.
+            // One anchor per non-fence source line. We emit `(line, full-range)` —
+            // the byte range covers the whole node and the (line, _) pair is what
+            // line-unit lookups consult. Per-line slice mapping isn't needed
+            // because where_for_annotation Line case reads the line number from
+            // this entry and `current_line_capture` reads the source line text
+            // directly via `source_lines[line]`.
             range
                 .clone()
                 .filter(|&l| {

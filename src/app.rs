@@ -237,8 +237,8 @@ fn single_range(s: &str) -> Vec<std::ops::Range<usize>> {
 }
 
 /// Convenience wrapper that delegates to the canonical segmenter in
-/// `selection::segment`. Kept as a local alias to minimize the diff at call
-/// sites; remove in phase 6 when sentence-related app tests migrate out.
+/// `selection::segment`. Kept as a local alias to minimize churn at call
+/// sites; the canonical entrypoint is selection::segment::segment_sentences.
 fn sentence_ranges_from_plain(plain: &str) -> Vec<Range<usize>> {
     crate::selection::segment::segment_sentences(plain)
 }
@@ -317,8 +317,7 @@ pub struct App {
     doc: Document,
     rendered_nodes: Vec<RenderedNode>,
     /// Owned eager selection index built once at load time per Req 11.
-    /// Read by phase 3a's navigator extraction; stub-referenced today.
-    #[allow(dead_code)]
+    /// Drives navigation, per-unit emit, and unit-aware highlight lookup.
     pub(crate) index: SelectionIndex,
     /// Canonical selection state — `(node_idx, unit, unit_idx)`. Replaces the
     /// pre-phase-1 `cursor_node` + `cursor_sentence` pair.
@@ -989,8 +988,9 @@ impl App {
         self.selection_state.anchor.unit.mode_str()
     }
 
-    /// Phase-3a compat shim still consumed by some legacy app tests; phase 6
-    /// retires the move_section name with the test migration.
+    /// Test-only helper that reproduces the legacy section-mode jump
+    /// without touching the main keymap. Used by app-level tests that
+    /// haven't migrated to the navigator API directly.
     #[cfg(test)]
     #[allow(dead_code)]
     fn move_section(&mut self, forward: bool) {
@@ -1162,16 +1162,17 @@ impl App {
         Some((self.selection_state.anchor.unit_idx, text))
     }
 
-    /// Capture the (unit_idx, target_text) snapshot used when storing an
-    /// annotation. Routing by `selection_state.anchor.unit`. For phase 4:
-    ///   - Sentence: legacy current_sentence_context (rendered display
-    ///     plain text slice for the current sentence).
-    ///   - Line: per-unit text — for ListItem the full item text
-    ///     (markers stripped, soft-wrapped lines space-joined); for any
-    ///     other node the source line verbatim.
-    ///   - Paragraph / Section / Word: fall through to the sentence
-    ///     capture today; phase 5 adds Word; full Paragraph / Section
-    ///     emit lands later.
+    /// Capture the `(unit_idx, target_text)` snapshot stored on the
+    /// annotation. Routes by `selection_state.anchor.unit`:
+    ///   - Sentence: rendered-display sentence text via current_sentence_context.
+    ///   - Line: source line verbatim for non-ListItem; full item text
+    ///     (markers stripped, soft-wrapped lines space-joined) for ListItem.
+    ///   - Word: word's selection plain text (punctuation stripped per
+    ///     word-boundary rules).
+    ///   - Paragraph: full node selection plain text, internal newlines
+    ///     collapsed to spaces.
+    ///   - Section: constituent nodes' selection plain text, joined with
+    ///     single spaces, internal newlines collapsed.
     fn current_target_capture(&self) -> Option<(usize, String)> {
         match self.selection_state.anchor.unit {
             SelectionUnit::Line => self.current_line_capture(),
