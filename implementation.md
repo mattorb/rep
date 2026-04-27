@@ -461,10 +461,3 @@ Items most likely to bite during implementation. Each has a mitigation already i
 - Goldens-regeneration commits are always second (after the implementation commit) on a phase branch — this keeps the implementation diff and the test-data diff separately reviewable.
 - No `--no-verify`. No force-push to `main`.
 
----
-
-## Working notes (delete before merging)
-
-- Line numbers cited above are accurate as of the survey snapshot. Re-grep before editing.
-- `selection::projection` was carved out as part of phase 7's follow-up commits, alongside the per-unit `unit_highlight_for` work in `app.rs`. The module exposes `Highlight::Range(node, byte_range)` for Word / Sentence / Line / Paragraph and `Highlight::Section(Vec<node_idx>)` for Section. The renderer keeps its own per-unit highlight resolution (operates on display plain text, the index operates on selection plain text, and the two views diverge for nodes with markers); routing the renderer through projection is left for a future iteration that unifies the two text views.
-- `tests/cli.rs` has 9 tests covering CLI flag parsing — none of them exercise selection. They stay green throughout the refactor with no changes.
