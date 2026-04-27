@@ -1,0 +1,5 @@
+# Word-mode reveal-link still uses the current-sentence link list.
+Space
+j
+u
+q

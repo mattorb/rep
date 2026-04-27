@@ -1,0 +1,5 @@
+# In Word mode, x falls back to a sentence-level strike (current behavior).
+Space
+j
+x
+q
