@@ -238,9 +238,10 @@ fn single_range(s: &str) -> Vec<std::ops::Range<usize>> {
     }
 }
 
-/// Convenience wrapper that delegates to the canonical segmenter in
-/// `selection::segment`. Kept as a local alias to minimize churn at call
-/// sites; the canonical entrypoint is selection::segment::segment_sentences.
+/// Join soft-wrapped source lines into one string for paragraph
+/// rendering. The first line keeps its leading whitespace (so list
+/// item markers stay aligned); continuation lines are trimmed before
+/// joining. Empty lines are dropped.
 fn join_node_source_lines(lines: &[String]) -> String {
     lines
         .iter()
