@@ -1125,11 +1125,23 @@ impl App {
     }
 
     fn current_source_line(&self) -> usize {
-        self.doc
+        // Return the source line where the active selection's text begins,
+        // routed per the active unit. Used by status messages so the line
+        // number shown matches the captured annotation's WHERE: line.
+        let node_idx = self.selection_state.anchor.node_idx;
+        let node_first_line = self
+            .doc
             .nodes
-            .get(self.selection_state.anchor.node_idx)
+            .get(node_idx)
             .map(|n| n.source_start_line())
-            .unwrap_or(0)
+            .unwrap_or(0);
+        let (line, _) = self.where_for_annotation(
+            self.selection_state.anchor.unit,
+            node_idx,
+            Some(self.selection_state.anchor.unit_idx),
+            node_first_line,
+        );
+        line
     }
 
     fn current_sentence_context(&self) -> Option<(usize, String)> {
@@ -3704,6 +3716,22 @@ mod tests {
         // span lines; here we just confirm the helper doesn't crash and
         // the emit format is correct.
         assert!(out.contains("WHERE: line 1\n"), "{out}");
+    }
+
+    #[test]
+    fn change_status_reports_per_unit_source_line() {
+        // Multi-line paragraph; cursor on sentence 1 (second sentence).
+        // Status after `c X Enter` should mention line 2, not line 1.
+        let mut app = test_app("First sentence.\nSecond sentence.\n");
+        app.selection_state.anchor.unit_idx = 1;
+        app.handle_key(key_char('c'));
+        app.handle_key(key_char('X'));
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(
+            app.status.contains("(line 2)"),
+            "status should report sentence's source line: {}",
+            app.status
+        );
     }
 
     #[test]
