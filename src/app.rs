@@ -949,16 +949,6 @@ impl App {
     }
 
     /// Phase-3a compat shim still consumed by some legacy app tests; phase 6
-    /// retires the move_sentence name with the test migration.
-    #[cfg(test)]
-    fn move_sentence(&mut self, forward: bool) {
-        let saved_unit = self.selection_state.anchor.unit;
-        self.selection_state.anchor.unit = SelectionUnit::Sentence;
-        self.move_active_unit(forward);
-        self.selection_state.anchor.unit = saved_unit;
-    }
-
-    /// Phase-3a compat shim still consumed by some legacy app tests; phase 6
     /// retires the move_section name with the test migration.
     #[cfg(test)]
     #[allow(dead_code)]
@@ -3533,7 +3523,7 @@ mod tests {
         let mut app = test_app("First sentence.\n\nSecond sentence.\n");
         assert_eq!(app.selection_state.anchor.node_idx, 0);
         assert_eq!(app.selection_state.anchor.unit_idx, 0);
-        app.move_sentence(true);
+        app.handle_key(key_char('j'));
         assert_eq!(
             app.selection_state.anchor.node_idx, 1,
             "should cross to next node"
@@ -3718,7 +3708,7 @@ mod tests {
     #[test]
     fn move_sentence_forward_at_last_sentence_stays_put() {
         let mut app = test_app("Single sentence.");
-        app.move_sentence(true);
+        app.handle_key(key_char('j'));
         assert_eq!(
             app.selection_state.anchor.node_idx, 0,
             "no next node — cursor must stay"
@@ -3729,7 +3719,7 @@ mod tests {
     #[test]
     fn move_sentence_backward_at_first_sentence_stays_put() {
         let mut app = test_app("Single sentence.");
-        app.move_sentence(false);
+        app.handle_key(key_char('k'));
         assert_eq!(app.selection_state.anchor.node_idx, 0);
         assert_eq!(app.selection_state.anchor.unit_idx, 0);
     }
@@ -3738,7 +3728,7 @@ mod tests {
     fn move_sentence_forward_stays_on_last_sentence_of_multi_sentence_node() {
         let mut app = test_app("One. Two. Three.");
         app.selection_state.anchor.unit_idx = 2;
-        app.move_sentence(true);
+        app.handle_key(key_char('j'));
         assert_eq!(app.selection_state.anchor.node_idx, 0);
         assert_eq!(
             app.selection_state.anchor.unit_idx, 2,
@@ -3750,10 +3740,10 @@ mod tests {
     fn move_sentence_backward_crosses_to_last_sentence_of_previous_node() {
         // node 0 has 2 sentences; node 1 has 1.
         let mut app = test_app("First. Second.\n\nThird.\n");
-        app.move_sentence(true); // → node 0, sentence 1
-        app.move_sentence(true); // → node 1, sentence 0
+        app.handle_key(key_char('j')); // → node 0, sentence 1
+        app.handle_key(key_char('j')); // → node 1, sentence 0
         assert_eq!(app.selection_state.anchor.node_idx, 1);
-        app.move_sentence(false); // ← should land on last sentence of node 0
+        app.handle_key(key_char('k')); // ← should land on last sentence of node 0
         assert_eq!(app.selection_state.anchor.node_idx, 0);
         assert_eq!(
             app.selection_state.anchor.unit_idx, 1,
@@ -3769,7 +3759,7 @@ mod tests {
             app.section_highlight_range.is_some(),
             "should be set after move_section"
         );
-        app.move_sentence(true);
+        app.handle_key(key_char('j'));
         assert!(
             app.section_highlight_range.is_none(),
             "should be cleared after move_sentence"
@@ -3968,7 +3958,7 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(40, 7)).unwrap();
 
         // move_sentence forward from node 0's last sentence → lands on node 1.
-        app.move_sentence(true);
+        app.handle_key(key_char('j'));
         terminal.draw(|f| app.draw(f)).unwrap();
 
         let buf = terminal.backend().buffer();
