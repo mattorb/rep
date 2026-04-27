@@ -2429,7 +2429,7 @@ impl App {
     // ── Output ────────────────────────────────────────────────────────────────
 
     #[cfg(test)]
-    pub fn to_output(&self) -> AgentOutput {
+    fn to_output(&self) -> AgentOutput {
         let mut touched = BTreeSet::new();
         touched.extend(self.changes.keys().copied());
         touched.extend(self.feedbacks.keys().copied());
