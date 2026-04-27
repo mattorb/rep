@@ -363,7 +363,7 @@ fn build_section_table(doc: &Document) -> Vec<Section> {
 
     // Pre-heading "section 0" — present only when the pre-starter region has
     // any selectable node.
-    let first_starter = starters.first().map(|(i, _)| *i).unwrap_or(n);
+    let first_starter = starters.first().map_or(n, |(i, _)| *i);
     let pre_has_content = (0..first_starter).any(|i| match &doc.nodes[i] {
         DocNode::ThematicBreak { .. } => false,
         DocNode::Heading { text, .. } => !text.is_empty(),
@@ -380,7 +380,7 @@ fn build_section_table(doc: &Document) -> Vec<Section> {
     }
 
     for (i, &(start, kind)) in starters.iter().enumerate() {
-        let next_start = starters.get(i + 1).map(|(j, _)| *j).unwrap_or(n);
+        let next_start = starters.get(i + 1).map_or(n, |(j, _)| *j);
         let end = next_start - 1;
         sections.push(Section {
             start_node_idx: start,

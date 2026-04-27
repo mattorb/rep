@@ -2209,19 +2209,11 @@ impl App {
     }
 
     fn node_indicator(&self, node_idx: usize) -> (&'static str, Style) {
-        let change_count = self.changes.get(&node_idx).map(|v| v.len()).unwrap_or(0);
-        let feedback_count = self.feedbacks.get(&node_idx).map(|v| v.len()).unwrap_or(0);
-        let insert_count = self
-            .inserts_before
-            .get(&node_idx)
-            .map(|v| v.len())
-            .unwrap_or(0)
-            + self
-                .inserts_after
-                .get(&node_idx)
-                .map(|v| v.len())
-                .unwrap_or(0);
-        let strike_count = self.strikes.get(&node_idx).map(|v| v.len()).unwrap_or(0);
+        let change_count = self.changes.get(&node_idx).map_or(0, |v| v.len());
+        let feedback_count = self.feedbacks.get(&node_idx).map_or(0, |v| v.len());
+        let insert_count = self.inserts_before.get(&node_idx).map_or(0, |v| v.len())
+            + self.inserts_after.get(&node_idx).map_or(0, |v| v.len());
+        let strike_count = self.strikes.get(&node_idx).map_or(0, |v| v.len());
 
         let has_change = change_count > 0;
         let has_feedback = feedback_count > 0;
@@ -2430,10 +2422,7 @@ impl App {
                 );
             }
 
-            if sentence_idx
-                .map(|idx| strikes.map(|s| s.contains(&idx)).unwrap_or(false))
-                .unwrap_or(false)
-            {
+            if sentence_idx.is_some_and(|idx| strikes.is_some_and(|s| s.contains(&idx))) {
                 style = style.patch(
                     Style::default()
                         .fg(Color::Red)

@@ -107,7 +107,7 @@ fn collect_nodes(
     match node {
         mdast::Node::Heading(h) => {
             let text = extract_plain_text(node);
-            let source_line = h.position.as_ref().map(|p| p.start.line - 1).unwrap_or(0);
+            let source_line = h.position.as_ref().map_or(0, |p| p.start.line - 1);
             out.push(DocNode::Heading {
                 level: h.depth,
                 text,
@@ -176,7 +176,7 @@ fn collect_nodes(
             });
         }
         mdast::Node::ThematicBreak(tb) => {
-            let source_line = tb.position.as_ref().map(|p| p.start.line - 1).unwrap_or(0);
+            let source_line = tb.position.as_ref().map_or(0, |p| p.start.line - 1);
             out.push(DocNode::ThematicBreak { source_line });
         }
         mdast::Node::Blockquote(bq) => {
