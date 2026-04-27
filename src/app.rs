@@ -1413,50 +1413,35 @@ impl App {
     }
 
     fn remove_selected_annotation(&mut self) -> bool {
+        let node_idx = self.selection_state.anchor.node_idx;
         match self.editable_annotation_at_cursor() {
             Some(EditableAnnotation::Change(change_idx)) => {
-                let mut removed = false;
-                let mut empty = false;
-                if let Some(changes) = self.changes.get_mut(&self.selection_state.anchor.node_idx)
-                    && change_idx < changes.len()
-                {
-                    changes.remove(change_idx);
-                    removed = true;
-                    empty = changes.is_empty();
+                let Some(changes) = self.changes.get_mut(&node_idx) else {
+                    return false;
+                };
+                if change_idx >= changes.len() {
+                    return false;
                 }
-                if removed {
-                    if empty {
-                        self.changes.remove(&self.selection_state.anchor.node_idx);
-                    }
-                    self.status = format!(
-                        "Removed change from node {}.",
-                        self.selection_state.anchor.node_idx + 1
-                    );
+                changes.remove(change_idx);
+                if changes.is_empty() {
+                    self.changes.remove(&node_idx);
                 }
-                removed
+                self.status = format!("Removed change from node {}.", node_idx + 1);
+                true
             }
             Some(EditableAnnotation::Feedback(feedback_idx)) => {
-                let mut removed = false;
-                let mut empty = false;
-                if let Some(feedbacks) = self
-                    .feedbacks
-                    .get_mut(&self.selection_state.anchor.node_idx)
-                    && feedback_idx < feedbacks.len()
-                {
-                    feedbacks.remove(feedback_idx);
-                    removed = true;
-                    empty = feedbacks.is_empty();
+                let Some(feedbacks) = self.feedbacks.get_mut(&node_idx) else {
+                    return false;
+                };
+                if feedback_idx >= feedbacks.len() {
+                    return false;
                 }
-                if removed {
-                    if empty {
-                        self.feedbacks.remove(&self.selection_state.anchor.node_idx);
-                    }
-                    self.status = format!(
-                        "Removed feedback from node {}.",
-                        self.selection_state.anchor.node_idx + 1
-                    );
+                feedbacks.remove(feedback_idx);
+                if feedbacks.is_empty() {
+                    self.feedbacks.remove(&node_idx);
                 }
-                removed
+                self.status = format!("Removed feedback from node {}.", node_idx + 1);
+                true
             }
             None => false,
         }
