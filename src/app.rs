@@ -461,10 +461,10 @@ impl App {
             InputMode::InsertAfter => self.handle_insert_key(key, false),
             InputMode::Search => self.handle_search_key(key),
             InputMode::EditChange(node_idx, change_idx) => {
-                self.handle_edit_change_key(key, node_idx, change_idx)
+                self.handle_edit_change_key(key, node_idx, change_idx);
             }
             InputMode::EditFeedback(node_idx, feedback_idx) => {
-                self.handle_edit_feedback_key(key, node_idx, feedback_idx)
+                self.handle_edit_feedback_key(key, node_idx, feedback_idx);
             }
         }
     }

@@ -188,10 +188,10 @@ impl MarkdownLineRenderer {
                     }
                     CodeBlockKind::Fenced(lang) => {
                         self.in_code_block = true;
-                        let label = if !lang.trim().is_empty() {
-                            format!("```{}", lang.trim())
-                        } else {
+                        let label = if lang.trim().is_empty() {
                             "```".to_owned()
+                        } else {
+                            format!("```{}", lang.trim())
                         };
                         self.push_text_with_style(
                             &label,
