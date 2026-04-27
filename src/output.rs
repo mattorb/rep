@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 #[derive(Debug)]
-pub struct AgentOutput {
+pub(crate) struct AgentOutput {
     pub source_file: String,
     pub generated_at: String,
     pub keymap: KeymapOutput,
@@ -11,7 +11,7 @@ pub struct AgentOutput {
 
 #[cfg(test)]
 #[derive(Debug)]
-pub struct KeymapOutput {
+pub(crate) struct KeymapOutput {
     pub line_prev: String,
     pub line_next: String,
     pub sentence_prev: String,
@@ -35,7 +35,7 @@ pub struct KeymapOutput {
 
 #[cfg(test)]
 #[derive(Debug)]
-pub struct LineAnnotationOutput {
+pub(crate) struct LineAnnotationOutput {
     pub line_number: usize,
     pub line_text: String,
     pub context: LineContext,
@@ -48,7 +48,7 @@ pub struct LineAnnotationOutput {
 
 #[cfg(test)]
 #[derive(Debug)]
-pub struct LineContext {
+pub(crate) struct LineContext {
     pub previous_line: Option<String>,
     pub current_line: String,
     pub next_line: Option<String>,
@@ -56,7 +56,7 @@ pub struct LineContext {
 
 #[cfg(test)]
 #[derive(Debug)]
-pub struct ChangeOutput {
+pub(crate) struct ChangeOutput {
     pub created_at: String,
     pub sentence_index: Option<usize>,
     pub sentence_text: Option<String>,
@@ -65,7 +65,7 @@ pub struct ChangeOutput {
 
 #[cfg(test)]
 #[derive(Debug)]
-pub struct FeedbackOutput {
+pub(crate) struct FeedbackOutput {
     pub created_at: String,
     pub sentence_index: Option<usize>,
     pub sentence_text: Option<String>,
@@ -74,7 +74,7 @@ pub struct FeedbackOutput {
 
 #[cfg(test)]
 #[derive(Debug)]
-pub struct InsertOutput {
+pub(crate) struct InsertOutput {
     pub created_at: String,
     pub sentence_index: Option<usize>,
     pub sentence_text: Option<String>,
@@ -83,7 +83,7 @@ pub struct InsertOutput {
 
 #[cfg(test)]
 #[derive(Debug)]
-pub struct ReactionOutput {
+pub(crate) struct ReactionOutput {
     pub kind: String,
     pub sentence_index: usize,
     pub sentence_text: String,
