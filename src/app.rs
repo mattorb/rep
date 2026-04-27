@@ -3861,6 +3861,29 @@ mod tests {
     }
 
     #[test]
+    fn human_output_line_change_on_listitem_emits_full_item_text() {
+        // Per modular_plan §"target / Line": ListItem at the line unit
+        // emits the **full item text** (markers stripped, soft-wrapped
+        // lines space-joined) — not the source line verbatim like other
+        // node kinds.
+        let mut app = test_app("- first item line one\n  continuation\n");
+        app.changes.entry(0).or_default().push(ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Line,
+            sentence_index: Some(0),
+            sentence_text: Some("first item line one continuation".into()),
+            change: "Tighten".into(),
+        });
+        let out = app.to_human_output();
+        assert!(out.contains("ACTION: change"), "{out}");
+        assert!(out.contains("WHERE: line 1\n"), "{out}");
+        assert!(
+            out.contains("target: \"first item line one continuation\""),
+            "ListItem-at-line target = full item text, markers stripped: {out}"
+        );
+    }
+
+    #[test]
     fn human_output_line_change_emits_source_line_verbatim() {
         // Line emit (non-ListItem): target = source line verbatim,
         // markers preserved (per modular_plan §"target / Line").
