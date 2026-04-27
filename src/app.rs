@@ -1142,7 +1142,11 @@ impl App {
         let unit_idx = self.selection_state.anchor.unit_idx;
         let node = self.index.nodes.get(self.selection_state.anchor.node_idx)?;
         let range = node.sentence_ranges.get(unit_idx)?;
-        let text = node.selection_plain_text.get(range.clone())?.trim().to_string();
+        let text = node
+            .selection_plain_text
+            .get(range.clone())?
+            .trim()
+            .to_string();
         Some((unit_idx, text))
     }
 
@@ -2536,15 +2540,11 @@ impl App {
             source_file: self.source_path.display().to_string(),
             generated_at: Utc::now().to_rfc3339(),
             keymap: KeymapOutput {
-                line_prev: "k".to_string(),
-                line_next: "j".to_string(),
-                sentence_prev: "h".to_string(),
-                sentence_next: "l".to_string(),
+                mode_cycle_forward: "Space".to_string(),
+                mode_cycle_backward: "Backspace".to_string(),
+                unit_next: "j".to_string(),
+                unit_prev: "k".to_string(),
                 reveal_link: "u".to_string(),
-                section_prev: "K".to_string(),
-                section_next: "J".to_string(),
-                paragraph_prev: "H".to_string(),
-                paragraph_next: "L".to_string(),
                 annotation_prev: "[".to_string(),
                 annotation_next: "]".to_string(),
                 help: "?".to_string(),

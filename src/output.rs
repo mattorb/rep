@@ -12,15 +12,17 @@ pub struct AgentOutput {
 #[cfg(test)]
 #[derive(Debug)]
 pub struct KeymapOutput {
-    pub line_prev: String,
-    pub line_next: String,
-    pub sentence_prev: String,
-    pub sentence_next: String,
+    /// Cycle the active selection unit forward (section -> paragraph ->
+    /// line -> sentence -> word -> section -> ...).
+    pub mode_cycle_forward: String,
+    /// Cycle the active selection unit backward.
+    pub mode_cycle_backward: String,
+    /// Move to the next anchor in the active unit (or down a node when on
+    /// the last anchor of the current node).
+    pub unit_next: String,
+    /// Move to the previous anchor in the active unit.
+    pub unit_prev: String,
     pub reveal_link: String,
-    pub section_prev: String,
-    pub section_next: String,
-    pub paragraph_prev: String,
-    pub paragraph_next: String,
     pub annotation_prev: String,
     pub annotation_next: String,
     pub help: String,
@@ -28,6 +30,9 @@ pub struct KeymapOutput {
     pub feedback: String,
     pub insert_before: String,
     pub insert_after: String,
+    /// Sentence-mode only — `x` clears any change/feedback first, then
+    /// strikes the sentence on a second press. In other modes it surfaces
+    /// a "sentence-only" status message.
     pub strike: String,
     pub quit: String,
     pub quit_silent: String,
