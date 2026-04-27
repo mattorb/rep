@@ -418,4 +418,24 @@ mod tests {
         assert_eq!(idx.sections[0].kind, SectionKind::PreHeading);
         assert_eq!(idx.sections[1].kind, SectionKind::Heading);
     }
+
+    #[test]
+    fn is_table_separator_recognizes_canonical_shapes() {
+        assert!(is_table_separator_line("| --- | --- |"));
+        assert!(is_table_separator_line("|---|---|"));
+        assert!(is_table_separator_line("| :--- | ---: | :---: |"));
+        assert!(is_table_separator_line("  | --- | --- |  "));
+    }
+
+    #[test]
+    fn is_table_separator_rejects_non_separator_rows() {
+        assert!(!is_table_separator_line("| Col A | Col B |"));
+        assert!(!is_table_separator_line("| a1 | b1 |"));
+        assert!(!is_table_separator_line("not a table"));
+        // Cells must be non-empty, contain at least one '-', and only
+        // hyphens / colons / whitespace.
+        assert!(!is_table_separator_line("| | |"));
+        assert!(!is_table_separator_line("| :: | :: |"));
+        assert!(!is_table_separator_line("| -a | -- |"));
+    }
 }
