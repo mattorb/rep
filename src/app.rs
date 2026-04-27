@@ -2258,27 +2258,20 @@ impl App {
             SelectionUnit::Sentence => sentence_ranges.get(unit_idx).cloned(),
             SelectionUnit::Paragraph => Some(0..plain.len()),
             SelectionUnit::Line => {
-                // Paint the unit_idx-th `\n`-delimited segment of plain.
-                // For single-line nodes this is the whole plain text.
-                let mut start = 0usize;
-                let mut current = 0usize;
-                let bytes = plain.as_bytes();
-                let mut i = 0usize;
-                while i < bytes.len() {
-                    if bytes[i] == b'\n' {
-                        if current == unit_idx {
-                            return Some(start..i);
-                        }
-                        current += 1;
-                        start = i + 1;
-                    }
-                    i += 1;
+                // Locate the line by its source line number from the index,
+                // then find that source line's text inside display plain.
+                // Re-segmenting display by `\n` and picking the unit_idx-th
+                // segment drifts on fenced code blocks (where fence lines
+                // are present in display but excluded from index lines).
+                let node_idx = self.selection_state.anchor.node_idx;
+                let index_node = self.index.nodes.get(node_idx)?;
+                let (line, _) = index_node.source_line_ranges.get(unit_idx)?;
+                let line_text = self.source_lines.get(*line)?;
+                if line_text.is_empty() {
+                    return Some(0..plain.len());
                 }
-                if current == unit_idx {
-                    Some(start..plain.len())
-                } else {
-                    Some(0..plain.len())
-                }
+                let pos = plain.find(line_text.as_str()).unwrap_or(0);
+                Some(pos..pos + line_text.len())
             }
             SelectionUnit::Word => {
                 // Locate the index's word text in the rendered display plain
