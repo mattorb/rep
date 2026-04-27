@@ -3,4 +3,4 @@
 # step lands on Word, one o step lands back on Sentence.
 i
 o
-q
+t

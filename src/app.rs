@@ -476,7 +476,7 @@ impl App {
             insert_buffer: String::new(),
             search_buffer: String::new(),
             last_search: None,
-            status: "Loaded file. Press q to quit and print annotations.".to_string(),
+            status: "Loaded file. Press t to quit and print annotations.".to_string(),
             should_quit: false,
             silent_quit: false,
             link_popup_urls: None,
@@ -572,8 +572,11 @@ impl App {
         }
 
         match key.code {
-            KeyCode::Char('q') => self.should_quit = true,
-            KeyCode::Char('Q') => {
+            // Quit: lowercase t emits annotations, uppercase T quits silently.
+            // Mnemonic is the `t` in "quit"; `q` is reserved for a future
+            // confirm-then-quit flow.
+            KeyCode::Char('t') => self.should_quit = true,
+            KeyCode::Char('T') => {
                 self.silent_quit = true;
                 self.should_quit = true;
             }
@@ -2079,7 +2082,22 @@ impl App {
             Line::from("  e  edit existing change/feedback"),
             Line::from("  x  clear annotation, or strike (sentence mode only)"),
             Line::from("  r  copy result to clipboard"),
-            Line::from("  q  Q          quit · silent quit"),
+            Line::from(vec![
+                Span::raw("  t  T          qui"),
+                Span::styled(
+                    "t",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::UNDERLINED),
+                ),
+                Span::raw(" · silent qui"),
+                Span::styled(
+                    "t",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::UNDERLINED),
+                ),
+            ]),
             Line::from("  ? / Esc       help · close"),
         ];
 
@@ -2837,8 +2855,8 @@ impl App {
                 insert_before: "b".to_string(),
                 insert_after: "a".to_string(),
                 strike: "x".to_string(),
-                quit: "q".to_string(),
-                quit_silent: "Q".to_string(),
+                quit: "t".to_string(),
+                quit_silent: "T".to_string(),
             },
             annotations,
         }

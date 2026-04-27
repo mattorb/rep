@@ -21,4 +21,4 @@ t
 e
 n
 Enter
-q
+t
