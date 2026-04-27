@@ -8,6 +8,7 @@ use chrono::Utc;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::document::{DocNode, Document};
 use crate::markdown::{MarkdownLinkRange, render_markdown_line};
@@ -302,6 +303,23 @@ fn render_source_lines_with_breaks(
 
 fn clamp_range(r: &Range<usize>, len: usize) -> Range<usize> {
     r.start.min(len)..r.end.min(len)
+}
+
+/// Truncate `s` to fit within `max_cols` terminal columns, accounting for
+/// wide-width characters (CJK, emoji). Wraps zero-width chars (combining
+/// marks) into the preceding character's column count.
+fn truncate_to_columns(s: &str, max_cols: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in s.chars() {
+        let w = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + w > max_cols {
+            break;
+        }
+        used += w;
+        out.push(ch);
+    }
+    out
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -1765,14 +1783,16 @@ impl App {
         } else {
             ("? for help ".to_string(), hint_style)
         };
+        // Account for terminal column width (not byte length) so user-supplied
+        // text in the right zone — e.g. a search query containing CJK or
+        // emoji — doesn't underestimate the gap and squish the footer when
+        // the message contains wide-width characters.
         let total_width = layout[1].width as usize;
-        let mode_w = mode_text.len();
-        let right_w_target = right_text
-            .0
-            .len()
-            .min(total_width.saturating_sub(mode_w + 1));
-        let right_str: String = right_text.0.chars().take(right_w_target).collect();
-        let gap = total_width.saturating_sub(mode_w + right_str.len());
+        let mode_w = UnicodeWidthStr::width(mode_text.as_str());
+        let right_avail = total_width.saturating_sub(mode_w + 1);
+        let right_str = truncate_to_columns(&right_text.0, right_avail);
+        let right_w = UnicodeWidthStr::width(right_str.as_str());
+        let gap = total_width.saturating_sub(mode_w + right_w);
         let footer_line = Line::from(vec![
             Span::styled(mode_text, mode_style),
             Span::raw(" ".repeat(gap)),
@@ -3806,6 +3826,30 @@ mod tests {
         assert_eq!(super::nth_occurrence("a b a c a", "a", 1), Some(4));
         assert_eq!(super::nth_occurrence("a b a c a", "a", 2), Some(8));
         assert_eq!(super::nth_occurrence("a b a c a", "a", 3), None);
+    }
+
+    #[test]
+    fn truncate_to_columns_handles_ascii() {
+        assert_eq!(super::truncate_to_columns("abcdef", 3), "abc");
+        assert_eq!(super::truncate_to_columns("abc", 5), "abc");
+        assert_eq!(super::truncate_to_columns("", 5), "");
+    }
+
+    #[test]
+    fn truncate_to_columns_does_not_split_a_wide_char_across_the_budget() {
+        // CJK chars are 2 cols each. Budget of 3 columns fits one CJK +
+        // one ASCII (total 3), but not two CJK (would be 4).
+        assert_eq!(super::truncate_to_columns("日本語", 4), "日本");
+        assert_eq!(super::truncate_to_columns("日本語", 3), "日");
+        assert_eq!(super::truncate_to_columns("日本語", 1), "");
+    }
+
+    #[test]
+    fn truncate_to_columns_handles_zero_width_combining_marks() {
+        // "café" with combining acute (U+0301) — 4 columns, 5 chars.
+        let s = "cafe\u{0301}";
+        assert_eq!(super::truncate_to_columns(s, 4), s);
+        assert_eq!(super::truncate_to_columns(s, 3), "caf");
     }
 
     #[test]
