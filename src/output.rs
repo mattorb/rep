@@ -116,4 +116,24 @@ mod tests {
         let cleaned = clean_context(" a   b\tc ", 4);
         assert_eq!(cleaned, "a b…");
     }
+
+    #[test]
+    fn zero_max_chars_returns_empty() {
+        assert_eq!(clean_context("anything", 0), "");
+    }
+
+    #[test]
+    fn short_input_passes_through_unchanged() {
+        assert_eq!(clean_context("short", 100), "short");
+    }
+
+    #[test]
+    fn embedded_double_quotes_are_escaped() {
+        assert_eq!(clean_context(r#"a "quoted" b"#, 100), r#"a \"quoted\" b"#);
+    }
+
+    #[test]
+    fn newlines_collapse_to_single_spaces() {
+        assert_eq!(clean_context("line one\nline two", 100), "line one line two");
+    }
 }
