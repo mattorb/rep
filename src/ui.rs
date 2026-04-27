@@ -277,4 +277,39 @@ mod tests {
             lines
         );
     }
+
+    #[test]
+    fn word_wider_than_line_force_breaks_character_by_character() {
+        // A single word longer than `width` cannot be wrapped at a space —
+        // force_break splits it character-by-character so every line stays
+        // within the budget and no characters are dropped.
+        let spans = vec![Span::raw("abcdefghij".to_owned())];
+        let lines = plain_lines(spans, 4);
+        // Each line must be no wider than 4 columns; together they must
+        // contain every original character in order.
+        for line in &lines {
+            assert!(line.chars().count() <= 4, "line {:?} exceeds width 4", line);
+        }
+        let rejoined: String = lines.concat();
+        assert_eq!(rejoined, "abcdefghij");
+    }
+
+    #[test]
+    fn force_break_handles_wide_unicode_chars() {
+        // CJK chars are 2 columns; the budget must respect column width,
+        // not character count, so a 4-column budget fits 2 CJK chars per
+        // line, not 4.
+        let spans = vec![Span::raw("日本語テスト".to_owned())];
+        let lines = plain_lines(spans, 4);
+        // Each line should be at most 2 chars (each costs 2 columns).
+        for line in &lines {
+            assert!(
+                line.chars().count() <= 2,
+                "line {:?} exceeds 2 wide chars in 4-col budget",
+                line
+            );
+        }
+        let rejoined: String = lines.concat();
+        assert_eq!(rejoined, "日本語テスト");
+    }
 }
