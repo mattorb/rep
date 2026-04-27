@@ -1,0 +1,6 @@
+# i / o cycle the active selection unit (synonyms for Space / Backspace).
+# i = "in" / finer; o = "out" / coarser. Default unit is Sentence; one i
+# step lands on Word, one o step lands back on Sentence.
+i
+o
+q

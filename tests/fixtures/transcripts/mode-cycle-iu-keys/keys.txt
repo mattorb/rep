@@ -1,6 +1,0 @@
-# i / u cycle the active selection unit (synonyms for Space / Backspace).
-# i = "in" / finer; u = "up" / coarser. Default unit is Sentence; one i
-# step lands on Word, one u step lands back on Sentence.
-i
-u
-q
