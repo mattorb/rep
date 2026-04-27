@@ -6,4 +6,4 @@ Down
 Left
 Up
 k
-t
+q

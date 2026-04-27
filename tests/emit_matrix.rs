@@ -119,7 +119,7 @@ fn action_keys(action: Action) -> Vec<KeyEvent> {
         keys.push(KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
         keys.push(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     }
-    keys.push(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    keys.push(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
     keys
 }
 

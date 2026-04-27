@@ -4,4 +4,4 @@ Backspace
 c
 T
 Enter
-t
+q

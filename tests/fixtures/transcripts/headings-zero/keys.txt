@@ -2,4 +2,4 @@ j
 c
 B
 Enter
-t
+q

@@ -5,4 +5,4 @@ j
 c
 X
 Enter
-t
+q

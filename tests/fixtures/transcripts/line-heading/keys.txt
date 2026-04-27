@@ -3,4 +3,4 @@ Backspace
 c
 X
 Enter
-t
+q
