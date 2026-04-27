@@ -218,6 +218,70 @@ fn collect_nodes(
                 collect_nodes(child, depth, None, list_counter, out);
             }
         }
+        mdast::Node::Table(t) => {
+            // GFM table: whole table = one Paragraph node. Per-row text is cells
+            // joined by a single space (each cell trimmed); rows joined by `\n`.
+            // The header-separator line is encoded as `Table.align`, not as a
+            // child node, so excluding it is automatic.
+            let mut rows: Vec<String> = Vec::new();
+            for child in &t.children {
+                if let mdast::Node::TableRow(row) = child {
+                    let cells: Vec<String> = row
+                        .children
+                        .iter()
+                        .filter_map(|c| {
+                            if let mdast::Node::TableCell(_) = c {
+                                Some(extract_plain_text(c).split_whitespace().collect::<Vec<_>>().join(" "))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    rows.push(cells.join(" "));
+                }
+            }
+            let text = rows.join("\n");
+            let source_lines = t
+                .position
+                .as_ref()
+                .map(|pos| (pos.start.line - 1)..pos.end.line)
+                .unwrap_or(0..1);
+            out.push(DocNode::Paragraph {
+                text,
+                sentences: Vec::new(),
+                source_lines,
+            });
+        }
+        mdast::Node::FootnoteDefinition(fd) => {
+            // Footnote definition body becomes a Paragraph. The body text is the
+            // children's plain text, normalized.
+            let raw = extract_plain_text(node);
+            let text = normalize_whitespace(&raw);
+            let source_lines = fd
+                .position
+                .as_ref()
+                .map(|pos| (pos.start.line - 1)..pos.end.line)
+                .unwrap_or(0..1);
+            out.push(DocNode::Paragraph {
+                text,
+                sentences: Vec::new(),
+                source_lines,
+            });
+        }
+        mdast::Node::Html(h) => {
+            // Block-level HTML folds into the existing CodeBlock variant per
+            // modular_plan.md (HTML-as-CodeBlock-variant rule, no new enum arm).
+            let source_lines = h
+                .position
+                .as_ref()
+                .map(|pos| (pos.start.line - 1)..pos.end.line)
+                .unwrap_or(0..1);
+            out.push(DocNode::CodeBlock {
+                language: None,
+                content: h.value.clone(),
+                source_lines,
+            });
+        }
         _ => {}
     }
 }

@@ -1,0 +1,8 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 3, sentence 1
+CONTEXT:
+  target: "<details> <summary>collapsed</summary> inner content </details>"
+  next: "<summary>collapsed</summary>"
+CHANGE: "H"
