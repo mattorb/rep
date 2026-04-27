@@ -1,10 +1,14 @@
 //! Anchor → highlight projection. Given a `SelectionAnchor` and the
-//! `SelectionIndex`, return what the render layer should paint.
+//! `SelectionIndex`, return what the render layer should paint:
+//! `Highlight::Range(node, byte_range)` for Word / Sentence / Line /
+//! Paragraph and `Highlight::Section(Vec<node_idx>)` for Section.
 //!
-//! The render layer paints exactly what `highlight_for` returns; anchors are
-//! never resolved in the render layer and no anchor math happens outside this
-//! module. The same module also exposes the **emit view** — the
-//! `(source_line, target_text)` pair the annotation emit consumes.
+//! The byte ranges live in selection plain text — the renderer's display
+//! plain text may differ for nodes with markers (footnote refs, task
+//! markers). Today the app's `unit_highlight_for` does its own display
+//! plain text lookup; this module is the canonical "what should be
+//! painted" answer for any future renderer that wants to consume it
+//! directly.
 
 use std::ops::Range;
 
