@@ -64,7 +64,10 @@ impl Drop for Tui {
     }
 }
 
-pub(crate) fn wrap_styled_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Vec<Span<'static>>> {
+pub(crate) fn wrap_styled_spans(
+    spans: Vec<Span<'static>>,
+    width: usize,
+) -> Vec<Vec<Span<'static>>> {
     let mut w = Wrapper::new(width.max(1));
     for span in spans {
         w.process_span(span);
