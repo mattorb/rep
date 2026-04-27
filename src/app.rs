@@ -1152,10 +1152,14 @@ impl App {
             .find(|s| s.start_node_idx == node_idx)?;
         let mut parts: Vec<String> = Vec::new();
         for i in section.start_node_idx..=section.end_node_idx {
-            if let Some(n) = self.index.nodes.get(i) {
-                if !n.selection_plain_text.is_empty() {
-                    parts.push(n.selection_plain_text.clone());
-                }
+            if let Some(n) = self.index.nodes.get(i)
+                && !n.selection_plain_text.is_empty()
+            {
+                // Constituent node text may contain `\n` (multi-line
+                // paragraph or table) — collapse to single space per
+                // modular_plan §"Section": no embedded newlines in
+                // target:.
+                parts.push(n.selection_plain_text.replace('\n', " "));
             }
         }
         Some((0, parts.join(" ")))
