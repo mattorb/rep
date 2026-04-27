@@ -69,42 +69,6 @@ pub fn render_markdown_line(line: &str) -> RenderedMarkdownLine {
     }
 }
 
-#[cfg(test)]
-pub fn is_section_heading(line: &str) -> bool {
-    let trimmed = line.trim_start();
-    if trimmed.starts_with('#') {
-        return true;
-    }
-    is_top_level_ordered_item(line)
-}
-
-#[cfg(test)]
-fn is_top_level_ordered_item(line: &str) -> bool {
-    let leading_ws = line.chars().take_while(|ch| ch.is_whitespace()).count();
-    if leading_ws > 3 {
-        return false;
-    }
-
-    let trimmed = line.trim_start();
-    let mut saw_digit = false;
-    let mut chars = trimmed.chars().peekable();
-    while let Some(ch) = chars.peek().copied() {
-        if ch.is_ascii_digit() {
-            saw_digit = true;
-            chars.next();
-        } else {
-            break;
-        }
-    }
-    if !saw_digit {
-        return false;
-    }
-    if chars.next() != Some('.') {
-        return false;
-    }
-    matches!(chars.peek(), Some(ch) if ch.is_whitespace())
-}
-
 fn markdown_options() -> MdOptions {
     let mut options = MdOptions::empty();
     options.insert(MdOptions::ENABLE_GFM);
@@ -447,7 +411,7 @@ impl MarkdownLineRenderer {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_section_heading, render_markdown_line};
+    use super::render_markdown_line;
 
     #[test]
     fn renders_markdown_headings() {
@@ -467,13 +431,5 @@ mod tests {
         let rendered = render_markdown_line(line);
         assert_eq!(rendered.plain, line);
         assert_eq!(rendered.spans.len(), 1);
-    }
-
-    #[test]
-    fn section_heading_detects_markdown_and_numbered_items() {
-        assert!(is_section_heading("# H1"));
-        assert!(is_section_heading("  1. Productize the CLI interface"));
-        assert!(!is_section_heading("  - list item"));
-        assert!(!is_section_heading("    1. deeply nested"));
     }
 }
