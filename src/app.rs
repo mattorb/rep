@@ -105,6 +105,13 @@ struct RenderedNode {
     plain: String,
     spans: Vec<Span<'static>>,
     sentence_ranges: Vec<Range<usize>>,
+    /// Byte ranges in `plain` for each line as the Line projection sees
+    /// it. Aligned 1:1 with `SelectionIndex.nodes[i].source_line_ranges`.
+    /// Empty when the node has no per-line breakdown (e.g. ThematicBreak).
+    /// Populated at render time because pulldown-cmark applies
+    /// smart-punctuation and emphasis-marker stripping, so a source line
+    /// can't be searched verbatim inside display plain.
+    line_ranges: Vec<Range<usize>>,
     links: Vec<MarkdownLinkRange>,
 }
 
@@ -113,6 +120,7 @@ impl std::fmt::Debug for RenderedNode {
         f.debug_struct("RenderedNode")
             .field("plain", &self.plain)
             .field("sentence_ranges", &self.sentence_ranges)
+            .field("line_ranges", &self.line_ranges)
             .finish_non_exhaustive()
     }
 }
@@ -130,10 +138,12 @@ fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode 
             let text = source_lines.get(*source_line).cloned().unwrap_or_default();
             let r = render_markdown_line(&text);
             let ranges = single_range(&r.plain);
+            let line_ranges = ranges.clone();
             RenderedNode {
                 plain: r.plain,
                 spans: r.spans,
                 sentence_ranges: ranges,
+                line_ranges,
                 links: r.links,
             }
         }
@@ -142,15 +152,17 @@ fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode 
             ..
         } => {
             let src = &source_lines[clamp_range(range, source_lines.len())];
-            let (plain, spans, links) = render_source_lines_with_breaks(src);
+            let (plain, spans, links, line_ranges) = render_source_lines_with_breaks(src);
             if plain.is_empty() {
                 let joined = join_node_source_lines(src);
                 let r = render_markdown_line(&joined);
                 let sentence_ranges = single_range(&r.plain);
+                let line_ranges = sentence_ranges.clone();
                 RenderedNode {
                     plain: r.plain,
                     spans: r.spans,
                     sentence_ranges,
+                    line_ranges,
                     links: r.links,
                 }
             } else {
@@ -159,6 +171,7 @@ fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode 
                     plain,
                     spans,
                     sentence_ranges,
+                    line_ranges,
                     links,
                 }
             }
@@ -173,6 +186,7 @@ fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode 
                 join_node_source_lines(&source_lines[clamp_range(range, source_lines.len())]);
             let r = render_markdown_line(&joined);
             let ranges = single_range(&r.plain);
+            let line_ranges = ranges.clone();
             // Top-level ordered items act as section headings — style them like one.
             let spans = if *ordered && *depth == 0 {
                 let style = Style::default()
@@ -186,6 +200,7 @@ fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode 
                 plain: r.plain,
                 spans,
                 sentence_ranges: ranges,
+                line_ranges,
                 links: r.links,
             }
         }
@@ -196,6 +211,18 @@ fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode 
             let raw = &source_lines[clamp_range(range, source_lines.len())];
             let plain = raw.join("\n");
             let ranges = single_range(&plain);
+            // Per-non-fence-line ranges within `plain`, matching the
+            // index's CodeBlock entries (which skip ```fence``` lines).
+            let mut line_ranges = Vec::new();
+            let mut cursor = 0usize;
+            for line in raw {
+                let is_fence = line.trim_start().starts_with("```");
+                let end = cursor + line.len();
+                if !is_fence {
+                    line_ranges.push(cursor..end);
+                }
+                cursor = end + 1; // step past the joining `\n`
+            }
             let spans = raw
                 .iter()
                 .flat_map(|line| {
@@ -214,6 +241,7 @@ fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode 
                 plain,
                 spans,
                 sentence_ranges: ranges,
+                line_ranges,
                 links: vec![],
             }
         }
@@ -223,6 +251,7 @@ fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode 
                 plain: r.plain,
                 spans: r.spans,
                 sentence_ranges: vec![],
+                line_ranges: vec![],
                 links: r.links,
             }
         }
@@ -260,10 +289,16 @@ fn join_node_source_lines(lines: &[String]) -> String {
 /// nested without any content-altering markdown indentation interpretation.
 fn render_source_lines_with_breaks(
     src_lines: &[String],
-) -> (String, Vec<Span<'static>>, Vec<MarkdownLinkRange>) {
+) -> (
+    String,
+    Vec<Span<'static>>,
+    Vec<MarkdownLinkRange>,
+    Vec<Range<usize>>,
+) {
     let mut plain = String::new();
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut links: Vec<MarkdownLinkRange> = Vec::new();
+    let mut line_ranges: Vec<Range<usize>> = Vec::new();
     let first_indent = src_lines
         .first()
         .map_or(0, |l| l.len() - l.trim_start().len());
@@ -287,6 +322,7 @@ fn render_source_lines_with_breaks(
             plain.push_str(&prefix);
             spans.push(Span::raw(prefix));
         }
+        let line_start = plain.len() - relative_indent;
         let offset = plain.len();
         let r = render_markdown_line(trimmed);
         for link in r.links {
@@ -298,8 +334,9 @@ fn render_source_lines_with_breaks(
         }
         plain.push_str(&r.plain);
         spans.extend(r.spans);
+        line_ranges.push(line_start..plain.len());
     }
-    (plain, spans, links)
+    (plain, spans, links, line_ranges)
 }
 
 fn clamp_range(r: &Range<usize>, len: usize) -> Range<usize> {
@@ -2368,29 +2405,19 @@ impl App {
             SelectionUnit::Sentence => sentence_ranges.get(unit_idx).cloned(),
             SelectionUnit::Paragraph => Some(0..plain.len()),
             SelectionUnit::Line => {
-                // Locate the line by its source line number from the index,
-                // then find that source line's text inside display plain.
-                // Re-segmenting display by `\n` and picking the unit_idx-th
-                // segment drifts on fenced code blocks (where fence lines
-                // are present in display but excluded from index lines).
-                // Count which occurrence in source so two identical lines
-                // map to the correct display position.
-                let index_node = self.index.nodes.get(node_idx)?;
-                let (line, _) = index_node.source_line_ranges.get(unit_idx)?;
-                let line_text = self.source_lines.get(*line)?;
-                if line_text.is_empty() {
-                    return Some(0..plain.len());
-                }
-                let occurrence = index_node
-                    .source_line_ranges
-                    .iter()
-                    .take(unit_idx)
-                    .filter(|(l, _)| {
-                        self.source_lines.get(*l).map(|s| s.as_str()) == Some(line_text.as_str())
-                    })
-                    .count();
-                let pos = nth_occurrence(plain, line_text.as_str(), occurrence).unwrap_or(0);
-                Some(pos..pos + line_text.len())
+                // The renderer recorded a display-plain byte range per
+                // line in `RenderedNode.line_ranges`, aligned 1:1 with
+                // the index's per-line entries. Searching for the source
+                // line text inside display plain isn't reliable —
+                // pulldown-cmark applies smart-punctuation (straight
+                // quotes → typographic) and strips emphasis markers, so
+                // a source line containing `*emph*` or `'` ends up with
+                // a different byte content in display than in source.
+                self.rendered_nodes
+                    .get(node_idx)?
+                    .line_ranges
+                    .get(unit_idx)
+                    .cloned()
             }
             SelectionUnit::Word => {
                 // Locate the index's word text in the rendered display plain
@@ -4698,6 +4725,60 @@ mod tests {
         assert!(
             last_inner_row.contains("tall line 4"),
             "fill_partial_bottom should reveal all 5 lines of next node; last inner row got: {last_inner_row:?}"
+        );
+    }
+
+    #[test]
+    fn line_mode_emphasis_paragraph_highlights_full_display() {
+        // Source line carries straight apostrophes and emphasis markers.
+        // pulldown-cmark applies smart-punctuation (straight → typographic)
+        // and strips emphasis markers, so display plain has different
+        // bytes than source. The previous `nth_occurrence(display,
+        // source_line)`-then-`pos..pos+source_line.len()` mapping
+        // truncated the tail of the display when `display.len() !=
+        // source_line.len()`. The fix is to track per-line display
+        // ranges at render time on `RenderedNode.line_ranges`.
+        let body = "I'm chilling on a couch during my son's piano lesson — *heavy* (a higher specc'd mac) is doing the actual work and is working the plan.";
+        let mut app = test_app(&format!("# t\n\n{body}\n"));
+        let para_idx = app
+            .rendered_nodes
+            .iter()
+            .position(|rn| rn.plain.contains("working the plan."))
+            .expect("paragraph node");
+        app.selection_state.anchor = SelectionAnchor {
+            node_idx: para_idx,
+            unit: SelectionUnit::Line,
+            unit_idx: 0,
+        };
+        let rn = &app.rendered_nodes[para_idx];
+        let plain = rn.plain.as_str();
+        let range = app
+            .unit_byte_range_in_display(
+                para_idx,
+                SelectionUnit::Line,
+                0,
+                plain,
+                &rn.sentence_ranges,
+            )
+            .expect("line range");
+        assert_eq!(
+            range,
+            0..plain.len(),
+            "single-line paragraph should highlight whole display plain (display: {plain:?})"
+        );
+
+        // Verify the rendered spans actually paint the highlight all the
+        // way to the end of the line — the byte-range fix should
+        // translate into visible coverage.
+        let spans = app.render_node_spans(para_idx);
+        let highlighted: String = spans
+            .iter()
+            .filter(|s| s.style.bg == Some(Color::Blue))
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(
+            highlighted.ends_with("working the plan."),
+            "highlight must cover trailing text, got highlighted={highlighted:?}"
         );
     }
 }
