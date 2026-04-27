@@ -114,6 +114,50 @@ mod tests {
     }
 
     #[test]
+    fn word_highlight_returns_word_byte_range() {
+        let idx = build("alpha beta gamma");
+        let a = SelectionAnchor::new(0, SelectionUnit::Word, 1);
+        match highlight_for(a, &idx) {
+            Highlight::Range(n, r) => {
+                assert_eq!(n, 0);
+                let plain = &idx.nodes[0].selection_plain_text;
+                assert_eq!(&plain[r], "beta");
+            }
+            o => panic!("unexpected: {:?}", o),
+        }
+    }
+
+    #[test]
+    fn line_highlight_for_heading_covers_full_plain() {
+        // Heading nodes have a single source line; Line projection returns
+        // the whole node range. Multi-line paragraphs return the same coarse
+        // node range per source line (the renderer does its own per-line
+        // slicing); pin the heading case here as the precise contract.
+        let idx = build("# Title");
+        let a = SelectionAnchor::new(0, SelectionUnit::Line, 0);
+        match highlight_for(a, &idx) {
+            Highlight::Range(n, r) => {
+                assert_eq!(n, 0);
+                let plain = &idx.nodes[0].selection_plain_text;
+                assert_eq!(&plain[r], plain.as_str());
+            }
+            o => panic!("unexpected: {:?}", o),
+        }
+    }
+
+    #[test]
+    fn out_of_range_unit_idx_yields_empty_range() {
+        // Anchor pointing past the last word still returns Range so callers
+        // can paint a no-op highlight rather than panicking.
+        let idx = build("one two");
+        let a = SelectionAnchor::new(0, SelectionUnit::Word, 99);
+        match highlight_for(a, &idx) {
+            Highlight::Range(_, r) => assert!(r.is_empty()),
+            o => panic!("unexpected: {:?}", o),
+        }
+    }
+
+    #[test]
     fn section_highlight_returns_node_list() {
         let idx = build("# A\n\nbody.\n\n# B\n\nmore.");
         let a = SelectionAnchor::new(0, SelectionUnit::Section, 0);
