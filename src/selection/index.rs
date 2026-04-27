@@ -428,6 +428,29 @@ mod tests {
     }
 
     #[test]
+    fn strip_list_marker_handles_bullets_numbers_and_tasks() {
+        // Plain bullet markers.
+        assert_eq!(strip_list_marker("- item"), "item");
+        assert_eq!(strip_list_marker("* item"), "item");
+        assert_eq!(strip_list_marker("+ item"), "item");
+        // Ordered markers (period and right-paren).
+        assert_eq!(strip_list_marker("1. alpha"), "alpha");
+        assert_eq!(strip_list_marker("23. beta"), "beta");
+        assert_eq!(strip_list_marker("4) gamma"), "gamma");
+        // Task markers without a list prefix.
+        assert_eq!(strip_list_marker("[ ] open"), "open");
+        assert_eq!(strip_list_marker("[x] done"), "done");
+        assert_eq!(strip_list_marker("[X] done caps"), "done caps");
+        // Bullet + task together.
+        assert_eq!(strip_list_marker("- [ ] open task"), "open task");
+        assert_eq!(strip_list_marker("1. [x] done task"), "done task");
+        // No-marker input passes through.
+        assert_eq!(strip_list_marker("plain text"), "plain text");
+        // Leading whitespace before marker is fine.
+        assert_eq!(strip_list_marker("  - indented item"), "indented item");
+    }
+
+    #[test]
     fn is_table_separator_rejects_non_separator_rows() {
         assert!(!is_table_separator_line("| Col A | Col B |"));
         assert!(!is_table_separator_line("| a1 | b1 |"));
