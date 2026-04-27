@@ -80,7 +80,7 @@ fn markdown_options() -> MdOptions {
     options
 }
 
-pub fn heading_level_number(level: HeadingLevel) -> usize {
+fn heading_level_number(level: HeadingLevel) -> usize {
     match level {
         HeadingLevel::H1 => 1,
         HeadingLevel::H2 => 2,
@@ -91,7 +91,7 @@ pub fn heading_level_number(level: HeadingLevel) -> usize {
     }
 }
 
-pub fn heading_style(level: HeadingLevel) -> Style {
+fn heading_style(level: HeadingLevel) -> Style {
     match level {
         HeadingLevel::H1 => Style::default()
             .fg(Color::Yellow)
