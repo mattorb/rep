@@ -368,8 +368,11 @@ pub struct App {
     /// allowed inconsistent state (visible-but-empty / hidden-with-urls).
     link_popup_urls: Option<Vec<String>>,
     show_help: bool,
-    show_ast: bool,
-    ast_scroll: u16,
+    /// Some(scroll_pos) when the AST popup is visible; None when hidden.
+    /// Replaces the prior show_ast: bool + ast_scroll: u16 pair so the
+    /// "visible iff scroll-position-is-meaningful" invariant lives in the
+    /// type. ast_lines stays separate — it's always loaded at startup.
+    ast_view_scroll: Option<u16>,
     ast_lines: Vec<String>,
     scroll_offset: usize,
     list_inner: Rect,
@@ -425,8 +428,7 @@ impl App {
             silent_quit: false,
             link_popup_urls: None,
             show_help: false,
-            show_ast: false,
-            ast_scroll: 0,
+            ast_view_scroll: None,
             ast_lines,
             notification: None,
             nav_feedback: None,
@@ -469,17 +471,17 @@ impl App {
             return;
         }
 
-        if self.show_ast {
+        if let Some(scroll) = self.ast_view_scroll {
             match key.code {
                 KeyCode::Esc | KeyCode::Char('i') => {
-                    self.show_ast = false;
+                    self.ast_view_scroll = None;
                     self.status = "Closed AST view.".to_string();
                 }
                 KeyCode::Char('j') | KeyCode::Down => {
-                    self.ast_scroll = self.ast_scroll.saturating_add(3);
+                    self.ast_view_scroll = Some(scroll.saturating_add(3));
                 }
                 KeyCode::Char('k') | KeyCode::Up => {
-                    self.ast_scroll = self.ast_scroll.saturating_sub(3);
+                    self.ast_view_scroll = Some(scroll.saturating_sub(3));
                 }
                 _ => {}
             }
@@ -555,8 +557,7 @@ impl App {
             KeyCode::Char('k') | KeyCode::Up | KeyCode::Left => self.move_active_unit(false),
             KeyCode::Backspace => self.mode_cycle(false),
             KeyCode::Char('i') => {
-                self.show_ast = true;
-                self.ast_scroll = 0;
+                self.ast_view_scroll = Some(0);
                 self.status = "AST view. j/k scroll, i or Esc close.".to_string();
             }
             KeyCode::Char('u') if !self.reveal_links_for_current_sentence() => {
@@ -1858,7 +1859,7 @@ impl App {
             self.draw_help(frame, area);
         }
 
-        if self.show_ast {
+        if self.ast_view_scroll.is_some() {
             self.draw_ast_popup(frame, area);
         }
     }
@@ -2032,7 +2033,7 @@ impl App {
         let total = self.ast_lines.len() as u16;
         let inner_height = popup_height.saturating_sub(2);
         let max_scroll = total.saturating_sub(inner_height);
-        let scroll = self.ast_scroll.min(max_scroll);
+        let scroll = self.ast_view_scroll.unwrap_or(0).min(max_scroll);
 
         frame.render_widget(Clear, popup);
         frame.render_widget(
