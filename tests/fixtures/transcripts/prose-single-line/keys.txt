@@ -1,0 +1,6 @@
+# navigate to second sentence and apply a change
+j
+c
+X
+Enter
+q

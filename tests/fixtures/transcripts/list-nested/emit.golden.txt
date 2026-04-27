@@ -1,0 +1,9 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 3, sentence 1
+CONTEXT:
+  prev: "- Nested one"
+  target: "• Nested two"
+  next: "2. Top two"
+CHANGE: "X"

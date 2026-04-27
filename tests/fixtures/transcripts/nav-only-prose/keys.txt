@@ -1,0 +1,6 @@
+# pure navigation, no annotations
+j
+j
+j
+k
+q

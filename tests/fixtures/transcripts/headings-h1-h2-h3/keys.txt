@@ -1,0 +1,7 @@
+# move twice and change the third sentence-bearing node
+j
+j
+c
+A
+Enter
+q

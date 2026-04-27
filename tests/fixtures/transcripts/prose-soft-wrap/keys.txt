@@ -1,0 +1,5 @@
+# initial cursor lands on first sentence; change it
+c
+A
+Enter
+q

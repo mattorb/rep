@@ -1,0 +1,7 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 1, sentence 1
+CONTEXT:
+  target: "Visit the home page or https://autolink.example."
+CHANGE: "X"

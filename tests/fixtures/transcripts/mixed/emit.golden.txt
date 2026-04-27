@@ -1,0 +1,8 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 5, sentence 1
+CONTEXT:
+  target: "• Item one"
+  next: "- Item with `inline code`"
+CHANGE: "X"

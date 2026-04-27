@@ -1,0 +1,8 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 1, sentence 1
+CONTEXT:
+  target: "• [ ] open task"
+  next: "- [x] done task"
+CHANGE: "X"

@@ -1,0 +1,7 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 1, sentence 2
+CONTEXT:
+  target: "Second sentence here."
+CHANGE: "X"

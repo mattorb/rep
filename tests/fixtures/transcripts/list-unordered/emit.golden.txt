@@ -1,0 +1,9 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 2, sentence 1
+CONTEXT:
+  prev: "- First item"
+  target: "• Second item"
+  next: "- Third item"
+CHANGE: "X"

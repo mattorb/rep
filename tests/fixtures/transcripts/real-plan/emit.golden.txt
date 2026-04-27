@@ -1,0 +1,7 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 5, sentence 2
+CONTEXT:
+  target: "Where any section further down conflicts with these, these win."
+CHANGE: "X"

@@ -68,6 +68,9 @@ pub fn parse_keys(body: &str) -> Vec<KeyEvent> {
 /// Replay a transcript: load `input.md` into a fresh `App`, dispatch each
 /// `KeyEvent` from `keys`, and return the captured emit + final anchor in the
 /// canonical golden format.
+///
+/// The emit is normalized so the absolute `FILE:` path is replaced with the
+/// stable token `<INPUT>` — goldens are otherwise machine-dependent.
 pub fn replay(input_md: &Path, keys: &[KeyEvent]) -> (String, String) {
     let mut app = App::load(input_md.to_path_buf()).expect("App::load failed");
     for &k in keys {
@@ -76,10 +79,16 @@ pub fn replay(input_md: &Path, keys: &[KeyEvent]) -> (String, String) {
             break;
         }
     }
-    let emit = app.to_human_output();
+    let raw_emit = app.to_human_output();
+    let emit = normalize_emit(&raw_emit, input_md);
     let (node, unit, unit_idx) = app.current_anchor();
     let anchor = format!("anchor: ({node}, {unit}, {unit_idx})\n");
     (emit, anchor)
+}
+
+fn normalize_emit(emit: &str, input_md: &Path) -> String {
+    let actual = input_md.display().to_string();
+    emit.replace(&actual, "<INPUT>")
 }
 
 /// Byte-exact comparison against a golden file. Set `UPDATE_GOLDENS=1` to
