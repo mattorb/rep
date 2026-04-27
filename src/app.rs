@@ -309,8 +309,9 @@ pub struct App {
     /// Canonical selection state — `(node_idx, unit, unit_idx)`. Replaces the
     /// pre-phase-1 `cursor_node` + `cursor_sentence` pair.
     pub(crate) selection_state: SelectionState,
-    /// When set by J/K, highlights every node from the section start through the node
-    /// before the next section boundary. Cleared on the next j/k/h/l press.
+    /// When set on entry to Section mode (or by `move_section`), highlights
+    /// every node from the section start through `end_node_idx` inclusive.
+    /// Cleared on the next non-Section move_active_unit step.
     section_highlight_range: Option<Range<usize>>,
     /// Annotations keyed by node index.
     changes: BTreeMap<usize, Vec<ChangeAnnotation>>,
@@ -826,7 +827,10 @@ impl App {
 
     // ── Navigation ────────────────────────────────────────────────────────────
 
-    /// ↓/↑: move through every content node (nodes that have a highlightable sentence).
+    /// Mouse scroll: move through every content node (nodes that have at
+    /// least one selection anchor). Arrow keys are bound to
+    /// `move_active_unit` per the phase-3b mode-switch keymap; this helper
+    /// only serves the mouse wheel handler now.
     fn move_node(&mut self, delta: isize) {
         if self.doc.node_count() == 0 || delta == 0 {
             return;
@@ -1886,9 +1890,12 @@ impl App {
                 "  nav  next/prev",
                 Style::default().fg(Color::Cyan),
             )),
-            Line::from("  j/k  line         h/l  sentence"),
-            Line::from("  J/K  section      H/L  paragraph"),
-            Line::from("  ]/[  annotation"),
+            Line::from(
+                "  Space / Backspace   cycle unit (section ↔ paragraph ↔ line ↔ sentence ↔ word)",
+            ),
+            Line::from("  j / k               next / prev anchor in active unit"),
+            Line::from("  ↓ / ↑ / → / ←       synonyms for j / k"),
+            Line::from("  ]/[                 next/prev annotation"),
             Line::from(""),
             Line::from("  i  AST view        u  links"),
             Line::from("  /  search          n/N  next/prev match"),
