@@ -1,10 +1,3 @@
-mod app;
-mod cli;
-mod document;
-mod markdown;
-mod output;
-mod ui;
-
 use anyhow::{Context, Result, bail};
 use crossterm::event::{self, Event, KeyEventKind, MouseEventKind};
 use std::env;
@@ -16,9 +9,10 @@ use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use app::App;
-use cli::parse_cli_args;
-use ui::Tui;
+use rep::app::App;
+use rep::cli::parse_cli_args;
+use rep::ui;
+use rep::ui::Tui;
 
 const TMUX_FALLBACK_ENV: &str = "REP_TMUX_FALLBACK";
 const TERMINAL_WINDOW_FALLBACK_ENV: &str = "REP_TERMINAL_WINDOW_FALLBACK";

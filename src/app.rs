@@ -433,6 +433,15 @@ impl App {
         })
     }
 
+    /// Phase-0 anchor adapter: returns the current selection in the canonical
+    /// `(node_idx, unit, unit_idx)` shape. Today's `App` only tracks
+    /// `cursor_node` + `cursor_sentence`, so the unit is always `Sentence`.
+    /// Phase 1 replaces `cursor_*` with `SelectionState` and this method reads
+    /// from there directly.
+    pub fn current_anchor(&self) -> (usize, &'static str, usize) {
+        (self.cursor_node, "Sentence", self.cursor_sentence)
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) {
         match self.input_mode.clone() {
             InputMode::Normal => self.handle_normal_key(key),
