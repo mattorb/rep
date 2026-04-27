@@ -1,0 +1,8 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 1
+CONTEXT:
+  target: "A multi-line prose paragraph"
+  next: "that wraps across three source"
+CHANGE: "X"

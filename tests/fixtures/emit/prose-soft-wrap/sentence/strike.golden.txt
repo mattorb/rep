@@ -1,0 +1,7 @@
+FILE: <INPUT>
+
+ACTION: delete this
+WHERE: line 1
+CONTEXT:
+  target: "A multi-line prose paragraph that wraps across three source lines for line-unit coverage."
+  next: "that wraps across three source"

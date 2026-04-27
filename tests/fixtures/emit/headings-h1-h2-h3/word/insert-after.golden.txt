@@ -1,0 +1,7 @@
+FILE: <INPUT>
+
+ACTION: insert-after
+WHERE: line 1
+CONTEXT:
+  target: "Top"
+INSERT: "X"

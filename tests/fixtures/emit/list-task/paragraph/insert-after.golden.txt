@@ -1,0 +1,8 @@
+FILE: <INPUT>
+
+ACTION: insert-after
+WHERE: line 1
+CONTEXT:
+  target: "open task"
+  next: "- [x] done task"
+INSERT: "X"
