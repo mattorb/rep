@@ -274,8 +274,7 @@ fn node_source_line_ranges(
                 .filter(|&l| {
                     source_lines
                         .get(l)
-                        .map(|s| !s.trim_start().starts_with("```"))
-                        .unwrap_or(false)
+                        .is_some_and(|s| !s.trim_start().starts_with("```"))
                 })
                 .map(|l| (l, 0..plain.len()))
                 .collect()

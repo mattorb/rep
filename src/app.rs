@@ -2198,8 +2198,7 @@ impl App {
             }
             let rows_before_cursor: u16 = heights
                 .get(candidate..self.selection_state.anchor.node_idx)
-                .map(|s| s.iter().copied().sum())
-                .unwrap_or(0);
+                .map_or(0, |s| s.iter().copied().sum());
             if rows_before_cursor + cursor_h > inner_height {
                 break; // cursor would go off-screen
             }
@@ -2412,8 +2411,7 @@ impl App {
 
             if highlight
                 .as_ref()
-                .map(|r| start < r.end && end > r.start)
-                .unwrap_or(false)
+                .is_some_and(|r| start < r.end && end > r.start)
             {
                 style = style.patch(
                     Style::default()
@@ -2739,8 +2737,7 @@ impl App {
             .doc
             .nodes
             .get(node_idx)
-            .map(|n| n.source_start_line())
-            .unwrap_or(0);
+            .map_or(0, |n| n.source_start_line());
         let line_text = self
             .source_lines
             .get(source_line)
@@ -2800,17 +2797,15 @@ impl App {
         let index_node = self.index.nodes.get(node_idx)?;
         let word_range = index_node.word_ranges.get(word_idx)?;
         let word_text = index_node.selection_plain_text.get(word_range.clone())?;
-        let first_line = index_node
-            .source_line_ranges
-            .first()
-            .map(|(l, _)| *l)
-            .unwrap_or_else(|| {
+        let first_line = index_node.source_line_ranges.first().map_or_else(
+            || {
                 self.doc
                     .nodes
                     .get(node_idx)
-                    .map(|n| n.source_start_line())
-                    .unwrap_or(0)
-            });
+                    .map_or(0, |n| n.source_start_line())
+            },
+            |(l, _)| *l,
+        );
         // Find the same occurrence of the word in the rendered display
         // plain text — repeated words must map to the right occurrence,
         // not just the first match. Count occurrences in selection plain
@@ -2830,13 +2825,11 @@ impl App {
         let prev = source_line
             .checked_sub(1)
             .and_then(|i| self.source_lines.get(i))
-            .map(String::as_str)
-            .unwrap_or("");
+            .map_or("", String::as_str);
         let next = self
             .source_lines
             .get(source_line + 1)
-            .map(String::as_str)
-            .unwrap_or("");
+            .map_or("", String::as_str);
         (
             clean_context(prev, EMIT_CONTEXT_MAX_CHARS),
             clean_context(next, EMIT_CONTEXT_MAX_CHARS),
@@ -2857,8 +2850,7 @@ enum ClipboardOutcome {
 fn newlines_before_byte(plain: &str, byte: usize) -> usize {
     plain
         .get(..byte)
-        .map(|p| p.bytes().filter(|&b| b == b'\n').count())
-        .unwrap_or(0)
+        .map_or(0, |p| p.bytes().filter(|&b| b == b'\n').count())
 }
 
 /// Count occurrences of `needle` in `haystack[..before_byte]` (i.e. the
@@ -3016,8 +3008,7 @@ mod tests {
         (0..buf.area.width)
             .map(|x| {
                 buf.cell(ratatui::layout::Position::new(x, y))
-                    .map(|c| c.symbol())
-                    .unwrap_or(" ")
+                    .map_or(" ", |c| c.symbol())
             })
             .collect()
     }
@@ -4504,8 +4495,7 @@ mod tests {
         let row12: String = (0..40)
             .map(|x| {
                 buf.cell(ratatui::layout::Position::new(x, 12))
-                    .map(|c| c.symbol())
-                    .unwrap_or(" ")
+                    .map_or(" ", |c| c.symbol())
             })
             .collect();
         assert!(
@@ -4544,8 +4534,7 @@ mod tests {
                 (0..40)
                     .map(|x| {
                         buf.cell(ratatui::layout::Position::new(x, y))
-                            .map(|c| c.symbol())
-                            .unwrap_or(" ")
+                            .map_or(" ", |c| c.symbol())
                     })
                     .collect::<String>()
                     .trim_end()
@@ -4584,8 +4573,7 @@ mod tests {
                 (0..40)
                     .map(|x| {
                         buf.cell(ratatui::layout::Position::new(x, y))
-                            .map(|c| c.symbol())
-                            .unwrap_or(" ")
+                            .map_or(" ", |c| c.symbol())
                     })
                     .collect::<String>()
                     .trim_end()
@@ -4636,8 +4624,7 @@ mod tests {
         let last_inner_row: String = (0..40)
             .map(|x| {
                 buf.cell(ratatui::layout::Position::new(x, 7))
-                    .map(|c| c.symbol())
-                    .unwrap_or(" ")
+                    .map_or(" ", |c| c.symbol())
             })
             .collect::<String>()
             .trim_end()
