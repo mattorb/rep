@@ -428,6 +428,46 @@ mod tests {
     }
 
     #[test]
+    fn node_selection_plain_text_per_variant() {
+        // Heading: returns the parsed text (markers stripped by parser).
+        let lines: Vec<String> = vec!["# My Heading".into()];
+        let doc = Document::parse("# My Heading");
+        assert_eq!(
+            node_selection_plain_text(&doc.nodes[0], &lines),
+            "My Heading"
+        );
+
+        // Paragraph: parsed plain text.
+        let lines: Vec<String> = vec!["A paragraph here.".into()];
+        let doc = Document::parse("A paragraph here.");
+        assert_eq!(
+            node_selection_plain_text(&doc.nodes[0], &lines),
+            "A paragraph here."
+        );
+
+        // ListItem: source-line join with markers stripped.
+        let src = "- the item text";
+        let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
+        let doc = Document::parse(src);
+        assert_eq!(
+            node_selection_plain_text(&doc.nodes[0], &lines),
+            "the item text"
+        );
+
+        // CodeBlock: fence lines excluded.
+        let src = "```\nfn x() {}\n```";
+        let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
+        let doc = Document::parse(src);
+        assert_eq!(node_selection_plain_text(&doc.nodes[0], &lines), "fn x() {}");
+
+        // ThematicBreak: empty.
+        let src = "---";
+        let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
+        let doc = Document::parse(src);
+        assert_eq!(node_selection_plain_text(&doc.nodes[0], &lines), "");
+    }
+
+    #[test]
     fn strip_list_marker_handles_bullets_numbers_and_tasks() {
         // Plain bullet markers.
         assert_eq!(strip_list_marker("- item"), "item");
