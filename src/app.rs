@@ -1215,9 +1215,14 @@ impl App {
     // ── Annotations ───────────────────────────────────────────────────────────
 
     fn existing_change_for_cursor(&self) -> Option<usize> {
-        let sentence_idx = self.current_sentence_context().map(|(idx, _)| idx);
         let changes = self.changes.get(&self.selection_state.anchor.node_idx)?;
-        if let Some(idx) = sentence_idx {
+        // Sentence-keyed match only fires in Sentence mode; in any other
+        // unit the unit_idx isn't a sentence index. The fallback returns
+        // the most recent change on the node, which keeps `c` -> edit
+        // working when the user is on a node that has any existing change.
+        if self.selection_state.anchor.unit == SelectionUnit::Sentence
+            && let Some(idx) = self.current_sentence_context().map(|(idx, _)| idx)
+        {
             changes.iter().rposition(|c| c.sentence_index == Some(idx))
         } else {
             changes.len().checked_sub(1)
@@ -1225,9 +1230,10 @@ impl App {
     }
 
     fn existing_feedback_for_cursor(&self) -> Option<usize> {
-        let sentence_idx = self.current_sentence_context().map(|(idx, _)| idx);
         let feedbacks = self.feedbacks.get(&self.selection_state.anchor.node_idx)?;
-        if let Some(idx) = sentence_idx {
+        if self.selection_state.anchor.unit == SelectionUnit::Sentence
+            && let Some(idx) = self.current_sentence_context().map(|(idx, _)| idx)
+        {
             feedbacks
                 .iter()
                 .rposition(|f| f.sentence_index == Some(idx))
@@ -3314,6 +3320,25 @@ mod tests {
             SelectionUnit::Sentence,
             "annotation jump must re-anchor to Sentence"
         );
+    }
+
+    #[test]
+    fn c_in_word_mode_edits_most_recent_change_on_node() {
+        // Existing change on node 0 sentence 0. From Word mode, pressing
+        // `c` should still find the existing change and enter edit mode
+        // (matched by node only, not by sentence_idx-as-word_idx).
+        let mut app = test_app("First sentence here.\n");
+        app.changes
+            .entry(0)
+            .or_default()
+            .push(make_change("existing"));
+        app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+        app.handle_key(key_char('c'));
+        match app.input_mode {
+            InputMode::EditChange(_, _) => {}
+            other => panic!("expected EditChange, got {other:?}"),
+        }
     }
 
     #[test]
