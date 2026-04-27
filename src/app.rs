@@ -855,62 +855,30 @@ impl App {
     }
 
     /// h/j/k/l: move sentence by sentence, crossing node boundaries.
+    /// Phase 3a: thin wrapper around `selection::navigator::next/prev` with
+    /// `SelectionUnit::Sentence`. Parity-preserving — the navigator walks the
+    /// index's sentence linear-order table, which matches the legacy
+    /// `next_node_with_sentences`-keyed traversal.
     fn move_sentence(&mut self, forward: bool) {
         if self.doc.node_count() == 0 {
             return;
         }
         self.section_highlight_range = None;
-
-        let current_count = self
-            .rendered_nodes
-            .get(self.selection_state.anchor.node_idx)
-            .map(|rn| rn.sentence_ranges.len())
-            .unwrap_or(0);
-
-        if current_count == 0 {
-            let next = if forward {
-                self.doc.next_node_with_sentences(self.selection_state.anchor.node_idx + 1)
-            } else {
-                self.doc.prev_node_with_sentences(self.selection_state.anchor.node_idx)
-            };
-            match next {
-                Some(idx) => {
-                    self.selection_state.anchor.node_idx = idx;
-                    self.selection_state.anchor.unit_idx = if forward {
-                        0
-                    } else {
-                        self.rendered_nodes[idx]
-                            .sentence_ranges
-                            .len()
-                            .saturating_sub(1)
-                    };
-                }
-                None => {
-                    self.status = "No sentence found in that direction.".to_string();
-                    return;
-                }
-            }
-        } else if forward {
-            if self.selection_state.anchor.unit_idx + 1 < current_count {
-                self.selection_state.anchor.unit_idx += 1;
-            } else if let Some(idx) = self.doc.next_node_with_sentences(self.selection_state.anchor.node_idx + 1) {
-                self.selection_state.anchor.node_idx = idx;
-                self.selection_state.anchor.unit_idx = 0;
-            }
-        } else if self.selection_state.anchor.unit_idx > 0 {
-            self.selection_state.anchor.unit_idx -= 1;
-        } else if let Some(idx) = self.doc.prev_node_with_sentences(self.selection_state.anchor.node_idx) {
-            self.selection_state.anchor.node_idx = idx;
-            self.selection_state.anchor.unit_idx = self.rendered_nodes[idx]
-                .sentence_ranges
-                .len()
-                .saturating_sub(1);
+        let mut sentence_anchor = self.selection_state.anchor;
+        sentence_anchor.unit = SelectionUnit::Sentence;
+        let outcome = if forward {
+            crate::selection::navigator::next(&self.index, sentence_anchor)
+        } else {
+            crate::selection::navigator::prev(&self.index, sentence_anchor)
+        };
+        if let crate::selection::model::NavOutcome::Moved(a) = outcome {
+            self.selection_state.anchor = a;
         }
-
         let total = self
-            .rendered_nodes
+            .index
+            .nodes
             .get(self.selection_state.anchor.node_idx)
-            .map(|rn| rn.sentence_ranges.len())
+            .map(|n| n.sentence_ranges.len())
             .unwrap_or(0);
         self.status = if total == 0 {
             format!("Node {} has no sentences.", self.selection_state.anchor.node_idx + 1)
@@ -925,25 +893,45 @@ impl App {
     }
 
     /// J/K: jump to the next/prev section heading or top-level ordered list item.
+    /// Phase 3a: thin wrapper around `selection::navigator::next/prev` with
+    /// `SelectionUnit::Section`; section_highlight_range is derived from the
+    /// section table.
     fn move_section(&mut self, forward: bool) {
-        let target = if forward {
-            self.doc.next_section(self.selection_state.anchor.node_idx.saturating_add(1))
+        // Build a Section anchor from the current selection. If currently in
+        // sentence mode, find the section that contains the current node.
+        let current_node = self.selection_state.anchor.node_idx;
+        let containing_section_start = self
+            .index
+            .sections
+            .iter()
+            .find(|s| s.start_node_idx <= current_node && current_node <= s.end_node_idx)
+            .map(|s| s.start_node_idx);
+        let section_anchor = SelectionAnchor::new(
+            containing_section_start.unwrap_or(current_node),
+            SelectionUnit::Section,
+            0,
+        );
+        let outcome = if forward {
+            crate::selection::navigator::next(&self.index, section_anchor)
         } else {
-            self.doc.prev_section(self.selection_state.anchor.node_idx)
+            crate::selection::navigator::prev(&self.index, section_anchor)
         };
-
-        match target {
-            Some(idx) => {
-                self.selection_state.anchor.node_idx = idx;
+        match outcome {
+            crate::selection::model::NavOutcome::Moved(a) => {
+                self.selection_state.anchor.node_idx = a.node_idx;
                 self.selection_state.anchor.unit_idx = 0;
+                // Look up the section's end to compute the highlight range.
                 let end = self
-                    .doc
-                    .next_section(idx + 1)
-                    .unwrap_or(self.doc.node_count());
-                self.section_highlight_range = Some(idx..end);
-                self.status = format!("Section at node {}.", idx + 1);
+                    .index
+                    .sections
+                    .iter()
+                    .find(|s| s.start_node_idx == a.node_idx)
+                    .map(|s| s.end_node_idx + 1)
+                    .unwrap_or_else(|| self.doc.node_count());
+                self.section_highlight_range = Some(a.node_idx..end);
+                self.status = format!("Section at node {}.", a.node_idx + 1);
             }
-            None => {
+            crate::selection::model::NavOutcome::Boundary => {
                 self.status = if forward {
                     "Already at the last section.".to_string()
                 } else {

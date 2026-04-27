@@ -56,10 +56,27 @@ impl SelectionIndex {
         for (node_idx, node) in doc.nodes.iter().enumerate() {
             let plain = node_selection_plain_text(node, source_lines);
             let source_line_ranges = node_source_line_ranges(node, source_lines, &plain);
-            let sentence_ranges = if node_is_sentence_bearing(node) {
-                crate::selection::segment::segment_sentences(&plain)
-            } else {
+            // Sentence-bearing rules (phase 3a parity-preserving):
+            //   - Paragraph: segment with the canonical segmenter.
+            //   - Heading / ListItem / CodeBlock: exactly one anchor covering
+            //     the full plain text (matches today's rendered_nodes
+            //     single_range behavior used by the legacy mover).
+            //   - ThematicBreak: zero.
+            // Phase 3b's modular_plan rules (no sentence anchors in code
+            // blocks; multiple sentences per ListItem) ship with the
+            // observable-change phase that regenerates affected goldens.
+            let sentence_ranges: Vec<Range<usize>> = if plain.is_empty() {
                 Vec::new()
+            } else {
+                match node {
+                    DocNode::Paragraph { .. } => {
+                        crate::selection::segment::segment_sentences(&plain)
+                    }
+                    DocNode::Heading { .. }
+                    | DocNode::ListItem { .. }
+                    | DocNode::CodeBlock { .. } => vec![0..plain.len()],
+                    DocNode::ThematicBreak { .. } => Vec::new(),
+                }
             };
 
             // Linear-order tables.
@@ -228,8 +245,9 @@ fn node_source_line_ranges(
     }
 }
 
+#[allow(dead_code)]
 fn node_is_sentence_bearing(node: &DocNode) -> bool {
-    matches!(node, DocNode::Heading { .. } | DocNode::Paragraph { .. } | DocNode::ListItem { .. })
+    !matches!(node, DocNode::ThematicBreak { .. })
 }
 
 fn node_contributes_paragraph_anchor(node: &DocNode, plain: &str) -> bool {
@@ -239,6 +257,15 @@ fn node_contributes_paragraph_anchor(node: &DocNode, plain: &str) -> bool {
     }
 }
 
+/// Build the section table.
+///
+/// Phase 3a uses the legacy section model for parity with phase-0 transcripts:
+/// every node where `DocNode::is_section()` returns true is a section starter
+/// (including every top-level ordered list item, regardless of whether any
+/// heading precedes it). Phase 3b switches to the modular_plan rules
+/// (top-level OL counts as a starter only when no heading appears earlier;
+/// the OL spans the whole list rather than one section per item) and
+/// regenerates the affected goldens.
 fn build_section_table(doc: &Document) -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
     let n = doc.nodes.len();
@@ -246,37 +273,21 @@ fn build_section_table(doc: &Document) -> Vec<Section> {
         return sections;
     }
 
-    let any_heading = doc.nodes.iter().any(|node| matches!(node, DocNode::Heading { .. }));
-
-    // Find candidate section starters in document order.
     let mut starters: Vec<(usize, SectionKind)> = Vec::new();
-    let mut seen_heading = false;
     for (i, node) in doc.nodes.iter().enumerate() {
         match node {
-            DocNode::Heading { .. } => {
-                starters.push((i, SectionKind::Heading));
-                seen_heading = true;
-            }
+            DocNode::Heading { .. } => starters.push((i, SectionKind::Heading)),
             DocNode::ListItem {
                 ordered: true,
                 depth: 0,
                 ..
-            } => {
-                if !any_heading {
-                    // Top-level OL counts as section start only when no heading precedes it.
-                    if !seen_heading
-                        && (sections.is_empty() // first OL becomes section starter
-                            || !matches!(starters.last(), Some((_, SectionKind::Ol))))
-                    {
-                        starters.push((i, SectionKind::Ol));
-                    }
-                }
-            }
+            } => starters.push((i, SectionKind::Ol)),
             _ => {}
         }
     }
 
-    // Pre-heading "section 0" — only when at least one pre-starter node has paragraph anchor.
+    // Pre-heading "section 0" — present only when the pre-starter region has
+    // any selectable node.
     let first_starter = starters.first().map(|(i, _)| *i).unwrap_or(n);
     let pre_has_content = (0..first_starter).any(|i| match &doc.nodes[i] {
         DocNode::ThematicBreak { .. } => false,
