@@ -909,14 +909,7 @@ impl App {
         match outcome {
             crate::selection::model::NavOutcome::Moved(a) => {
                 self.selection_state.anchor = a;
-                if a.unit == SelectionUnit::Section {
-                    self.section_highlight_range = self.section_span_for(a.node_idx);
-                } else {
-                    // Moved within a non-Section unit — drop any stale
-                    // section highlight from a previous Section-mode
-                    // entry.
-                    self.section_highlight_range = None;
-                }
+                self.refresh_section_highlight(a);
             }
             crate::selection::model::NavOutcome::Boundary => {
                 // Zero-anchor units (e.g., section nav on a doc with no
@@ -960,10 +953,15 @@ impl App {
         let new_anchor =
             crate::selection::navigator::clamp(&self.index, self.selection_state.anchor, target);
         self.selection_state.anchor = new_anchor;
-        // Section mode lights up the section span highlight; any other
-        // unit clears stale highlight from a previous Section entry.
-        if new_anchor.unit == SelectionUnit::Section {
-            self.section_highlight_range = self.section_span_for(new_anchor.node_idx);
+        self.refresh_section_highlight(new_anchor);
+    }
+
+    /// Refresh `section_highlight_range` for an anchor: set the span when
+    /// the active unit is Section, clear otherwise. Used after every move
+    /// or mode-cycle that lands on a new anchor.
+    fn refresh_section_highlight(&mut self, anchor: SelectionAnchor) {
+        if anchor.unit == SelectionUnit::Section {
+            self.section_highlight_range = self.section_span_for(anchor.node_idx);
         } else {
             self.section_highlight_range = None;
         }
