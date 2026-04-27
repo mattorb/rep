@@ -1073,18 +1073,30 @@ impl App {
             || self.strikes.contains_key(&node_idx)
     }
 
+    /// Snap the anchor to a valid Sentence position on the current node.
+    ///
+    /// Used by every "go to a different node" path (mouse click, mouse
+    /// scroll, jump_to_annotation, search). Resets the active unit to
+    /// Sentence so the unit_idx is interpreted consistently — without this
+    /// reset, jumping to a different node while in Word/Line/Paragraph mode
+    /// would leave a Sentence unit_idx in a slot the unit ought to read as
+    /// a word/line/paragraph index.
     fn clamp_sentence(&mut self) {
         let total = self
             .rendered_nodes
             .get(self.selection_state.anchor.node_idx)
             .map(|rn| rn.sentence_ranges.len())
             .unwrap_or(0);
-        if total == 0 {
-            self.selection_state.anchor.unit_idx = 0;
+        let unit_idx = if total == 0 {
+            0
         } else {
-            self.selection_state.anchor.unit_idx =
-                self.selection_state.anchor.unit_idx.min(total - 1);
-        }
+            self.selection_state.anchor.unit_idx.min(total - 1)
+        };
+        self.selection_state.anchor = SelectionAnchor::new(
+            self.selection_state.anchor.node_idx,
+            SelectionUnit::Sentence,
+            unit_idx,
+        );
     }
 
     fn current_source_line(&self) -> usize {
@@ -3273,6 +3285,23 @@ mod tests {
             "cursor should land on Beta node"
         );
         assert!(app.status.contains("Match 1/1"), "status: {}", app.status);
+    }
+
+    #[test]
+    fn jump_to_annotation_resets_unit_to_sentence() {
+        // Set up an annotation on node 1, cycle into Word mode on node 0,
+        // then `]` should jump to the annotated node and reset unit.
+        let mut app = test_app("First sentence.\n\nSecond paragraph.\n");
+        app.changes.entry(1).or_default().push(make_change("x"));
+        app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+        app.handle_key(key_char(']'));
+        assert_eq!(app.selection_state.anchor.node_idx, 1);
+        assert_eq!(
+            app.selection_state.anchor.unit,
+            SelectionUnit::Sentence,
+            "annotation jump must re-anchor to Sentence"
+        );
     }
 
     #[test]
