@@ -2695,8 +2695,8 @@ impl App {
         ));
     }
 
-    /// Write `\nACTION: <name>\nWHERE: line N<suffix>\n` — shared by
-    /// every emit shape (changes / feedbacks / inserts / strikes).
+    /// Write `\nACTION: <name>\nWHERE: line N\n` — shared by every
+    /// emit shape (changes / feedbacks / inserts / strikes).
     fn emit_action_header(out: &mut String, action: &str, where_line: usize) {
         out.push('\n');
         out.push_str(&format!("ACTION: {action}\n"));
