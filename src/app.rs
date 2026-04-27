@@ -750,7 +750,7 @@ impl App {
                     .position(|r| abs >= r.start && abs < r.end)
                     .unwrap_or(0);
                 matches.push((ni, sidx));
-                cursor = abs + needle.len().max(1);
+                cursor = abs + needle.len();
             }
         }
         matches
