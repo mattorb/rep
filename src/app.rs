@@ -2757,13 +2757,13 @@ impl App {
     }
 
     /// Returns `(where_line: usize, sentence_suffix: String)` for an
-    /// annotation. The phase-5 schema strips the legacy `, sentence M`
-    /// suffix from every unit, so the suffix is now always empty. The
-    /// where-line is the source line where the selection's text begins:
-    /// per-line for Line annotations, per-word for Word, per-sentence for
-    /// Sentence (computed from the rendered_nodes display plain text
-    /// `\n` count), and the node's first line for Paragraph / Section
-    /// (those emit their entire span anyway).
+    /// annotation. The suffix is always empty per the modular_plan
+    /// schema (no `, sentence M` postfix on any unit). The where-line
+    /// is the source line where the selection's text begins:
+    /// per-line for Line annotations, per-word for Word, per-sentence
+    /// for Sentence (computed from the rendered_nodes display plain
+    /// text `\n` count), and the node's first line for Paragraph /
+    /// Section (those emit their entire span anyway).
     fn where_for_annotation(
         &self,
         target_unit: SelectionUnit,
