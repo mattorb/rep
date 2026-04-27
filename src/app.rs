@@ -2097,6 +2097,12 @@ impl App {
             .collect();
 
         let total = self.ast_lines.len() as u16;
+        // With wrap enabled the scroll axis is display-rows, not
+        // source-lines; long lines wrap to multiple rows so the user
+        // can drift past `total` worth of "lines" before exhausting
+        // visible content. Cap scroll to total source lines as a
+        // reasonable upper bound — overshoot just shows blank rows
+        // at the bottom rather than truncating right-edge content.
         let inner_height = popup_height.saturating_sub(2);
         let max_scroll = total.saturating_sub(inner_height);
         let scroll = self.ast_view_scroll.unwrap_or(0).min(max_scroll);
@@ -2107,13 +2113,14 @@ impl App {
                 .block(
                     Block::default()
                         .title(format!(
-                            " AST  [{}/{}]  j/k scroll · i/Esc close ",
+                            " AST  [{}/{}]  j/k scroll · I/Esc close ",
                             scroll + 1,
                             total
                         ))
                         .borders(Borders::ALL)
                         .border_style(Style::default().fg(Color::Green)),
                 )
+                .wrap(Wrap { trim: false })
                 .scroll((scroll, 0)),
             popup,
         );
