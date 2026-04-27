@@ -13,7 +13,7 @@ use crate::document::{DocNode, Document};
 /// pre-heading "section 0" of a doc whose first content lives before any
 /// section starter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SectionKind {
+pub(crate) enum SectionKind {
     Heading,
     Ol,
     PreHeading,
@@ -22,7 +22,7 @@ pub enum SectionKind {
 /// A section spans a contiguous run of `node_idx` values. Both endpoints
 /// are inclusive; the contiguity invariant is asserted at index-build time.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Section {
+pub(crate) struct Section {
     pub start_node_idx: usize,
     pub end_node_idx: usize,
     pub kind: SectionKind,
@@ -52,7 +52,7 @@ pub struct SelectionIndex {
     pub lines: Vec<(usize, usize)>,
     pub sentences: Vec<(usize, usize)>,
     pub words: Vec<(usize, usize)>,
-    pub sections: Vec<Section>,
+    pub(crate) sections: Vec<Section>,
 }
 
 impl SelectionIndex {
