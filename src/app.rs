@@ -2797,15 +2797,29 @@ impl App {
     /// Source line where a word's bytes begin within its node's selection
     /// plain text. Maps via the index's `source_line_ranges` table.
     fn word_source_line(&self, node_idx: usize, word_idx: usize) -> Option<usize> {
-        let node = self.index.nodes.get(node_idx)?;
-        let word_range = node.word_ranges.get(word_idx)?;
-        for (line, range) in &node.source_line_ranges {
-            if range.contains(&word_range.start) {
-                return Some(*line);
-            }
-        }
-        // Fallback: first source line of the node's first line range.
-        node.source_line_ranges.first().map(|(l, _)| *l)
+        let index_node = self.index.nodes.get(node_idx)?;
+        let word_range = index_node.word_ranges.get(word_idx)?;
+        let word_text = index_node.selection_plain_text.get(word_range.clone())?;
+        let first_line = index_node
+            .source_line_ranges
+            .first()
+            .map(|(l, _)| *l)
+            .unwrap_or_else(|| {
+                self.doc
+                    .nodes
+                    .get(node_idx)
+                    .map(|n| n.source_start_line())
+                    .unwrap_or(0)
+            });
+        // Find the word in the rendered display plain text (which preserves
+        // `\n` between source lines for multi-line paragraphs / code blocks)
+        // and count newlines before the match position. Falls back to the
+        // node's first source line if the lookup fails.
+        let rn = self.rendered_nodes.get(node_idx)?;
+        let needle = word_text;
+        let pos = rn.plain.find(needle).unwrap_or(0);
+        let prefix = rn.plain.get(..pos).unwrap_or("");
+        Some(first_line + prefix.bytes().filter(|&b| b == b'\n').count())
     }
 
     fn context_lines(&self, source_line: usize) -> (String, String) {
@@ -3565,6 +3579,26 @@ mod tests {
         assert!(
             !out.contains(", sentence "),
             "phase-5 emit must not carry a `, sentence M` suffix: {out}"
+        );
+    }
+
+    #[test]
+    fn word_change_uses_word_source_line_in_multi_line_paragraph() {
+        // Multi-line paragraph: word on second line should emit
+        // `WHERE: line 2`, not the paragraph's first line.
+        let mut app = test_app("First line.\nSecond line.\n");
+        app.changes.entry(0).or_default().push(ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Word,
+            sentence_index: Some(2), // word_idx; "Second" is index 2 in
+            // [First, line, Second, line]
+            sentence_text: Some("Second".into()),
+            change: "Initial".into(),
+        });
+        let out = app.to_human_output();
+        assert!(
+            out.contains("WHERE: line 2\n"),
+            "should key on word's source line: {out}"
         );
     }
 
