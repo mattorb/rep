@@ -489,7 +489,7 @@ impl App {
 
         if let Some(scroll) = self.ast_view_scroll {
             match key.code {
-                KeyCode::Esc | KeyCode::Char('i') => {
+                KeyCode::Esc | KeyCode::Char('I') => {
                     self.ast_view_scroll = None;
                     self.status = "Closed AST view.".to_string();
                 }
@@ -506,7 +506,7 @@ impl App {
 
         if self.link_popup_urls.is_some() {
             match key.code {
-                KeyCode::Esc | KeyCode::Char('u') => {
+                KeyCode::Esc | KeyCode::Char('U') => {
                     self.link_popup_urls = None;
                     self.status = "Closed link popup.".to_string();
                 }
@@ -572,11 +572,18 @@ impl App {
             KeyCode::Char('j') | KeyCode::Down | KeyCode::Right => self.move_active_unit(true),
             KeyCode::Char('k') | KeyCode::Up | KeyCode::Left => self.move_active_unit(false),
             KeyCode::Backspace => self.mode_cycle(false),
-            KeyCode::Char('i') => {
+            // i / u cycle the active selection unit by one step. i =
+            // "in" / finer; u = "up" / coarser. Synonyms for Space and
+            // Backspace.
+            KeyCode::Char('i') => self.mode_cycle(true),
+            KeyCode::Char('u') => self.mode_cycle(false),
+            // Capital variants keep the prior bindings: I opens the
+            // AST popup, U reveals links from the current sentence.
+            KeyCode::Char('I') => {
                 self.ast_view_scroll = Some(0);
-                self.status = "AST view. j/k scroll, i or Esc close.".to_string();
+                self.status = "AST view. j/k scroll, I or Esc close.".to_string();
             }
-            KeyCode::Char('u') if !self.reveal_links_for_current_sentence() => {
+            KeyCode::Char('U') if !self.reveal_links_for_current_sentence() => {
                 self.status = "No markdown links in current sentence.".to_string();
             }
             KeyCode::Char('x') => self.toggle_strike(),
@@ -2020,13 +2027,14 @@ impl App {
                 Style::default().fg(Color::Cyan),
             )),
             Line::from(
-                "  Space / Backspace   cycle unit (section ↔ paragraph ↔ line ↔ sentence ↔ word)",
+                "  i / u               cycle unit finer / coarser (section ↔ paragraph ↔ line ↔ sentence ↔ word)",
             ),
+            Line::from("  Space / Backspace   synonyms for i / u"),
             Line::from("  j / k               next / prev anchor in active unit"),
             Line::from("  ↓ / ↑ / → / ←       synonyms for j / k"),
             Line::from("  ]/[                 next/prev annotation"),
             Line::from(""),
-            Line::from("  i  AST view        u  links"),
+            Line::from("  I  AST view        U  links"),
             Line::from("  /  search          n/N  next/prev match"),
             Line::from("  c  change (literal)"),
             Line::from("  f  feedback (intent)"),
@@ -2782,11 +2790,11 @@ impl App {
             source_file: self.source_path.display().to_string(),
             generated_at: Utc::now().to_rfc3339(),
             keymap: KeymapOutput {
-                mode_cycle_forward: "Space".to_string(),
-                mode_cycle_backward: "Backspace".to_string(),
+                mode_cycle_forward: "i".to_string(),
+                mode_cycle_backward: "u".to_string(),
                 unit_next: "j".to_string(),
                 unit_prev: "k".to_string(),
-                reveal_link: "u".to_string(),
+                reveal_link: "U".to_string(),
                 annotation_prev: "[".to_string(),
                 annotation_next: "]".to_string(),
                 help: "?".to_string(),
@@ -4235,6 +4243,41 @@ mod tests {
         app.handle_key(key_char('j'));
         let spans2 = app.render_node_spans(0);
         assert_eq!(highlighted_text(&spans2), "in");
+    }
+
+    #[test]
+    fn i_and_u_keys_cycle_unit_finer_and_coarser() {
+        // i = "in" / finer (synonym for Space). u = "up" / coarser
+        // (synonym for Backspace). One i step from default Sentence
+        // lands on Word; subsequent u step returns to Sentence.
+        let mut app = test_app("Plain prose paragraph here.\n");
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Sentence);
+        app.handle_key(key_char('i'));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+        app.handle_key(key_char('u'));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Sentence);
+        // Space and Backspace still work as synonyms.
+        app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Sentence);
+    }
+
+    #[test]
+    fn capital_i_opens_ast_view_lowercase_does_not() {
+        // Capital `I` opens the AST popup; lowercase `i` is the
+        // mode-cycle key. Verifies the key migration is complete.
+        let mut app = test_app("Body here.\n");
+        app.handle_key(key_char('i'));
+        assert!(
+            app.ast_view_scroll.is_none(),
+            "lowercase i must not open AST view"
+        );
+        app.handle_key(KeyEvent::new(KeyCode::Char('I'), KeyModifiers::NONE));
+        assert!(
+            app.ast_view_scroll.is_some(),
+            "capital I must open AST view"
+        );
     }
 
     #[test]

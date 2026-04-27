@@ -1,5 +1,6 @@
 # Word-mode reveal-link still uses the current-sentence link list.
+# `u` now cycles modes; capital `U` is the link-reveal binding.
 Space
 j
-u
+U
 q
