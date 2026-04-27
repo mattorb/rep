@@ -1555,12 +1555,24 @@ impl App {
         else {
             return Vec::new();
         };
-        let Some(range) = rn.sentence_ranges.get(self.selection_state.anchor.unit_idx) else {
-            return Vec::new();
-        };
+        // In Sentence mode, scope to the current sentence's byte range.
+        // In any other mode, fall back to "all links in the current node"
+        // — the unit_idx is a Word/Line/Paragraph/Section index that
+        // doesn't translate cleanly to sentence_ranges.
+        let scope: Option<Range<usize>> =
+            if self.selection_state.anchor.unit == SelectionUnit::Sentence {
+                rn.sentence_ranges
+                    .get(self.selection_state.anchor.unit_idx)
+                    .cloned()
+            } else {
+                None
+            };
         let mut urls = Vec::new();
         for link in &rn.links {
-            let overlaps = link.end > range.start && link.start < range.end;
+            let overlaps = scope
+                .as_ref()
+                .map(|r| link.end > r.start && link.start < r.end)
+                .unwrap_or(true);
             if overlaps && !urls.iter().any(|u: &String| u == &link.url) {
                 urls.push(link.url.clone());
             }
@@ -3302,6 +3314,23 @@ mod tests {
             SelectionUnit::Sentence,
             "annotation jump must re-anchor to Sentence"
         );
+    }
+
+    #[test]
+    fn current_sentence_links_returns_all_node_links_in_word_mode() {
+        // Two sentences each with one link. In Sentence mode the link list
+        // is scoped to the current sentence; in Word mode (unit_idx is a
+        // word index, not a sentence index) we fall back to "all links in
+        // the node" rather than mis-index sentence_ranges.
+        let mut app = test_app(
+            "[First link](https://example.com) here. [Other link](https://other.com) there.\n",
+        );
+        app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+        let links = app.current_sentence_links();
+        // Both URLs surface in Word mode.
+        assert!(links.iter().any(|u| u.contains("example.com")), "{links:?}");
+        assert!(links.iter().any(|u| u.contains("other.com")), "{links:?}");
     }
 
     #[test]
