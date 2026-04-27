@@ -240,10 +240,10 @@ fn node_source_line_ranges(
             source_lines: range,
             ..
         } => {
-            // Phase-4 line anchors per source line; the GFM-table-separator
-            // line (`| --- | --- |` shape) is excluded since it's not part
-            // of the selection plain text per modular_plan §"Block-type
-            // coverage / GFM table".
+            // One Line anchor per source line; the GFM-table-separator
+            // line (`| --- | --- |` shape) is excluded since it's not
+            // part of the selection plain text per modular_plan
+            // §"Block-type coverage / GFM table".
             range
                 .clone()
                 .filter(|l| *l < source_lines.len())
