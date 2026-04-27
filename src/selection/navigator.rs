@@ -139,16 +139,15 @@ mod tests {
     use crate::document::Document;
     use crate::selection::index::SelectionIndex;
 
-    fn build(src: &str) -> (Document, SelectionIndex, Vec<String>) {
+    fn build(src: &str) -> SelectionIndex {
         let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
         let doc = Document::parse(src);
-        let idx = SelectionIndex::build(&doc, &lines);
-        (doc, idx, lines)
+        SelectionIndex::build(&doc, &lines)
     }
 
     #[test]
     fn sentence_next_within_node_advances() {
-        let (_doc, idx, _lines) = build("First sentence. Second sentence. Third.");
+        let idx = build("First sentence. Second sentence. Third.");
         let a = SelectionAnchor::new(0, SelectionUnit::Sentence, 0);
         match next(&idx, a) {
             NavOutcome::Moved(a2) => {
@@ -161,7 +160,7 @@ mod tests {
 
     #[test]
     fn sentence_next_at_doc_end_returns_boundary() {
-        let (_doc, idx, _lines) = build("Only sentence.");
+        let idx = build("Only sentence.");
         let a = SelectionAnchor::new(0, SelectionUnit::Sentence, 0);
         assert_eq!(next(&idx, a), NavOutcome::Boundary);
         assert_eq!(prev(&idx, a), NavOutcome::Boundary);
@@ -169,7 +168,7 @@ mod tests {
 
     #[test]
     fn sentence_next_crosses_node_boundary() {
-        let (_doc, idx, _lines) = build("First. Second.\n\nThird. Fourth.");
+        let idx = build("First. Second.\n\nThird. Fourth.");
         let last_of_first_node = SelectionAnchor::new(0, SelectionUnit::Sentence, 1);
         match next(&idx, last_of_first_node) {
             NavOutcome::Moved(a) => {
@@ -182,7 +181,7 @@ mod tests {
 
     #[test]
     fn roundtrip_invariant() {
-        let (_doc, idx, _lines) = build("A.\n\nB.\n\nC.");
+        let idx = build("A.\n\nB.\n\nC.");
         let mut a = SelectionAnchor::new(0, SelectionUnit::Sentence, 0);
         for _ in 0..3 {
             if let NavOutcome::Moved(b) = next(&idx, a) {
@@ -196,7 +195,7 @@ mod tests {
 
     #[test]
     fn section_nav_walks_headings() {
-        let (_doc, idx, _lines) = build("# A\n\nx\n\n# B\n\ny.");
+        let idx = build("# A\n\nx\n\n# B\n\ny.");
         // Sections at node 0 and node 2.
         let a = SelectionAnchor::new(0, SelectionUnit::Section, 0);
         let n = next(&idx, a);
@@ -208,14 +207,14 @@ mod tests {
 
     #[test]
     fn section_nav_no_sections_is_boundary() {
-        let (_doc, idx, _lines) = build("Plain prose.");
+        let idx = build("Plain prose.");
         let a = SelectionAnchor::new(0, SelectionUnit::Section, 0);
         assert_eq!(next(&idx, a), NavOutcome::Boundary);
     }
 
     #[test]
     fn clamp_to_word_lands_on_first_word() {
-        let (_doc, idx, _lines) = build("Plain prose.");
+        let idx = build("Plain prose.");
         let a = SelectionAnchor::new(0, SelectionUnit::Sentence, 0);
         let b = clamp(&idx, a, SelectionUnit::Word);
         assert_eq!(b.unit, SelectionUnit::Word);
@@ -227,7 +226,7 @@ mod tests {
         // Code-only document: no sentence anchors and no word anchors
         // (sentence-level skip rule). clamp(Section -> Sentence) finds no
         // entries and returns the original anchor.
-        let (_doc, idx, _lines) = build("```\nfn x() {}\n```");
+        let idx = build("```\nfn x() {}\n```");
         let a = SelectionAnchor::new(0, SelectionUnit::Section, 0);
         let b = clamp(&idx, a, SelectionUnit::Sentence);
         assert_eq!(a, b);
@@ -238,7 +237,7 @@ mod tests {
         // Document with all five units present: heading, multi-sentence
         // paragraph, multi-line paragraph. Verify clamp lands on a valid
         // anchor of the requested unit for every (from, to) pair.
-        let (_doc, idx, _lines) = build(
+        let idx = build(
             "# Top heading\n\nFirst sentence here. Second sentence here.\n\nA second paragraph\nwrapping two lines.",
         );
         let units = [
