@@ -958,7 +958,7 @@ impl App {
     /// or mode-cycle that lands on a new anchor.
     fn refresh_section_highlight(&mut self, anchor: SelectionAnchor) {
         if anchor.unit == SelectionUnit::Section {
-            self.section_highlight_range = self.section_span_for(anchor.node_idx);
+            self.section_highlight_range = Some(self.section_span_for(anchor.node_idx));
         } else {
             self.section_highlight_range = None;
         }
@@ -967,7 +967,7 @@ impl App {
     /// Compute the inclusive-start, exclusive-end node range for the section
     /// starting at `node_idx`. Falls back to the rest of the document if the
     /// section table doesn't carry an entry for this node.
-    fn section_span_for(&self, node_idx: usize) -> Option<Range<usize>> {
+    fn section_span_for(&self, node_idx: usize) -> Range<usize> {
         let end = self
             .index
             .sections
@@ -975,7 +975,7 @@ impl App {
             .find(|s| s.start_node_idx == node_idx)
             .map(|s| s.end_node_idx + 1)
             .unwrap_or_else(|| self.doc.node_count());
-        Some(node_idx..end)
+        node_idx..end
     }
 
     /// Stable string for the mode indicator in the left zone of the footer.
