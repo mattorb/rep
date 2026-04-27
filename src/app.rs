@@ -265,8 +265,7 @@ fn render_source_lines_with_breaks(
     let mut links: Vec<MarkdownLinkRange> = Vec::new();
     let first_indent = src_lines
         .first()
-        .map(|l| l.len() - l.trim_start().len())
-        .unwrap_or(0);
+        .map_or(0, |l| l.len() - l.trim_start().len());
     for (i, line) in src_lines.iter().enumerate() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -1000,8 +999,7 @@ impl App {
             .sections
             .iter()
             .find(|s| s.start_node_idx == node_idx)
-            .map(|s| s.end_node_idx + 1)
-            .unwrap_or_else(|| self.doc.node_count());
+            .map_or_else(|| self.doc.node_count(), |s| s.end_node_idx + 1);
         node_idx..end
     }
 
@@ -1097,8 +1095,7 @@ impl App {
         let total = self
             .rendered_nodes
             .get(self.selection_state.anchor.node_idx)
-            .map(|rn| rn.sentence_ranges.len())
-            .unwrap_or(0);
+            .map_or(0, |rn| rn.sentence_ranges.len());
         let unit_idx = if total == 0 {
             0
         } else {
@@ -1126,8 +1123,7 @@ impl App {
             .doc
             .nodes
             .get(node_idx)
-            .map(|n| n.source_start_line())
-            .unwrap_or(0);
+            .map_or(0, |n| n.source_start_line());
         self.where_for_annotation(
             self.selection_state.anchor.unit,
             node_idx,
@@ -1611,8 +1607,7 @@ impl App {
         for link in &rn.links {
             let overlaps = scope
                 .as_ref()
-                .map(|r| link.end > r.start && link.start < r.end)
-                .unwrap_or(true);
+                .is_none_or(|r| link.end > r.start && link.start < r.end);
             if overlaps && !urls.iter().any(|u: &String| u == &link.url) {
                 urls.push(link.url.clone());
             }
@@ -2119,8 +2114,7 @@ impl App {
             .unwrap_or(1);
         let rows_before: u16 = heights
             .get(self.scroll_offset..self.selection_state.anchor.node_idx)
-            .map(|s| s.iter().copied().sum())
-            .unwrap_or(0);
+            .map_or(0, |s| s.iter().copied().sum());
 
         // Cursor is fully visible — nothing to do.
         if rows_before + cursor_height <= inner_height {
