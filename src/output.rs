@@ -89,7 +89,7 @@ pub(crate) struct ReactionOutput {
     pub sentence_text: String,
 }
 
-pub fn clean_context(value: &str, max_chars: usize) -> String {
+pub(crate) fn clean_context(value: &str, max_chars: usize) -> String {
     if max_chars == 0 {
         return String::new();
     }
