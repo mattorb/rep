@@ -134,6 +134,9 @@ mod tests {
 
     #[test]
     fn newlines_collapse_to_single_spaces() {
-        assert_eq!(clean_context("line one\nline two", 100), "line one line two");
+        assert_eq!(
+            clean_context("line one\nline two", 100),
+            "line one line two"
+        );
     }
 }
