@@ -71,15 +71,6 @@ pub fn highlight_for(anchor: SelectionAnchor, index: &SelectionIndex) -> Highlig
     }
 }
 
-/// Annotation emit view: `(source_line_number, target_text)` per the pinned
-/// per-unit emit rules. `source_line_number` is 0-based; the caller adds 1
-/// for `WHERE: line N`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EmitView {
-    pub source_line: usize,
-    pub target_text: String,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
