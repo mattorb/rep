@@ -73,7 +73,14 @@ impl SelectionIndex {
                     DocNode::Paragraph { .. } => {
                         crate::selection::segment::segment_sentences(&plain)
                     }
-                    DocNode::Heading { .. } | DocNode::ListItem { .. } => vec![0..plain.len()],
+                    DocNode::Heading { .. } | DocNode::ListItem { .. } => {
+                        // Single full-range anchor; clippy::single_range_in_vec_init
+                        // would suggest std::iter::once but the call site wants
+                        // an owned Vec<Range<usize>>.
+                        #[allow(clippy::single_range_in_vec_init)]
+                        let v = vec![0..plain.len()];
+                        v
+                    }
                     DocNode::CodeBlock { .. } | DocNode::ThematicBreak { .. } => Vec::new(),
                 }
             };
@@ -140,7 +147,10 @@ pub(crate) fn node_selection_plain_text(node: &DocNode, source_lines: &[String])
     match node {
         DocNode::Heading { text, .. } => text.clone(),
         DocNode::Paragraph { text, .. } => text.clone(),
-        DocNode::ListItem { source_lines: range, .. } => {
+        DocNode::ListItem {
+            source_lines: range,
+            ..
+        } => {
             // Reuse the join logic that `app.rs::join_node_source_lines` performs:
             // strip the leading bullet/number marker and task marker on the first
             // line, then space-join with subsequent lines. We re-implement here so
@@ -148,11 +158,7 @@ pub(crate) fn node_selection_plain_text(node: &DocNode, source_lines: &[String])
             let slice = source_lines
                 .get(range.start..range.end.min(source_lines.len()))
                 .unwrap_or(&[]);
-            let joined = slice
-                .iter()
-                .map(|s| s.trim())
-                .collect::<Vec<_>>()
-                .join(" ");
+            let joined = slice.iter().map(|s| s.trim()).collect::<Vec<_>>().join(" ");
             strip_list_marker(&joined)
         }
         DocNode::CodeBlock {
@@ -204,7 +210,11 @@ fn strip_ordered_marker(s: &str) -> Option<&str> {
     if i == 0 {
         return None;
     }
-    if i < bytes.len() && (bytes[i] == b'.' || bytes[i] == b')') && i + 1 < bytes.len() && bytes[i + 1] == b' ' {
+    if i < bytes.len()
+        && (bytes[i] == b'.' || bytes[i] == b')')
+        && i + 1 < bytes.len()
+        && bytes[i + 1] == b' '
+    {
         Some(&s[i + 2..])
     } else {
         None
@@ -218,7 +228,10 @@ fn node_source_line_ranges(
 ) -> Vec<(usize, Range<usize>)> {
     match node {
         DocNode::Heading { source_line, .. } => vec![(*source_line, 0..plain.len())],
-        DocNode::Paragraph { source_lines: range, .. } => {
+        DocNode::Paragraph {
+            source_lines: range,
+            ..
+        } => {
             // Phase-1 simplification: one (line, full-range) entry per source line. The
             // exact per-line slice mapping into selection plain text isn't needed for
             // the operations phase 0 / phase 1 perform; line-unit selection ships in

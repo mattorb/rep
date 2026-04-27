@@ -215,7 +215,12 @@ fn collect_nodes(
                         .iter()
                         .filter_map(|c| {
                             if let mdast::Node::TableCell(_) = c {
-                                Some(extract_plain_text(c).split_whitespace().collect::<Vec<_>>().join(" "))
+                                Some(
+                                    extract_plain_text(c)
+                                        .split_whitespace()
+                                        .collect::<Vec<_>>()
+                                        .join(" "),
+                                )
                             } else {
                                 None
                             }

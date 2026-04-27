@@ -1,6 +1,3 @@
-#[cfg(test)]
-use std::ops::Range;
-
 use pulldown_cmark::{
     CodeBlockKind, Event as MdEvent, HeadingLevel, Options as MdOptions, Parser as MdParser,
     Tag as MdTag, TagEnd,
@@ -71,7 +68,6 @@ pub fn render_markdown_line(line: &str) -> RenderedMarkdownLine {
         rendered
     }
 }
-
 
 #[cfg(test)]
 pub fn is_section_heading(line: &str) -> bool {

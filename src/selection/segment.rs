@@ -202,10 +202,7 @@ mod tests {
     }
 
     fn words_of(s: &str) -> Vec<&str> {
-        segment_words(s)
-            .into_iter()
-            .map(|r| &s[r])
-            .collect()
+        segment_words(s).into_iter().map(|r| &s[r]).collect()
     }
 
     #[test]
@@ -215,7 +212,10 @@ mod tests {
 
     #[test]
     fn word_contractions_keep_apostrophe() {
-        assert_eq!(words_of("don't won't can't"), vec!["don't", "won't", "can't"]);
+        assert_eq!(
+            words_of("don't won't can't"),
+            vec!["don't", "won't", "can't"]
+        );
     }
 
     #[test]
@@ -243,7 +243,10 @@ mod tests {
 
     #[test]
     fn word_em_dash_and_ellipsis_boundary() {
-        assert_eq!(words_of("foo—bar baz…qux"), vec!["foo", "bar", "baz", "qux"]);
+        assert_eq!(
+            words_of("foo—bar baz…qux"),
+            vec!["foo", "bar", "baz", "qux"]
+        );
     }
 
     #[test]
@@ -256,6 +259,9 @@ mod tests {
 
     #[test]
     fn word_unicode_alphabetic() {
-        assert_eq!(words_of("café naïve 日本語"), vec!["café", "naïve", "日本語"]);
+        assert_eq!(
+            words_of("café naïve 日本語"),
+            vec!["café", "naïve", "日本語"]
+        );
     }
 }

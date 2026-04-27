@@ -110,10 +110,7 @@ pub fn clamp(
         .and_then(|prev| {
             // Find the LAST (n, _) entry for this node, i.e. its highest unit_idx.
             let target_node = prev.0;
-            table
-                .iter()
-                .filter(|&&(nn, _)| nn == target_node)
-                .last()
+            table.iter().rfind(|&&(nn, _)| nn == target_node)
         })
     {
         return SelectionAnchor::new(n, target, u);

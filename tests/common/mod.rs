@@ -135,11 +135,7 @@ pub fn discover_transcripts(root: &Path) -> Vec<TranscriptFixture> {
         let keys = path.join("keys.txt");
         if input.exists() && keys.exists() {
             out.push(TranscriptFixture {
-                name: path
-                    .file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .into_owned(),
+                name: path.file_name().unwrap().to_string_lossy().into_owned(),
                 dir: path,
             });
         }

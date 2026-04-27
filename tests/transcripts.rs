@@ -11,7 +11,7 @@
 mod common;
 
 use common::{
-    assert_golden, discover_transcripts, parse_keys, replay, transcripts_root, TranscriptFixture,
+    TranscriptFixture, assert_golden, discover_transcripts, parse_keys, replay, transcripts_root,
 };
 
 #[test]
@@ -37,8 +37,8 @@ fn all_transcripts() {
 }
 
 fn run_one(fixture: &TranscriptFixture) -> Result<(), String> {
-    let keys_body = std::fs::read_to_string(fixture.keys_path())
-        .map_err(|e| format!("read keys.txt: {e}"))?;
+    let keys_body =
+        std::fs::read_to_string(fixture.keys_path()).map_err(|e| format!("read keys.txt: {e}"))?;
     let keys = parse_keys(&keys_body);
     let (emit, anchor) = replay(&fixture.input_path(), &keys);
     assert_golden(&emit, &fixture.emit_golden());
