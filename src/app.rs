@@ -447,7 +447,7 @@ impl App {
 
     /// Returns the current selection in the canonical
     /// `(node_idx, unit, unit_idx)` shape, used by the transcript harness.
-    pub fn current_anchor(&self) -> (usize, &'static str, usize) {
+    pub const fn current_anchor(&self) -> (usize, &'static str, usize) {
         let a = &self.selection_state.anchor;
         (a.node_idx, a.unit.as_str(), a.unit_idx)
     }
@@ -1006,7 +1006,7 @@ impl App {
     }
 
     /// Stable string for the mode indicator in the left zone of the footer.
-    fn mode_indicator(&self) -> &'static str {
+    const fn mode_indicator(&self) -> &'static str {
         self.selection_state.anchor.unit.mode_str()
     }
 
