@@ -1,7 +1,7 @@
 FILE: <INPUT>
 
 ACTION: change
-WHERE: line 1, sentence 1
+WHERE: line 1
 CONTEXT:
   target: "This is a paragraph that wraps across three source lines and keeps right on going."
   next: "across three source lines and"

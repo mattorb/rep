@@ -206,10 +206,22 @@ mod tests {
     }
 
     #[test]
-    fn clamp_to_unavailable_unit_is_noop() {
+    fn clamp_to_word_lands_on_first_word() {
         let (_doc, idx, _lines) = build("Plain prose.");
         let a = SelectionAnchor::new(0, SelectionUnit::Sentence, 0);
         let b = clamp(&idx, a, SelectionUnit::Word);
+        assert_eq!(b.unit, SelectionUnit::Word);
+        assert_eq!(b.unit_idx, 0);
+    }
+
+    #[test]
+    fn clamp_to_unavailable_unit_is_noop() {
+        // Code-only document: no sentence anchors and no word anchors
+        // (sentence-level skip rule). clamp(Section -> Sentence) finds no
+        // entries and returns the original anchor.
+        let (_doc, idx, _lines) = build("```\nfn x() {}\n```");
+        let a = SelectionAnchor::new(0, SelectionUnit::Section, 0);
+        let b = clamp(&idx, a, SelectionUnit::Sentence);
         assert_eq!(a, b);
     }
 }

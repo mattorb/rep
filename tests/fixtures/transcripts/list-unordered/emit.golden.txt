@@ -1,7 +1,7 @@
 FILE: <INPUT>
 
 ACTION: change
-WHERE: line 2, sentence 1
+WHERE: line 2
 CONTEXT:
   prev: "- First item"
   target: "• Second item"

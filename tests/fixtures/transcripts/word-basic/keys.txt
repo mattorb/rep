@@ -1,0 +1,9 @@
+# cycle forward into Word mode (Sentence -> Word) and walk three words.
+Space
+j
+j
+j
+c
+X
+Enter
+q

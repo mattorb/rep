@@ -1,7 +1,7 @@
 FILE: <INPUT>
 
 ACTION: change
-WHERE: line 8, sentence 1
+WHERE: line 8
 CONTEXT:
   target: "After HTML."
 CHANGE: "H"

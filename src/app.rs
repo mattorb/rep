@@ -1134,8 +1134,18 @@ impl App {
     fn current_target_capture(&self) -> Option<(usize, String)> {
         match self.selection_state.anchor.unit {
             SelectionUnit::Line => self.current_line_capture(),
+            SelectionUnit::Word => self.current_word_capture(),
             _ => self.current_sentence_context(),
         }
+    }
+
+    fn current_word_capture(&self) -> Option<(usize, String)> {
+        let node_idx = self.selection_state.anchor.node_idx;
+        let unit_idx = self.selection_state.anchor.unit_idx;
+        let node = self.index.nodes.get(node_idx)?;
+        let range = node.word_ranges.get(unit_idx)?;
+        let text = node.selection_plain_text.get(range.clone())?.to_string();
+        Some((unit_idx, text))
     }
 
     fn current_line_capture(&self) -> Option<(usize, String)> {
@@ -2513,11 +2523,7 @@ impl App {
                         .unwrap_or_else(|| line_clean.clone());
                     out.push('\n');
                     out.push_str("ACTION: delete this\n");
-                    out.push_str(&format!(
-                        "WHERE: line {}, sentence {}\n",
-                        source_line + 1,
-                        sentence_idx + 1
-                    ));
+                    out.push_str(&format!("WHERE: line {}\n", source_line + 1));
                     out.push_str("CONTEXT:\n");
                     if !prev_clean.is_empty() {
                         out.push_str(&format!("  prev: \"{prev_clean}\"\n"));
@@ -2549,11 +2555,11 @@ impl App {
     }
 
     /// Returns `(where_line: usize, sentence_suffix: String)` for an
-    /// annotation. For Sentence-unit annotations, `sentence_suffix` carries
-    /// the legacy `, sentence M` suffix; phase 5 strips it. For Line-unit
-    /// annotations, the where-line is the specific source line and the
-    /// suffix is empty. Other units fall through to sentence semantics for
-    /// now.
+    /// annotation. The phase-5 schema strips the legacy `, sentence M`
+    /// suffix from every unit, so the suffix is now always empty. The
+    /// where-line is the specific source line for Line- and Word-unit
+    /// annotations, and the node's first line for Sentence / Paragraph /
+    /// Section.
     fn where_for_annotation(
         &self,
         target_unit: SelectionUnit,
@@ -2572,19 +2578,32 @@ impl App {
                     .unwrap_or(node_first_line);
                 (where_line, String::new())
             }
-            SelectionUnit::Sentence => {
-                let suffix = sentence_index
-                    .map(|i| format!(", sentence {}", i + 1))
-                    .unwrap_or_default();
-                (node_first_line, suffix)
+            SelectionUnit::Word => {
+                // Word emits at the source line where the word's bytes begin.
+                let unit_idx = sentence_index.unwrap_or(0);
+                let where_line = self
+                    .word_source_line(node_idx, unit_idx)
+                    .unwrap_or(node_first_line);
+                (where_line, String::new())
             }
-            _ => {
-                let suffix = sentence_index
-                    .map(|i| format!(", sentence {}", i + 1))
-                    .unwrap_or_default();
-                (node_first_line, suffix)
+            SelectionUnit::Sentence
+            | SelectionUnit::Paragraph
+            | SelectionUnit::Section => (node_first_line, String::new()),
+        }
+    }
+
+    /// Source line where a word's bytes begin within its node's selection
+    /// plain text. Maps via the index's `source_line_ranges` table.
+    fn word_source_line(&self, node_idx: usize, word_idx: usize) -> Option<usize> {
+        let node = self.index.nodes.get(node_idx)?;
+        let word_range = node.word_ranges.get(word_idx)?;
+        for (line, range) in &node.source_line_ranges {
+            if range.contains(&word_range.start) {
+                return Some(*line);
             }
         }
+        // Fallback: first source line of the node's first line range.
+        node.source_line_ranges.first().map(|(l, _)| *l)
     }
 
     fn context_lines(&self, source_line: usize) -> (String, String) {
@@ -3238,26 +3257,29 @@ mod tests {
         app.strikes.entry(0).or_default().insert(0);
         let out = app.to_human_output();
         assert!(out.contains("ACTION: delete this"), "{out}");
-        assert!(out.contains("WHERE: line 1, sentence 1"), "{out}");
+        assert!(out.contains("WHERE: line 1\n"), "{out}");
         assert!(out.contains("\"Strike this.\""), "{out}");
+        assert!(
+            !out.contains(", sentence "),
+            "phase-5 emit must not carry a `, sentence M` suffix: {out}"
+        );
     }
 
     #[test]
-    fn human_output_sentence_index_in_where_is_one_based() {
-        // sentence_index stored 0-based; WHERE must show 1-based for consumers
+    fn human_output_phase5_strips_sentence_suffix() {
         let mut app = test_app("First. Second. Third.\n");
         app.changes.entry(0).or_default().push(ChangeAnnotation {
             created_at: "2026-01-01T00:00:00Z".into(),
             target_unit: SelectionUnit::Sentence,
-            sentence_index: Some(2), // 0-based: third sentence
+            sentence_index: Some(2),
             sentence_text: Some("Third.".into()),
             change: "Fix third".into(),
         });
         let out = app.to_human_output();
-        assert!(out.contains("sentence 3"), "should be 1-based: {out}");
+        assert!(out.contains("WHERE: line 1\n"), "{out}");
         assert!(
-            !out.contains("sentence 2"),
-            "should not show 0-based offset: {out}"
+            !out.contains(", sentence "),
+            "phase-5 emit must not carry a `, sentence M` suffix: {out}"
         );
     }
 

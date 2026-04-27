@@ -87,9 +87,76 @@ fn push_trimmed_range(ranges: &mut Vec<Range<usize>>, plain: &str, start: usize,
     ranges.push((start + leading)..(end - trailing));
 }
 
-/// Word byte ranges within selection plain text. Phase 5 lands this.
-pub fn segment_words(_plain: &str) -> Vec<Range<usize>> {
-    Vec::new()
+/// Word byte ranges within selection plain text per the pinned
+/// word-boundary rules.
+///
+/// - Word chars = `\p{Alphabetic}` ∪ ASCII digits. Underscore is NOT a word
+///   character.
+/// - Internal punctuation that preserves a word: `.` `'` `-` between two
+///   word chars; `,` between two digits.
+/// - Em-dash (`—`), en-dash (`–`), ellipsis (`…`) are always boundaries.
+/// - Leading and trailing punctuation at a word boundary is stripped.
+/// - Numbers with internal punctuation are one word: `3.14`, `1,000`,
+///   `2026-04-24`.
+pub fn segment_words(plain: &str) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
+    let chars: Vec<(usize, char)> = plain.char_indices().collect();
+    let n = chars.len();
+    let mut i = 0;
+    while i < n {
+        if !is_word_char(chars[i].1) {
+            i += 1;
+            continue;
+        }
+        let start_byte = chars[i].0;
+        let mut end_byte = chars[i].0 + chars[i].1.len_utf8();
+        let mut j = i + 1;
+        while j < n {
+            let ch = chars[j].1;
+            if is_word_char(ch) {
+                end_byte = chars[j].0 + ch.len_utf8();
+                j += 1;
+                continue;
+            }
+            // Internal punctuation: keep going if next char is also a word
+            // char per the per-punct rules.
+            let prev = chars[j - 1].1;
+            let next = chars.get(j + 1).map(|(_, c)| *c);
+            if let Some(nc) = next {
+                if is_internal_continuation(prev, ch, nc) {
+                    j += 1;
+                    continue;
+                }
+            }
+            break;
+        }
+        ranges.push(start_byte..end_byte);
+        i = j;
+    }
+    ranges
+}
+
+fn is_word_char(ch: char) -> bool {
+    if ch == '_' {
+        return false;
+    }
+    ch.is_alphabetic() || ch.is_ascii_digit()
+}
+
+fn is_internal_continuation(prev: char, sep: char, next: char) -> bool {
+    if !is_word_char(prev) || !is_word_char(next) {
+        return false;
+    }
+    match sep {
+        '.' => true,
+        '\'' => true,
+        '-' => {
+            (prev.is_alphabetic() && next.is_alphabetic())
+                || (prev.is_ascii_digit() && next.is_ascii_digit())
+        }
+        ',' => prev.is_ascii_digit() && next.is_ascii_digit(),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -132,5 +199,63 @@ mod tests {
         for w in r.windows(2) {
             assert!(w[0].end <= w[1].start, "overlap: {:?}", w);
         }
+    }
+
+    fn words_of(s: &str) -> Vec<&str> {
+        segment_words(s)
+            .into_iter()
+            .map(|r| &s[r])
+            .collect()
+    }
+
+    #[test]
+    fn word_basic_punct() {
+        assert_eq!(words_of("word, word."), vec!["word", "word"]);
+    }
+
+    #[test]
+    fn word_contractions_keep_apostrophe() {
+        assert_eq!(words_of("don't won't can't"), vec!["don't", "won't", "can't"]);
+    }
+
+    #[test]
+    fn word_leading_and_trailing_apostrophe_stripped() {
+        assert_eq!(words_of("'tis users'"), vec!["tis", "users"]);
+    }
+
+    #[test]
+    fn word_hyphenated_compound_is_one_word() {
+        assert_eq!(
+            words_of("state-of-the-art word-level"),
+            vec!["state-of-the-art", "word-level"]
+        );
+    }
+
+    #[test]
+    fn word_underscore_is_a_boundary() {
+        assert_eq!(words_of("foo_bar"), vec!["foo", "bar"]);
+    }
+
+    #[test]
+    fn word_internal_periods_kept() {
+        assert_eq!(words_of("U.S.A and e.g."), vec!["U.S.A", "and", "e.g"]);
+    }
+
+    #[test]
+    fn word_em_dash_and_ellipsis_boundary() {
+        assert_eq!(words_of("foo—bar baz…qux"), vec!["foo", "bar", "baz", "qux"]);
+    }
+
+    #[test]
+    fn word_numbers_with_internal_punct() {
+        assert_eq!(
+            words_of("3.14 1,000 2026-04-24"),
+            vec!["3.14", "1,000", "2026-04-24"]
+        );
+    }
+
+    #[test]
+    fn word_unicode_alphabetic() {
+        assert_eq!(words_of("café naïve 日本語"), vec!["café", "naïve", "日本語"]);
     }
 }

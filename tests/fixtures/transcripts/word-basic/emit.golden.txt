@@ -3,5 +3,5 @@ FILE: <INPUT>
 ACTION: change
 WHERE: line 1
 CONTEXT:
-  target: "Visit the home page or https://autolink.example."
+  target: "fox"
 CHANGE: "X"

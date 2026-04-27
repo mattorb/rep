@@ -52,6 +52,7 @@ impl SelectionIndex {
         let mut paragraphs: Vec<(usize, usize)> = Vec::new();
         let mut lines: Vec<(usize, usize)> = Vec::new();
         let mut sentences: Vec<(usize, usize)> = Vec::new();
+        let mut words: Vec<(usize, usize)> = Vec::new();
 
         for (node_idx, node) in doc.nodes.iter().enumerate() {
             let plain = node_selection_plain_text(node, source_lines);
@@ -77,6 +78,17 @@ impl SelectionIndex {
                 }
             };
 
+            // Word ranges per modular_plan: code blocks excluded from
+            // sentence-level navigation but allowed at word level (their
+            // selection plain text already excludes fence lines, so words
+            // come from the content lines). ListItem and Heading: words
+            // segmented from selection plain text. Paragraph: same.
+            // ThematicBreak: empty.
+            let word_ranges: Vec<Range<usize>> = match node {
+                DocNode::ThematicBreak { .. } => Vec::new(),
+                _ => crate::selection::segment::segment_words(&plain),
+            };
+
             // Linear-order tables.
             if node_contributes_paragraph_anchor(node, &plain) {
                 paragraphs.push((node_idx, 0));
@@ -87,12 +99,15 @@ impl SelectionIndex {
             for si in 0..sentence_ranges.len() {
                 sentences.push((node_idx, si));
             }
+            for wi in 0..word_ranges.len() {
+                words.push((node_idx, wi));
+            }
 
             nodes.push(NodeIndex {
                 selection_plain_text: plain,
                 source_line_ranges,
                 sentence_ranges,
-                word_ranges: Vec::new(),
+                word_ranges,
             });
         }
 
@@ -110,7 +125,7 @@ impl SelectionIndex {
             paragraphs,
             lines,
             sentences,
-            words: Vec::new(),
+            words,
             sections,
         }
     }

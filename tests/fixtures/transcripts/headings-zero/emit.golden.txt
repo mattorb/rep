@@ -1,7 +1,7 @@
 FILE: <INPUT>
 
 ACTION: change
-WHERE: line 3, sentence 1
+WHERE: line 3
 CONTEXT:
   target: "Second paragraph."
 CHANGE: "B"
