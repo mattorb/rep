@@ -3750,6 +3750,28 @@ mod tests {
     }
 
     #[test]
+    fn arrow_keys_preserve_active_unit_in_word_mode() {
+        // Modular_plan §"Key bindings": arrows are unit-agnostic synonyms
+        // for j / k. Cycling into Word mode and pressing Right / Left
+        // walks word anchors but keeps the unit at Word.
+        let mut app = test_app("alpha beta gamma delta epsilon\n");
+        app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+        let start = app.selection_state.anchor.unit_idx;
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert_eq!(
+            app.selection_state.anchor.unit,
+            SelectionUnit::Word,
+            "Right must not change unit"
+        );
+        assert_eq!(app.selection_state.anchor.unit_idx, start + 2);
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+        assert_eq!(app.selection_state.anchor.unit_idx, start + 1);
+    }
+
+    #[test]
     fn change_status_reports_per_unit_source_line() {
         // Multi-line paragraph; cursor on sentence 1 (second sentence).
         // Status after `c X Enter` should mention line 2, not line 1.
