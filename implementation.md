@@ -466,5 +466,5 @@ Items most likely to bite during implementation. Each has a mitigation already i
 ## Working notes (delete before merging)
 
 - Line numbers cited above are accurate as of the survey snapshot. Re-grep before editing.
-- The `selection::projection` module is mentioned in `modular_plan.md` Section 5 but has no dedicated implementation phase here. Phase 3a or phase 4 should claim it; the choice is a contributor judgment call. Update this doc when decided.
+- `selection::projection` was carved out as part of phase 7's follow-up commits, alongside the per-unit `unit_highlight_for` work in `app.rs`. The module exposes `Highlight::Range(node, byte_range)` for Word / Sentence / Line / Paragraph and `Highlight::Section(Vec<node_idx>)` for Section. The renderer keeps its own per-unit highlight resolution (operates on display plain text, the index operates on selection plain text, and the two views diverge for nodes with markers); routing the renderer through projection is left for a future iteration that unifies the two text views.
 - `tests/cli.rs` has 9 tests covering CLI flag parsing — none of them exercise selection. They stay green throughout the refactor with no changes.
