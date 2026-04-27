@@ -1,0 +1,8 @@
+# cycle backward into Line mode and change the third source line
+Backspace
+j
+j
+c
+X
+Enter
+q

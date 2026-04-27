@@ -1,0 +1,7 @@
+# Line unit on a multi-paragraph list item: target: emits full item text,
+# markers stripped, lines space-joined.
+Backspace
+c
+X
+Enter
+q

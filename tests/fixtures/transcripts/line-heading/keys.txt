@@ -1,0 +1,6 @@
+# Line unit on a heading: target: is the source line verbatim, including `#`.
+Backspace
+c
+X
+Enter
+q

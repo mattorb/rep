@@ -44,6 +44,10 @@ pub enum InputMode {
 struct ChangeAnnotation {
     #[allow(dead_code)]
     created_at: String,
+    /// Selection unit at the moment of capture (Sentence / Line / Paragraph
+    /// / Section / Word). Drives WHERE: format and target: source per
+    /// modular_plan §"target".
+    target_unit: SelectionUnit,
     sentence_index: Option<usize>,
     sentence_text: Option<String>,
     change: String,
@@ -53,6 +57,7 @@ struct ChangeAnnotation {
 struct FeedbackAnnotation {
     #[allow(dead_code)]
     created_at: String,
+    target_unit: SelectionUnit,
     sentence_index: Option<usize>,
     sentence_text: Option<String>,
     feedback: String,
@@ -68,6 +73,7 @@ enum EditableAnnotation {
 struct InsertAnnotation {
     #[allow(dead_code)]
     created_at: String,
+    target_unit: SelectionUnit,
     sentence_index: Option<usize>,
     sentence_text: Option<String>,
     text: String,
@@ -551,13 +557,14 @@ impl App {
                     self.status = "Change ignored because it was empty.".to_string();
                 } else {
                     let (sentence_index, sentence_text) =
-                        if let Some((idx, text)) = self.current_sentence_context() {
+                        if let Some((idx, text)) = self.current_target_capture() {
                             (Some(idx), Some(text))
                         } else {
                             (None, None)
                         };
                     let annotation = ChangeAnnotation {
                         created_at: Utc::now().to_rfc3339(),
+                        target_unit: self.selection_state.anchor.unit,
                         sentence_index,
                         sentence_text,
                         change: trimmed,
@@ -602,13 +609,14 @@ impl App {
                     self.status = "Insert ignored because it was empty.".to_string();
                 } else {
                     let (sentence_index, sentence_text) =
-                        if let Some((idx, text)) = self.current_sentence_context() {
+                        if let Some((idx, text)) = self.current_target_capture() {
                             (Some(idx), Some(text))
                         } else {
                             (None, None)
                         };
                     let annotation = InsertAnnotation {
                         created_at: Utc::now().to_rfc3339(),
+                        target_unit: self.selection_state.anchor.unit,
                         sentence_index,
                         sentence_text,
                         text: trimmed,
@@ -772,13 +780,14 @@ impl App {
                     self.status = "Feedback ignored because it was empty.".to_string();
                 } else {
                     let (sentence_index, sentence_text) =
-                        if let Some((idx, text)) = self.current_sentence_context() {
+                        if let Some((idx, text)) = self.current_target_capture() {
                             (Some(idx), Some(text))
                         } else {
                             (None, None)
                         };
                     let annotation = FeedbackAnnotation {
                         created_at: Utc::now().to_rfc3339(),
+                        target_unit: self.selection_state.anchor.unit,
                         sentence_index,
                         sentence_text,
                         feedback: trimmed,
@@ -1110,6 +1119,52 @@ impl App {
         let range = rn.sentence_ranges.get(self.selection_state.anchor.unit_idx)?;
         let text = rn.plain.get(range.clone())?.trim().to_string();
         Some((self.selection_state.anchor.unit_idx, text))
+    }
+
+    /// Capture the (unit_idx, target_text) snapshot used when storing an
+    /// annotation. Routing by `selection_state.anchor.unit`. For phase 4:
+    ///   - Sentence: legacy current_sentence_context (rendered display
+    ///     plain text slice for the current sentence).
+    ///   - Line: per-unit text — for ListItem the full item text
+    ///     (markers stripped, soft-wrapped lines space-joined); for any
+    ///     other node the source line verbatim.
+    ///   - Paragraph / Section / Word: fall through to the sentence
+    ///     capture today; phase 5 adds Word; full Paragraph / Section
+    ///     emit lands later.
+    fn current_target_capture(&self) -> Option<(usize, String)> {
+        match self.selection_state.anchor.unit {
+            SelectionUnit::Line => self.current_line_capture(),
+            _ => self.current_sentence_context(),
+        }
+    }
+
+    fn current_line_capture(&self) -> Option<(usize, String)> {
+        let node_idx = self.selection_state.anchor.node_idx;
+        let unit_idx = self.selection_state.anchor.unit_idx;
+        match self.doc.nodes.get(node_idx)? {
+            DocNode::ListItem { .. } => {
+                // ListItem at line unit: full item text, markers already
+                // stripped by the index's selection_plain_text.
+                let plain = self
+                    .index
+                    .nodes
+                    .get(node_idx)
+                    .map(|n| n.selection_plain_text.clone())?;
+                Some((unit_idx, plain))
+            }
+            _ => {
+                // Non-ListItem: source line verbatim.
+                let (line, _) = self
+                    .index
+                    .nodes
+                    .get(node_idx)?
+                    .source_line_ranges
+                    .get(unit_idx)?
+                    .clone();
+                let line_text = self.source_lines.get(line)?.clone();
+                Some((unit_idx, line_text))
+            }
+        }
     }
 
     // ── Annotations ───────────────────────────────────────────────────────────
@@ -2334,28 +2389,33 @@ impl App {
 
             if let Some(changes) = self.changes.get(&node_idx) {
                 for change in changes {
+                    let (where_line, sentence_suffix) = self.where_for_annotation(
+                        change.target_unit,
+                        node_idx,
+                        change.sentence_index,
+                        source_line,
+                    );
                     let target = change
                         .sentence_text
                         .as_deref()
                         .map(|s| clean_context(s, 180))
                         .unwrap_or_else(|| line_clean.clone());
+                    let (prev_clean_line, next_clean_line) =
+                        self.context_lines(where_line);
                     out.push('\n');
                     out.push_str("ACTION: change\n");
                     out.push_str(&format!(
                         "WHERE: line {}{}\n",
-                        source_line + 1,
-                        change
-                            .sentence_index
-                            .map(|i| format!(", sentence {}", i + 1))
-                            .unwrap_or_default()
+                        where_line + 1,
+                        sentence_suffix
                     ));
                     out.push_str("CONTEXT:\n");
-                    if !prev_clean.is_empty() {
-                        out.push_str(&format!("  prev: \"{prev_clean}\"\n"));
+                    if !prev_clean_line.is_empty() {
+                        out.push_str(&format!("  prev: \"{prev_clean_line}\"\n"));
                     }
                     out.push_str(&format!("  target: \"{target}\"\n"));
-                    if !next_clean.is_empty() {
-                        out.push_str(&format!("  next: \"{next_clean}\"\n"));
+                    if !next_clean_line.is_empty() {
+                        out.push_str(&format!("  next: \"{next_clean_line}\"\n"));
                     }
                     out.push_str(&format!(
                         "CHANGE: \"{}\"\n",
@@ -2366,28 +2426,33 @@ impl App {
 
             if let Some(feedbacks) = self.feedbacks.get(&node_idx) {
                 for feedback in feedbacks {
+                    let (where_line, sentence_suffix) = self.where_for_annotation(
+                        feedback.target_unit,
+                        node_idx,
+                        feedback.sentence_index,
+                        source_line,
+                    );
                     let target = feedback
                         .sentence_text
                         .as_deref()
                         .map(|s| clean_context(s, 180))
                         .unwrap_or_else(|| line_clean.clone());
+                    let (prev_clean_line, next_clean_line) =
+                        self.context_lines(where_line);
                     out.push('\n');
                     out.push_str("ACTION: revise-to-incorporate-feedback\n");
                     out.push_str(&format!(
                         "WHERE: line {}{}\n",
-                        source_line + 1,
-                        feedback
-                            .sentence_index
-                            .map(|i| format!(", sentence {}", i + 1))
-                            .unwrap_or_default()
+                        where_line + 1,
+                        sentence_suffix
                     ));
                     out.push_str("CONTEXT:\n");
-                    if !prev_clean.is_empty() {
-                        out.push_str(&format!("  prev: \"{prev_clean}\"\n"));
+                    if !prev_clean_line.is_empty() {
+                        out.push_str(&format!("  prev: \"{prev_clean_line}\"\n"));
                     }
                     out.push_str(&format!("  target: \"{target}\"\n"));
-                    if !next_clean.is_empty() {
-                        out.push_str(&format!("  next: \"{next_clean}\"\n"));
+                    if !next_clean_line.is_empty() {
+                        out.push_str(&format!("  next: \"{next_clean_line}\"\n"));
                     }
                     out.push_str(&format!(
                         "FEEDBACK: \"{}\"\n",
@@ -2402,28 +2467,33 @@ impl App {
             ] {
                 let Some(inserts) = bucket else { continue };
                 for insert in inserts {
+                    let (where_line, sentence_suffix) = self.where_for_annotation(
+                        insert.target_unit,
+                        node_idx,
+                        insert.sentence_index,
+                        source_line,
+                    );
                     let target = insert
                         .sentence_text
                         .as_deref()
                         .map(|s| clean_context(s, 180))
                         .unwrap_or_else(|| line_clean.clone());
+                    let (prev_clean_line, next_clean_line) =
+                        self.context_lines(where_line);
                     out.push('\n');
                     out.push_str(&format!("ACTION: {action}\n"));
                     out.push_str(&format!(
                         "WHERE: line {}{}\n",
-                        source_line + 1,
-                        insert
-                            .sentence_index
-                            .map(|i| format!(", sentence {}", i + 1))
-                            .unwrap_or_default()
+                        where_line + 1,
+                        sentence_suffix
                     ));
                     out.push_str("CONTEXT:\n");
-                    if !prev_clean.is_empty() {
-                        out.push_str(&format!("  prev: \"{prev_clean}\"\n"));
+                    if !prev_clean_line.is_empty() {
+                        out.push_str(&format!("  prev: \"{prev_clean_line}\"\n"));
                     }
                     out.push_str(&format!("  target: \"{target}\"\n"));
-                    if !next_clean.is_empty() {
-                        out.push_str(&format!("  next: \"{next_clean}\"\n"));
+                    if !next_clean_line.is_empty() {
+                        out.push_str(&format!("  next: \"{next_clean_line}\"\n"));
                     }
                     out.push_str(&format!(
                         "INSERT: \"{}\"\n",
@@ -2476,6 +2546,59 @@ impl App {
             .cloned()
             .unwrap_or_default();
         (source_line, line_text)
+    }
+
+    /// Returns `(where_line: usize, sentence_suffix: String)` for an
+    /// annotation. For Sentence-unit annotations, `sentence_suffix` carries
+    /// the legacy `, sentence M` suffix; phase 5 strips it. For Line-unit
+    /// annotations, the where-line is the specific source line and the
+    /// suffix is empty. Other units fall through to sentence semantics for
+    /// now.
+    fn where_for_annotation(
+        &self,
+        target_unit: SelectionUnit,
+        node_idx: usize,
+        sentence_index: Option<usize>,
+        node_first_line: usize,
+    ) -> (usize, String) {
+        match target_unit {
+            SelectionUnit::Line => {
+                let unit_idx = sentence_index.unwrap_or(0);
+                let where_line = self
+                    .index
+                    .nodes
+                    .get(node_idx)
+                    .and_then(|n| n.source_line_ranges.get(unit_idx).map(|p| p.0))
+                    .unwrap_or(node_first_line);
+                (where_line, String::new())
+            }
+            SelectionUnit::Sentence => {
+                let suffix = sentence_index
+                    .map(|i| format!(", sentence {}", i + 1))
+                    .unwrap_or_default();
+                (node_first_line, suffix)
+            }
+            _ => {
+                let suffix = sentence_index
+                    .map(|i| format!(", sentence {}", i + 1))
+                    .unwrap_or_default();
+                (node_first_line, suffix)
+            }
+        }
+    }
+
+    fn context_lines(&self, source_line: usize) -> (String, String) {
+        let prev = source_line
+            .checked_sub(1)
+            .and_then(|i| self.source_lines.get(i))
+            .map(String::as_str)
+            .unwrap_or("");
+        let next = self
+            .source_lines
+            .get(source_line + 1)
+            .map(String::as_str)
+            .unwrap_or("");
+        (clean_context(prev, 140), clean_context(next, 140))
     }
 }
 
@@ -2624,6 +2747,7 @@ mod tests {
     fn make_change(text: &str) -> ChangeAnnotation {
         ChangeAnnotation {
             created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Sentence,
             sentence_index: Some(0),
             sentence_text: None,
             change: text.into(),
@@ -2633,6 +2757,7 @@ mod tests {
     fn make_feedback(text: &str) -> FeedbackAnnotation {
         FeedbackAnnotation {
             created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Sentence,
             sentence_index: Some(0),
             sentence_text: None,
             feedback: text.into(),
@@ -2642,6 +2767,7 @@ mod tests {
     fn make_insert(text: &str) -> InsertAnnotation {
         InsertAnnotation {
             created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Sentence,
             sentence_index: Some(0),
             sentence_text: None,
             text: text.into(),
@@ -2866,6 +2992,7 @@ mod tests {
             .or_default()
             .push(InsertAnnotation {
                 created_at: "2026-01-01T00:00:00Z".into(),
+                target_unit: SelectionUnit::Sentence,
                 sentence_index: Some(0),
                 sentence_text: Some("A sentence here.".into()),
                 text: "Prologue line.".into(),
@@ -2884,6 +3011,7 @@ mod tests {
             .or_default()
             .push(InsertAnnotation {
                 created_at: "2026-01-01T00:00:00Z".into(),
+                target_unit: SelectionUnit::Sentence,
                 sentence_index: Some(0),
                 sentence_text: Some("A sentence here.".into()),
                 text: "Followup line.".into(),
@@ -3093,6 +3221,7 @@ mod tests {
         let mut app = test_app("Alpha. Beta.\n");
         app.changes.entry(0).or_default().push(ChangeAnnotation {
             created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Sentence,
             sentence_index: Some(0),
             sentence_text: Some("Alpha.".into()),
             change: "Rewrite alpha".into(),
@@ -3119,6 +3248,7 @@ mod tests {
         let mut app = test_app("First. Second. Third.\n");
         app.changes.entry(0).or_default().push(ChangeAnnotation {
             created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Sentence,
             sentence_index: Some(2), // 0-based: third sentence
             sentence_text: Some("Third.".into()),
             change: "Fix third".into(),
@@ -3144,6 +3274,7 @@ mod tests {
         let mut app = test_app("First. Second.\n");
         app.changes.entry(0).or_default().push(ChangeAnnotation {
             created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Sentence,
             sentence_index: Some(1), // 0-based: second sentence
             sentence_text: Some("Second.".into()),
             change: "Fix this".into(),

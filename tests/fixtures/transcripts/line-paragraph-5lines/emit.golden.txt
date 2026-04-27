@@ -1,0 +1,9 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 3
+CONTEXT:
+  prev: "spans five"
+  target: "distinct source"
+  next: "lines that all"
+CHANGE: "X"
