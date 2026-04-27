@@ -2640,18 +2640,13 @@ impl App {
                         .get(node_idx)
                         .and_then(|rn| rn.sentence_ranges.get(sentence_idx))
                         .cloned();
-                    let sentence_text = sentence_range
+                    let target = sentence_range
                         .as_ref()
                         .and_then(|r| self.rendered_nodes[node_idx].plain.get(r.clone()))
                         .map(|s| clean_context(s, EMIT_TARGET_MAX_CHARS))
                         .unwrap_or_else(|| line_clean.clone());
-                    // WHERE: line where the struck sentence's text begins.
-                    // Per modular_plan §"Annotation WHERE line number" —
-                    // for sentence selections inside a multi-source-line
-                    // node, emit the source line of the sentence's start,
-                    // not the node's first line. Computed by counting `\n`
-                    // characters in the rendered plain text before the
-                    // sentence range's start.
+                    // Strike's WHERE: line where the struck sentence's
+                    // text begins, not the node's first line.
                     let strike_line = sentence_range
                         .as_ref()
                         .and_then(|r| {
@@ -2659,18 +2654,8 @@ impl App {
                             Some(source_line + newlines_before_byte(&rn.plain, r.start))
                         })
                         .unwrap_or(source_line);
-                    let (prev_clean_line, next_clean_line) = self.context_lines(strike_line);
-                    out.push('\n');
-                    out.push_str("ACTION: delete this\n");
-                    out.push_str(&format!("WHERE: line {}\n", strike_line + 1));
-                    out.push_str("CONTEXT:\n");
-                    if !prev_clean_line.is_empty() {
-                        out.push_str(&format!("  prev: \"{prev_clean_line}\"\n"));
-                    }
-                    out.push_str(&format!("  target: \"{sentence_text}\"\n"));
-                    if !next_clean_line.is_empty() {
-                        out.push_str(&format!("  next: \"{next_clean_line}\"\n"));
-                    }
+                    Self::emit_action_header(&mut out, "delete this", strike_line, "");
+                    self.emit_context_block(&mut out, strike_line, &target);
                 }
             }
         }
@@ -2702,14 +2687,26 @@ impl App {
         let target = sentence_text
             .map(|s| clean_context(s, EMIT_TARGET_MAX_CHARS))
             .unwrap_or_else(|| line_clean.to_owned());
-        let (prev_clean_line, next_clean_line) = self.context_lines(where_line);
+        Self::emit_action_header(out, action, where_line, &sentence_suffix);
+        self.emit_context_block(out, where_line, &target);
+        out.push_str(&format!(
+            "{payload_key}: \"{}\"\n",
+            clean_context(payload_text, EMIT_PAYLOAD_MAX_CHARS)
+        ));
+    }
+
+    /// Write `\nACTION: <name>\nWHERE: line N<suffix>\n` — shared by
+    /// every emit shape (changes / feedbacks / inserts / strikes).
+    fn emit_action_header(out: &mut String, action: &str, where_line: usize, suffix: &str) {
         out.push('\n');
         out.push_str(&format!("ACTION: {action}\n"));
-        out.push_str(&format!(
-            "WHERE: line {}{}\n",
-            where_line + 1,
-            sentence_suffix
-        ));
+        out.push_str(&format!("WHERE: line {}{}\n", where_line + 1, suffix));
+    }
+
+    /// Write the CONTEXT block: `CONTEXT:\n  prev: "..." (if any)\n  target: "..."\n  next: "..." (if any)\n`.
+    /// Called by every emit shape that writes a CONTEXT section.
+    fn emit_context_block(&self, out: &mut String, where_line: usize, target: &str) {
+        let (prev_clean_line, next_clean_line) = self.context_lines(where_line);
         out.push_str("CONTEXT:\n");
         if !prev_clean_line.is_empty() {
             out.push_str(&format!("  prev: \"{prev_clean_line}\"\n"));
@@ -2718,10 +2715,6 @@ impl App {
         if !next_clean_line.is_empty() {
             out.push_str(&format!("  next: \"{next_clean_line}\"\n"));
         }
-        out.push_str(&format!(
-            "{payload_key}: \"{}\"\n",
-            clean_context(payload_text, EMIT_PAYLOAD_MAX_CHARS)
-        ));
     }
 
     fn node_line_context(&self, node_idx: usize) -> (usize, String) {
