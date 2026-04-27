@@ -1165,7 +1165,11 @@ impl App {
             .nodes
             .get(node_idx)
             .map(|n| n.selection_plain_text.clone())?;
-        Some((0, plain))
+        // Per modular_plan §"target": Paragraph emit is single-line. The
+        // index stores tables and other multi-line paragraph plain text
+        // joined by `\n` for line-unit navigation; the emit collapses that
+        // back to single space.
+        Some((0, plain.replace('\n', " ")))
     }
 
     fn current_section_capture(&self) -> Option<(usize, String)> {

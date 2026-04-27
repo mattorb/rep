@@ -1,0 +1,7 @@
+# Paragraph-mode change on a table: rows collapse to space-joined plain text.
+Backspace
+Backspace
+c
+T
+Enter
+q
