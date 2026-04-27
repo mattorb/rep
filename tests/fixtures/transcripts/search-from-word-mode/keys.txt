@@ -1,0 +1,14 @@
+# Cycle to Word mode, run /target — search must reset anchor to Sentence.
+Space
+/
+t
+a
+r
+g
+e
+t
+Enter
+c
+X
+Enter
+q

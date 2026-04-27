@@ -1,0 +1,7 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 3
+CONTEXT:
+  target: "Beta paragraph with target here."
+CHANGE: "X"
