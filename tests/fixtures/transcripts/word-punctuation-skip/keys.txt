@@ -1,0 +1,8 @@
+# Word-next at end of sentence A skips the period; lands on first word of B.
+Space
+j
+j
+c
+X
+Enter
+q

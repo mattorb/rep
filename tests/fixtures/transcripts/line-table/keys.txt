@@ -1,0 +1,8 @@
+# Line nav over a GFM table: rows visited in order, header-separator
+# already excluded by phase-0.5 parser.
+Backspace
+j
+c
+X
+Enter
+q

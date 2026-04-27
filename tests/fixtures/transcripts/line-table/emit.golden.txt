@@ -1,0 +1,9 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 3
+CONTEXT:
+  prev: "| ----- | ----- |"
+  target: "| a1 | b1 |"
+  next: "| a2 | b2 |"
+CHANGE: "X"

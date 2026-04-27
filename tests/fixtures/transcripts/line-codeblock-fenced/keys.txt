@@ -1,0 +1,7 @@
+# Line nav inside fenced code: fence lines are excluded from line anchors.
+Backspace
+j
+c
+X
+Enter
+q

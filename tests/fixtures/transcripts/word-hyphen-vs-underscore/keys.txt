@@ -1,0 +1,10 @@
+# Verify per-rule word boundaries: hyphenated compound is one word,
+# underscore is a boundary (foo and bar), date stays one word, etc.
+Space
+j
+j
+j
+c
+X
+Enter
+q

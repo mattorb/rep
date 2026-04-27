@@ -1,0 +1,7 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 1
+CONTEXT:
+  target: "2026-04-24"
+CHANGE: "X"

@@ -232,13 +232,14 @@ fn node_source_line_ranges(
             source_lines: range,
             ..
         } => {
-            // Phase-1 simplification: one (line, full-range) entry per source line. The
-            // exact per-line slice mapping into selection plain text isn't needed for
-            // the operations phase 0 / phase 1 perform; line-unit selection ships in
-            // phase 4 and refines this to byte-exact slices.
+            // Phase-4 line anchors per source line; the GFM-table-separator
+            // line (`| --- | --- |` shape) is excluded since it's not part
+            // of the selection plain text per modular_plan §"Block-type
+            // coverage / GFM table".
             range
                 .clone()
                 .filter(|l| *l < source_lines.len())
+                .filter(|l| !is_table_separator_line(&source_lines[*l]))
                 .map(|l| (l, 0..plain.len()))
                 .collect()
         }
@@ -274,6 +275,26 @@ fn node_source_line_ranges(
 #[allow(dead_code)]
 fn node_is_sentence_bearing(node: &DocNode) -> bool {
     !matches!(node, DocNode::ThematicBreak { .. })
+}
+
+/// True when a source line is a GFM table header-separator row, e.g.
+/// `| --- | --- |` with optional alignment colons.
+fn is_table_separator_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    if !trimmed.starts_with('|') || !trimmed.ends_with('|') {
+        return false;
+    }
+    let inner = &trimmed[1..trimmed.len() - 1];
+    if inner.trim().is_empty() {
+        return false;
+    }
+    inner.split('|').all(|cell| {
+        let s = cell.trim();
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c == '-' || c == ':' || c.is_ascii_whitespace())
+            && s.contains('-')
+    })
 }
 
 fn node_contributes_paragraph_anchor(node: &DocNode, plain: &str) -> bool {
