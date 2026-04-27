@@ -151,7 +151,28 @@ fn is_word_char(ch: char) -> bool {
     if ch == '_' {
         return false;
     }
-    ch.is_alphabetic() || ch.is_ascii_digit()
+    ch.is_alphabetic() || ch.is_ascii_digit() || is_combining_mark(ch)
+}
+
+/// Approximate `\p{Mark}` per modular_plan §"Word boundary rules": word
+/// chars include `\p{Alphabetic}` ∪ `\p{Mark}` ∪ ASCII digits. Without
+/// pulling in a unicode-properties crate, cover the combining-mark
+/// blocks that show up in NFD-decomposed Latin / Greek / Cyrillic /
+/// CJK-with-diacritics text. Script-specific spacing marks (Devanagari,
+/// Bengali, Tamil, etc.) are out of scope here; their absence shows up
+/// only when those scripts mix with NFD decomposition, which is rare in
+/// markdown plan files.
+const fn is_combining_mark(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x0300..=0x036F     // Combining Diacritical Marks
+        | 0x1AB0..=0x1AFF   // Combining Diacritical Marks Extended
+        | 0x1DC0..=0x1DFF   // Combining Diacritical Marks Supplement
+        | 0x20D0..=0x20FF   // Combining Diacritical Marks for Symbols
+        | 0xFE00..=0xFE0F   // Variation Selectors (Mn)
+        | 0xFE20..=0xFE2F   // Combining Half Marks
+        | 0xE0100..=0xE01EF // Variation Selectors Supplement (Mn)
+    )
 }
 
 fn is_internal_continuation(prev: char, sep: char, next: char) -> bool {
@@ -303,5 +324,19 @@ mod tests {
             words_of("café naïve 日本語"),
             vec!["café", "naïve", "日本語"]
         );
+    }
+
+    #[test]
+    fn word_nfd_combining_marks_stay_attached() {
+        // Per modular_plan §"Word boundary rules": word chars include
+        // \p{Mark}. NFD-decomposed text has the combining mark as a
+        // separate codepoint that must NOT split the word.
+        // "café" in NFD = c, a, f, e, U+0301 (combining acute).
+        let nfd = "cafe\u{0301} naive";
+        let words = words_of(nfd);
+        assert_eq!(words.len(), 2, "{words:?}");
+        // First "word" should include the combining mark on the e.
+        assert_eq!(words[0], "cafe\u{0301}");
+        assert_eq!(words[1], "naive");
     }
 }
