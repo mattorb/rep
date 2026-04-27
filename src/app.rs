@@ -56,7 +56,6 @@ pub(crate) enum InputMode {
 
 #[derive(Debug, Clone)]
 struct ChangeAnnotation {
-    #[allow(dead_code)]
     created_at: String,
     /// Selection unit at the moment of capture (Sentence / Line / Paragraph
     /// / Section / Word). Drives WHERE: format and target: source per
@@ -69,7 +68,6 @@ struct ChangeAnnotation {
 
 #[derive(Debug, Clone)]
 struct FeedbackAnnotation {
-    #[allow(dead_code)]
     created_at: String,
     target_unit: SelectionUnit,
     sentence_index: Option<usize>,
@@ -85,6 +83,10 @@ enum EditableAnnotation {
 
 #[derive(Debug, Clone)]
 struct InsertAnnotation {
+    // Consumed only by the #[cfg(test)] InsertOutput in src/output.rs;
+    // dead in non-test builds. ChangeAnnotation / FeedbackAnnotation
+    // also read created_at for stale-annotation suppression in
+    // current_target_capture, so theirs are reachable everywhere.
     #[allow(dead_code)]
     created_at: String,
     target_unit: SelectionUnit,
@@ -99,7 +101,6 @@ struct InsertAnnotation {
 /// sentence byte-range boundaries within `plain`.
 struct RenderedNode {
     plain: String,
-    #[allow(dead_code)]
     spans: Vec<Span<'static>>,
     sentence_ranges: Vec<Range<usize>>,
     links: Vec<MarkdownLinkRange>,
