@@ -1059,6 +1059,12 @@ impl App {
     }
 
     pub fn handle_mouse(&mut self, mouse: MouseEvent) {
+        // Mouse interactions clear transient nav/notification feedback the
+        // same way keypresses do (see handle_normal_key) — otherwise stale
+        // "at end" / clipboard messages could linger after a click or
+        // scroll.
+        self.notification = None;
+        self.nav_feedback = None;
         match mouse.kind {
             MouseEventKind::ScrollUp => self.move_node(-1),
             MouseEventKind::ScrollDown => self.move_node(1),
