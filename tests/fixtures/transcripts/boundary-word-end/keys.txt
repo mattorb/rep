@@ -1,0 +1,8 @@
+# In Word mode, navigate past the last word — boundary returns "at end"
+# but selection stays on the last word.
+Space
+j
+j
+j
+j
+q

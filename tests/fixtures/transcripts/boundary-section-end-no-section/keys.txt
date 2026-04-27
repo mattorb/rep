@@ -1,0 +1,9 @@
+# Section nav with only a pre-heading section: cycling backward into Section
+# mode lands on section 0 (the prose); j attempts to advance and hits the
+# section boundary (silent — no other section to wrap to). Final anchor is
+# the pre-heading section's start.
+Backspace
+Backspace
+Backspace
+j
+q
