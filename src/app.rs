@@ -2559,21 +2559,7 @@ impl App {
 
         for node_idx in touched {
             let (source_line, line_text) = self.node_line_context(node_idx);
-
-            let prev = source_line
-                .checked_sub(1)
-                .and_then(|i| self.source_lines.get(i))
-                .map(String::as_str)
-                .unwrap_or("");
-            let next = self
-                .source_lines
-                .get(source_line + 1)
-                .map(String::as_str)
-                .unwrap_or("");
-
-            let prev_clean = clean_context(prev, 140);
             let line_clean = clean_context(&line_text, 180);
-            let next_clean = clean_context(next, 140);
 
             if let Some(changes) = self.changes.get(&node_idx) {
                 for change in changes {
@@ -2689,23 +2675,46 @@ impl App {
 
             if let Some(strikes) = self.strikes.get(&node_idx) {
                 for &sentence_idx in strikes {
-                    let sentence_text = self
+                    let sentence_range = self
                         .rendered_nodes
                         .get(node_idx)
                         .and_then(|rn| rn.sentence_ranges.get(sentence_idx))
+                        .cloned();
+                    let sentence_text = sentence_range
+                        .as_ref()
                         .and_then(|r| self.rendered_nodes[node_idx].plain.get(r.clone()))
                         .map(|s| clean_context(s, 180))
                         .unwrap_or_else(|| line_clean.clone());
+                    // WHERE: line where the struck sentence's text begins.
+                    // Per modular_plan §"Annotation WHERE line number" —
+                    // for sentence selections inside a multi-source-line
+                    // node, emit the source line of the sentence's start,
+                    // not the node's first line. Computed by counting `\n`
+                    // characters in the rendered plain text before the
+                    // sentence range's start.
+                    let strike_line = sentence_range
+                        .as_ref()
+                        .map(|r| {
+                            let prefix = self
+                                .rendered_nodes
+                                .get(node_idx)
+                                .map(|rn| &rn.plain[..r.start])
+                                .unwrap_or("");
+                            source_line + prefix.bytes().filter(|&b| b == b'\n').count()
+                        })
+                        .unwrap_or(source_line);
+                    let (prev_clean_line, next_clean_line) =
+                        self.context_lines(strike_line);
                     out.push('\n');
                     out.push_str("ACTION: delete this\n");
-                    out.push_str(&format!("WHERE: line {}\n", source_line + 1));
+                    out.push_str(&format!("WHERE: line {}\n", strike_line + 1));
                     out.push_str("CONTEXT:\n");
-                    if !prev_clean.is_empty() {
-                        out.push_str(&format!("  prev: \"{prev_clean}\"\n"));
+                    if !prev_clean_line.is_empty() {
+                        out.push_str(&format!("  prev: \"{prev_clean_line}\"\n"));
                     }
                     out.push_str(&format!("  target: \"{sentence_text}\"\n"));
-                    if !next_clean.is_empty() {
-                        out.push_str(&format!("  next: \"{next_clean}\"\n"));
+                    if !next_clean_line.is_empty() {
+                        out.push_str(&format!("  next: \"{next_clean_line}\"\n"));
                     }
                 }
             }
@@ -3539,6 +3548,22 @@ mod tests {
             !out.contains(", sentence "),
             "phase-5 emit must not carry a `, sentence M` suffix: {out}"
         );
+    }
+
+    #[test]
+    fn strike_emit_uses_struck_sentence_source_line() {
+        // Multi-line paragraph: line 1 = "First line.", line 2 = "Second
+        // line.". Striking sentence index 1 must emit `WHERE: line 2`,
+        // not the paragraph's first line.
+        let mut app = test_app("First line.\nSecond line.\n");
+        app.strikes.entry(0).or_default().insert(1);
+        let out = app.to_human_output();
+        assert!(out.contains("ACTION: delete this"), "{out}");
+        assert!(
+            out.contains("WHERE: line 2\n"),
+            "should key on struck sentence's begin line, not node's first: {out}"
+        );
+        assert!(out.contains("\"Second line.\""), "{out}");
     }
 
     #[test]
