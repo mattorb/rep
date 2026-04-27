@@ -8,6 +8,10 @@ use std::ops::Range;
 
 use crate::document::{DocNode, Document};
 
+/// What kind of node started a section: a `#`-level heading, a top-level
+/// ordered list (when no heading appears earlier), or the implicit
+/// pre-heading "section 0" of a doc whose first content lives before any
+/// section starter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SectionKind {
     Heading,
@@ -15,6 +19,8 @@ pub enum SectionKind {
     PreHeading,
 }
 
+/// A section spans a contiguous run of `node_idx` values. Both endpoints
+/// are inclusive; the contiguity invariant is asserted at index-build time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Section {
     pub start_node_idx: usize,
@@ -22,6 +28,8 @@ pub struct Section {
     pub kind: SectionKind,
 }
 
+/// Per-node owned cache: selection plain text and the byte-range tables
+/// (source_line, sentence, word) used by navigation, capture, and emit.
 #[derive(Debug, Clone, Default)]
 pub struct NodeIndex {
     /// Selection plain text — markers stripped.
@@ -34,6 +42,9 @@ pub struct NodeIndex {
     pub word_ranges: Vec<Range<usize>>,
 }
 
+/// Eagerly-built navigation cache for a parsed `Document`. Holds owned
+/// per-node text + per-unit linear-order tables; built once at load time
+/// per `modular_plan.md` Req 11 and lives for the process.
 #[derive(Debug, Clone, Default)]
 pub struct SelectionIndex {
     pub nodes: Vec<NodeIndex>,
@@ -458,7 +469,10 @@ mod tests {
         let src = "```\nfn x() {}\n```";
         let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
         let doc = Document::parse(src);
-        assert_eq!(node_selection_plain_text(&doc.nodes[0], &lines), "fn x() {}");
+        assert_eq!(
+            node_selection_plain_text(&doc.nodes[0], &lines),
+            "fn x() {}"
+        );
 
         // ThematicBreak: empty.
         let src = "---";
