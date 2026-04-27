@@ -149,8 +149,8 @@ impl SelectionIndex {
 }
 
 /// Compute selection plain text for a node, stripping markers per Req 11.
-/// This is the canonical implementation; `selection::segment::plain_text_for_node`
-/// re-exports it as the single visible entrypoint.
+/// Called once per node during `SelectionIndex::build`; readers consume
+/// the resulting `NodeIndex::selection_plain_text` directly.
 pub(crate) fn node_selection_plain_text(node: &DocNode, source_lines: &[String]) -> String {
     match node {
         DocNode::Heading { text, .. } => text.clone(),

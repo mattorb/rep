@@ -1,5 +1,4 @@
-//! Single canonical home for `plain_text_for_node` and the sentence/word
-//! segmenters per Req 11.
+//! Canonical home for the sentence and word segmenters per Req 11.
 //!
 //! `segment_sentences` is the canonical sentence segmenter. It operates on
 //! whatever string it is given (selection plain text or display plain text);
@@ -9,19 +8,13 @@
 //!
 //! `segment_words` follows the pinned word-boundary rules and is the
 //! canonical word segmenter.
+//!
+//! Selection plain text per node is built by
+//! `selection::index::node_selection_plain_text` during index construction
+//! (`SelectionIndex::build`); the resulting string is then read directly off
+//! `NodeIndex::selection_plain_text` for any per-node lookup.
 
 use std::ops::Range;
-
-use crate::document::DocNode;
-
-/// Selection plain text for a single node, with markdown markers stripped per
-/// the pinned visibility rules (footnote refs, task markers, image wrappers,
-/// code-block fences). The canonical implementation lives in
-/// `selection::index::node_selection_plain_text`; this is the single
-/// entrypoint the rest of the selection / annotation layer reads.
-pub fn plain_text_for_node(node: &DocNode, source_lines: &[String]) -> String {
-    crate::selection::index::node_selection_plain_text(node, source_lines)
-}
 
 /// Sentence byte ranges within a plain-text input.
 ///
