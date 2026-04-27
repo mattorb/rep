@@ -1007,35 +1007,6 @@ impl App {
         }
     }
 
-    /// Phase-3a compat shim still consumed by some legacy app tests; phase 6
-    /// retires the move_block name with the test migration.
-    #[cfg(test)]
-    fn move_block(&mut self, forward: bool) {
-        let target = if forward {
-            self.doc
-                .next_block(self.selection_state.anchor.node_idx.saturating_add(1))
-        } else {
-            self.doc.prev_block(self.selection_state.anchor.node_idx)
-        };
-
-        match target {
-            Some(idx) => {
-                self.selection_state.anchor.node_idx = idx;
-                self.selection_state.anchor.unit_idx = 0;
-                let end = self.doc.block_end(idx);
-                self.section_highlight_range = Some(idx..end + 1);
-                self.status = format!("Block at node {}.", idx + 1);
-            }
-            None => {
-                self.status = if forward {
-                    "Already at the last block.".to_string()
-                } else {
-                    "Already at the first block.".to_string()
-                };
-            }
-        }
-    }
-
     fn jump_to_annotation(&mut self, forward: bool) {
         let from = if forward {
             self.selection_state.anchor.node_idx + 1
@@ -3585,31 +3556,6 @@ mod tests {
         assert_eq!(app.selection_state.anchor.node_idx, 1, "should move back");
     }
 
-    #[test]
-    fn block_navigation_jumps_between_content_nodes() {
-        // Title / Para / ListItem / Tail → nodes 0..3
-        let mut app =
-            test_app("Title\n\nPara one line one\nline two\n\n- list item\nwrapped\n\nTail\n");
-        assert_eq!(app.selection_state.anchor.node_idx, 0);
-        app.move_block(true);
-        assert_eq!(
-            app.selection_state.anchor.node_idx, 1,
-            "should jump to next content node"
-        );
-        app.move_block(true);
-        assert_eq!(
-            app.selection_state.anchor.node_idx, 2,
-            "should jump to list item"
-        );
-        app.move_block(true);
-        assert_eq!(
-            app.selection_state.anchor.node_idx, 3,
-            "should jump to tail"
-        );
-        app.move_block(false);
-        assert_eq!(app.selection_state.anchor.node_idx, 2, "should jump back");
-    }
-
     // ── Sentence context and highlight ────────────────────────────────────────
 
     #[test]
@@ -3892,17 +3838,6 @@ mod tests {
         );
         app.move_section(false);
         assert_eq!(app.selection_state.anchor.node_idx, start);
-    }
-
-    #[test]
-    fn move_block_forward_at_last_block_stays_put() {
-        let mut app = test_app("Only one block.");
-        let start = app.selection_state.anchor.node_idx;
-        app.move_block(true);
-        assert_eq!(
-            app.selection_state.anchor.node_idx, start,
-            "already at last block — must not move"
-        );
     }
 
     #[test]

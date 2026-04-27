@@ -376,21 +376,10 @@ impl Document {
         }
     }
 
-    /// First block-start node at or after `from` that has content.
-    pub fn next_block(&self, from: usize) -> Option<usize> {
-        (from..self.nodes.len()).find(|&i| self.is_block_start(i) && self.nodes[i].has_sentences())
-    }
-
-    /// Last block-start node strictly before `before` that has content.
-    pub fn prev_block(&self, before: usize) -> Option<usize> {
-        (0..before)
-            .rev()
-            .find(|&i| self.is_block_start(i) && self.nodes[i].has_sentences())
-    }
-
     /// Last node index that belongs to the same conceptual block as `start`.
     /// For list items all sharing the same list_id, returns the last such item.
     /// For paragraphs/headings/code blocks, returns `start` itself.
+    #[cfg(test)]
     pub fn block_end(&self, start: usize) -> usize {
         match &self.nodes[start] {
             DocNode::ListItem { list_id, .. } => {
