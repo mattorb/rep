@@ -3140,6 +3140,26 @@ mod tests {
     }
 
     #[test]
+    fn input_mode_space_and_backspace_are_literal_chars() {
+        // In Change input mode, pressing Space appends ' ' to the buffer
+        // (it does NOT cycle the selection unit). Backspace deletes the
+        // last char (it does NOT reverse-cycle).
+        let mut app = test_app("A sentence here.\n");
+        app.handle_key(key_char('c'));
+        assert_eq!(app.input_mode, InputMode::Change);
+        app.handle_key(key_char('a'));
+        app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        app.handle_key(key_char('b'));
+        assert_eq!(app.change_buffer, "a b");
+        // Backspace deletes 'b'.
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.change_buffer, "a ");
+        // Active selection unit must still be the pre-input Sentence (not
+        // re-anchored by Space/Backspace as if they were mode-cycle keys).
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Sentence);
+    }
+
+    #[test]
     fn block_title_shows_insert_count() {
         let mut app = test_app("A sentence.\n");
         app.inserts_before
