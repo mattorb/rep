@@ -888,7 +888,6 @@ impl App {
         if self.doc.node_count() == 0 {
             return;
         }
-        self.section_highlight_range = None;
         let outcome = if forward {
             crate::selection::navigator::next(&self.index, self.selection_state.anchor)
         } else {
@@ -906,13 +905,20 @@ impl App {
                         .map(|s| s.end_node_idx + 1)
                         .unwrap_or_else(|| self.doc.node_count());
                     self.section_highlight_range = Some(a.node_idx..end);
+                } else {
+                    // Moved within a non-Section unit — drop any stale
+                    // section highlight from a previous Section-mode
+                    // entry.
+                    self.section_highlight_range = None;
                 }
             }
             crate::selection::model::NavOutcome::Boundary => {
                 // Zero-anchor units (e.g., section nav on a doc with no
                 // headings): silent no-op per modular_plan §"Empty /
                 // degenerate documents". Otherwise show "at end" / "at
-                // start" feedback in the right zone.
+                // start" feedback in the right zone. Selection state
+                // (including section_highlight_range) stays put — the
+                // user is still on the boundary section.
                 if !self.unit_has_any_anchor(self.selection_state.anchor.unit) {
                     return;
                 }
@@ -3306,6 +3312,35 @@ mod tests {
         assert!(
             hint_row.contains("Match 1/2"),
             "status missing in right zone: {hint_row:?}"
+        );
+    }
+
+    #[test]
+    fn section_boundary_keypress_keeps_highlight_on_current_section() {
+        // In Section mode at the only section, pressing j should set
+        // "at end" feedback but keep the section highlight on the user's
+        // current section — they're still selecting it.
+        let mut app = test_app("# Only section\n\nbody.\n");
+        // Cycle into Section mode (Backspace x3: Sentence -> Line ->
+        // Paragraph -> Section).
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Section);
+        assert!(
+            app.section_highlight_range.is_some(),
+            "highlight set on entry to Section mode"
+        );
+        // Push past the only section's end.
+        app.handle_key(key_char('j'));
+        assert_eq!(
+            app.nav_feedback.as_deref(),
+            Some("at end"),
+            "boundary feedback expected"
+        );
+        assert!(
+            app.section_highlight_range.is_some(),
+            "highlight should NOT be cleared on a boundary in Section mode"
         );
     }
 
