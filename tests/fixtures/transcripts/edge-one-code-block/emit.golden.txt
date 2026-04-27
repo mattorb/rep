@@ -3,6 +3,6 @@ FILE: <INPUT>
 ACTION: change
 WHERE: line 1
 CONTEXT:
-  target: "``` the only thing in this file is one code block ```"
+  target: "```"
   next: "the only thing in this file"
 CHANGE: "X"

@@ -3,5 +3,5 @@ FILE: <INPUT>
 ACTION: change
 WHERE: line 5
 CONTEXT:
-  target: "## Sub heading"
+  target: "Sub heading"
 CHANGE: "A"

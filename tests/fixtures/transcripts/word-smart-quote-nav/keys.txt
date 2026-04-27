@@ -1,0 +1,24 @@
+# Cycle into Word mode and move well past the initial smart-apostrophe token.
+Space
+j
+j
+j
+j
+j
+j
+j
+j
+j
+j
+j
+j
+c
+t
+i
+g
+h
+t
+e
+n
+Enter
+q

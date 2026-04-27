@@ -3,5 +3,5 @@ FILE: <INPUT>
 ACTION: change
 WHERE: line 1
 CONTEXT:
-  target: "• First item paragraph one. First item paragraph two."
+  target: "First item paragraph one. First item paragraph two."
 CHANGE: "X"

@@ -3,6 +3,6 @@ FILE: <INPUT>
 ACTION: change
 WHERE: line 5
 CONTEXT:
-  target: "• Item one"
+  target: "Item one"
   next: "- Item with `inline code`"
 CHANGE: "X"

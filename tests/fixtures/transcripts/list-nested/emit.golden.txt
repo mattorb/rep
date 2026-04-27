@@ -4,6 +4,6 @@ ACTION: change
 WHERE: line 3
 CONTEXT:
   prev: "- Nested one"
-  target: "• Nested two"
+  target: "Nested two"
   next: "2. Top two"
 CHANGE: "X"

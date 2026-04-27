@@ -3,5 +3,5 @@ FILE: <INPUT>
 ACTION: change
 WHERE: line 1
 CONTEXT:
-  target: "only heading"
-CHANGE: "X"
+  target: "able"
+CHANGE: "tighten"

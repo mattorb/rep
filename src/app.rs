@@ -1135,14 +1135,15 @@ impl App {
     }
 
     fn current_sentence_context(&self) -> Option<(usize, String)> {
-        let rn = self
-            .rendered_nodes
-            .get(self.selection_state.anchor.node_idx)?;
-        let range = rn
-            .sentence_ranges
-            .get(self.selection_state.anchor.unit_idx)?;
-        let text = rn.plain.get(range.clone())?.trim().to_string();
-        Some((self.selection_state.anchor.unit_idx, text))
+        // Per modular_plan §"Internal representation" Req 11: emit consumes
+        // the selection-plain-text view (markers stripped), not the display
+        // view. Reading from rendered_nodes here used to leak `[ ]` task
+        // markers, `[^N]` footnote refs, etc., into the captured target.
+        let unit_idx = self.selection_state.anchor.unit_idx;
+        let node = self.index.nodes.get(self.selection_state.anchor.node_idx)?;
+        let range = node.sentence_ranges.get(unit_idx)?;
+        let text = node.selection_plain_text.get(range.clone())?.trim().to_string();
+        Some((unit_idx, text))
     }
 
     /// Capture the `(unit_idx, target_text)` snapshot stored on the
@@ -2344,19 +2345,6 @@ impl App {
             seg.push((0, plain_len, Style::default()));
         }
 
-        // Collect all split points.
-        let mut bounds = vec![0, plain_len];
-        for &(s, e, _) in &seg {
-            bounds.push(s);
-            bounds.push(e);
-        }
-        for r in sentence_ranges {
-            bounds.push(r.start.min(plain_len));
-            bounds.push(r.end.min(plain_len));
-        }
-        bounds.sort_unstable();
-        bounds.dedup();
-
         let highlight = if self
             .section_highlight_range
             .as_ref()
@@ -2368,6 +2356,25 @@ impl App {
         } else {
             None
         };
+
+        // Collect all split points. Include the active highlight boundaries so
+        // sub-node units (Word/Line) can paint precisely rather than tinting an
+        // entire pre-existing span chunk.
+        let mut bounds = vec![0, plain_len];
+        for &(s, e, _) in &seg {
+            bounds.push(s);
+            bounds.push(e);
+        }
+        for r in sentence_ranges {
+            bounds.push(r.start.min(plain_len));
+            bounds.push(r.end.min(plain_len));
+        }
+        if let Some(r) = &highlight {
+            bounds.push(r.start.min(plain_len));
+            bounds.push(r.end.min(plain_len));
+        }
+        bounds.sort_unstable();
+        bounds.dedup();
 
         let mut spans = Vec::new();
         for pair in bounds.windows(2) {
@@ -3008,6 +3015,14 @@ mod tests {
 
     fn has_sentence_highlight(spans: &[Span<'_>]) -> bool {
         spans.iter().any(|s| s.style.bg == Some(Color::Blue))
+    }
+
+    fn highlighted_text(spans: &[Span<'_>]) -> String {
+        spans
+            .iter()
+            .filter(|s| s.style.bg == Some(Color::Blue))
+            .map(|s| s.content.as_ref())
+            .collect::<String>()
     }
 
     fn make_change(text: &str) -> ChangeAnnotation {
@@ -4184,6 +4199,42 @@ mod tests {
             !has_sentence_highlight(&spans),
             "node 1 should not be highlighted"
         );
+    }
+
+    #[test]
+    fn word_mode_highlight_tracks_each_word_on_j_navigation() {
+        let mut app = test_app("alpha beta gamma\n");
+        app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+
+        let spans0 = app.render_node_spans(0);
+        assert_eq!(highlighted_text(&spans0), "alpha");
+
+        app.handle_key(key_char('j'));
+        let spans1 = app.render_node_spans(0);
+        assert_eq!(highlighted_text(&spans1), "beta");
+
+        app.handle_key(key_char('j'));
+        let spans2 = app.render_node_spans(0);
+        assert_eq!(highlighted_text(&spans2), "gamma");
+    }
+
+    #[test]
+    fn word_mode_highlight_tracks_each_word_with_smart_apostrophe() {
+        let mut app = test_app("we’re in an early period\n");
+        app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+
+        let spans0 = app.render_node_spans(0);
+        assert_eq!(highlighted_text(&spans0), "we");
+
+        app.handle_key(key_char('j'));
+        let spans1 = app.render_node_spans(0);
+        assert_eq!(highlighted_text(&spans1), "re");
+
+        app.handle_key(key_char('j'));
+        let spans2 = app.render_node_spans(0);
+        assert_eq!(highlighted_text(&spans2), "in");
     }
 
     #[test]

@@ -3,5 +3,5 @@ FILE: <INPUT>
 ACTION: change
 WHERE: line 1
 CONTEXT:
-  target: "Look at this image: [image: alt text] and another [image]."
+  target: "Look at this image: and another ."
 CHANGE: "X"

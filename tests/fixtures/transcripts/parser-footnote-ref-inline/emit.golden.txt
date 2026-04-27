@@ -3,5 +3,5 @@ FILE: <INPUT>
 ACTION: change
 WHERE: line 1
 CONTEXT:
-  target: "Multiple footnotes[^a] inline[^b] in this prose."
+  target: "Multiple footnotes inline in this prose."
 CHANGE: "X"

@@ -4,6 +4,6 @@ ACTION: change
 WHERE: line 2
 CONTEXT:
   prev: "- First item"
-  target: "• Second item"
+  target: "Second item"
   next: "- Third item"
 CHANGE: "X"

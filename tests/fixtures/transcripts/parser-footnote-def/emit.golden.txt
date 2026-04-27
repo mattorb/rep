@@ -3,5 +3,5 @@ FILE: <INPUT>
 ACTION: change
 WHERE: line 3
 CONTEXT:
-  target: "[^1]: This is the footnote body."
+  target: "This is the footnote body."
 CHANGE: "F"
