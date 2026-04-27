@@ -128,9 +128,8 @@ pub fn assert_golden(actual: &str, path: &Path) {
 /// names so test order is deterministic.
 pub fn discover_transcripts(root: &Path) -> Vec<TranscriptFixture> {
     let mut out = Vec::new();
-    let entries = match std::fs::read_dir(root) {
-        Ok(e) => e,
-        Err(_) => return out,
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return out;
     };
     for entry in entries.flatten() {
         let path = entry.path();
