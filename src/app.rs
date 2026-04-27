@@ -2741,9 +2741,11 @@ impl App {
     /// Returns `(where_line: usize, sentence_suffix: String)` for an
     /// annotation. The phase-5 schema strips the legacy `, sentence M`
     /// suffix from every unit, so the suffix is now always empty. The
-    /// where-line is the specific source line for Line- and Word-unit
-    /// annotations, and the node's first line for Sentence / Paragraph /
-    /// Section.
+    /// where-line is the source line where the selection's text begins:
+    /// per-line for Line annotations, per-word for Word, per-sentence for
+    /// Sentence (computed from the rendered_nodes display plain text
+    /// `\n` count), and the node's first line for Paragraph / Section
+    /// (those emit their entire span anyway).
     fn where_for_annotation(
         &self,
         target_unit: SelectionUnit,
@@ -2770,7 +2772,23 @@ impl App {
                     .unwrap_or(node_first_line);
                 (where_line, String::new())
             }
-            SelectionUnit::Sentence | SelectionUnit::Paragraph | SelectionUnit::Section => {
+            SelectionUnit::Sentence => {
+                // Sentence inside a multi-source-line node: emit the line
+                // where the sentence's text begins, not the node's first
+                // line. Computed by counting `\n` characters in the
+                // rendered display plain text up to the sentence range's
+                // start (mirrors the strike-emit logic above).
+                let where_line = sentence_index
+                    .and_then(|si| {
+                        let rn = self.rendered_nodes.get(node_idx)?;
+                        let r = rn.sentence_ranges.get(si)?;
+                        let prefix = rn.plain.get(..r.start)?;
+                        Some(node_first_line + prefix.bytes().filter(|&b| b == b'\n').count())
+                    })
+                    .unwrap_or(node_first_line);
+                (where_line, String::new())
+            }
+            SelectionUnit::Paragraph | SelectionUnit::Section => {
                 (node_first_line, String::new())
             }
         }
@@ -3547,6 +3565,26 @@ mod tests {
         assert!(
             !out.contains(", sentence "),
             "phase-5 emit must not carry a `, sentence M` suffix: {out}"
+        );
+    }
+
+    #[test]
+    fn sentence_change_uses_sentence_source_line_in_multi_line_paragraph() {
+        // Multi-line paragraph: line 1 = "First sentence.", line 2 =
+        // "Second sentence.". A change captured on sentence 1 must emit
+        // `WHERE: line 2`, not the paragraph's first line.
+        let mut app = test_app("First sentence.\nSecond sentence.\n");
+        app.changes.entry(0).or_default().push(ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Sentence,
+            sentence_index: Some(1),
+            sentence_text: Some("Second sentence.".into()),
+            change: "Rewrite second".into(),
+        });
+        let out = app.to_human_output();
+        assert!(
+            out.contains("WHERE: line 2\n"),
+            "should key on sentence's begin line: {out}"
         );
     }
 
