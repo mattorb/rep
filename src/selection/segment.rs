@@ -193,6 +193,12 @@ mod tests {
     }
 
     #[test]
+    fn exclamation_and_question_mark_split_like_period() {
+        let r = segment_sentences("Done! Already? Sure.");
+        assert_eq!(r.len(), 3);
+    }
+
+    #[test]
     fn ranges_are_sorted_non_overlapping_in_bounds() {
         let s = "First. Second one. Third.";
         let r = segment_sentences(s);
@@ -204,6 +210,13 @@ mod tests {
 
     fn words_of(s: &str) -> Vec<&str> {
         segment_words(s).into_iter().map(|r| &s[r]).collect()
+    }
+
+    #[test]
+    fn segment_words_empty_input_yields_empty() {
+        assert!(segment_words("").is_empty());
+        assert!(segment_words("   ").is_empty());
+        assert!(segment_words(",,,!!").is_empty());
     }
 
     #[test]
