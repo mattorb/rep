@@ -1,0 +1,9 @@
+# Right + Down both equal `j`; Left + Up both equal `k`. Verify by
+# threading: j Right Down → 3 advances; Left Up k → 3 retreats. Final = 0.
+j
+Right
+Down
+Left
+Up
+k
+q
