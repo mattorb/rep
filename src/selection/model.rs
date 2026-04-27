@@ -34,6 +34,16 @@ impl SelectionUnit {
             Self::Word => "word",
         }
     }
+
+    /// Coarsest → finest cycle order per modular_plan §"Key bindings":
+    /// Space cycles forward through this array; Backspace cycles backward.
+    pub const CYCLE_ORDER: [SelectionUnit; 5] = [
+        SelectionUnit::Section,
+        SelectionUnit::Paragraph,
+        SelectionUnit::Line,
+        SelectionUnit::Sentence,
+        SelectionUnit::Word,
+    ];
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

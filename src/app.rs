@@ -933,13 +933,7 @@ impl App {
     /// Space (forward) / Backspace (reverse) — cycle the active selection
     /// unit. Re-anchors via `navigator::clamp` per the pinned rules.
     fn mode_cycle(&mut self, forward: bool) {
-        let order = [
-            SelectionUnit::Section,
-            SelectionUnit::Paragraph,
-            SelectionUnit::Line,
-            SelectionUnit::Sentence,
-            SelectionUnit::Word,
-        ];
+        let order = SelectionUnit::CYCLE_ORDER;
         let i = order
             .iter()
             .position(|u| *u == self.selection_state.anchor.unit)
