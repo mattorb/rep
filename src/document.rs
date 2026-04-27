@@ -61,7 +61,7 @@ impl DocNode {
     }
 
     #[cfg(test)]
-    pub fn is_heading(&self) -> bool {
+    fn is_heading(&self) -> bool {
         matches!(self, Self::Heading { .. })
     }
 
@@ -331,7 +331,7 @@ impl Document {
     /// For list items all sharing the same list_id, returns the last such item.
     /// For paragraphs/headings/code blocks, returns `start` itself.
     #[cfg(test)]
-    pub fn block_end(&self, start: usize) -> usize {
+    fn block_end(&self, start: usize) -> usize {
         match &self.nodes[start] {
             DocNode::ListItem { list_id, .. } => {
                 let target = *list_id;
