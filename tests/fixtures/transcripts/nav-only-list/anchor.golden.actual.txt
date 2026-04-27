@@ -1,1 +1,0 @@
-anchor: (0, Sentence, 0)
