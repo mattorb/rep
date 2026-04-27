@@ -1690,11 +1690,8 @@ impl App {
 
         let hint_height =
             wrap_styled_spans(vec![Span::raw(hint.to_owned())], inner_width).len() as u16;
-        let body_height = wrap_styled_spans(
-            vec![Span::raw(format!("{prompt}{buf}"))],
-            inner_width,
-        )
-        .len() as u16;
+        let body_height =
+            wrap_styled_spans(vec![Span::raw(format!("{prompt}{buf}"))], inner_width).len() as u16;
         let needed_height = hint_height
             .max(1)
             .saturating_add(body_height.max(1))
