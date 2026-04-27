@@ -372,7 +372,7 @@ impl App {
         let rendered_nodes = build_rendered_nodes(&doc, &source_lines);
         let index = SelectionIndex::build(&doc, &source_lines);
 
-        let initial_node = doc.next_node_with_sentences(0).unwrap_or(0);
+        let initial_node = doc.next_content_node(0).unwrap_or(0);
         let selection_state = SelectionState::new(SelectionAnchor::new(
             initial_node,
             SelectionUnit::Sentence,
@@ -866,9 +866,9 @@ impl App {
 
         for _ in 0..steps {
             let next = if forward {
-                self.doc.next_node_with_sentences(target.saturating_add(1))
+                self.doc.next_content_node(target.saturating_add(1))
             } else {
-                self.doc.prev_node_with_sentences(target)
+                self.doc.prev_content_node(target)
             };
             let Some(idx) = next else { break };
             target = idx;

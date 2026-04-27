@@ -51,7 +51,7 @@ pub enum DocNode {
 impl DocNode {
     /// Whether the node has selectable content. Used to decide where the
     /// cursor lands at load time and where same-unit traversal jumps to.
-    pub fn has_sentences(&self) -> bool {
+    pub fn has_content(&self) -> bool {
         match self {
             Self::Paragraph { text, .. } | Self::ListItem { text, .. } => !text.is_empty(),
             Self::Heading { text, .. } => !text.is_empty(),
@@ -297,17 +297,17 @@ impl Document {
         self.nodes.len()
     }
 
-    /// First node at or after `from` that has at least one sentence.
+    /// First node at or after `from` that has any selectable content.
     /// Used by `App::load` to pick the initial cursor and by the mouse
     /// scroll handler in `move_node`.
-    pub fn next_node_with_sentences(&self, from: usize) -> Option<usize> {
-        (from..self.nodes.len()).find(|&i| self.nodes[i].has_sentences())
+    pub fn next_content_node(&self, from: usize) -> Option<usize> {
+        (from..self.nodes.len()).find(|&i| self.nodes[i].has_content())
     }
 
-    /// Last node strictly before `before` that has at least one sentence.
+    /// Last node strictly before `before` that has any selectable content.
     /// Used by the mouse scroll handler in `move_node`.
-    pub fn prev_node_with_sentences(&self, before: usize) -> Option<usize> {
-        (0..before).rev().find(|&i| self.nodes[i].has_sentences())
+    pub fn prev_content_node(&self, before: usize) -> Option<usize> {
+        (0..before).rev().find(|&i| self.nodes[i].has_content())
     }
 
     /// True when `idx` is the first node of a new content block.
@@ -436,14 +436,14 @@ mod tests {
     }
 
     #[test]
-    fn navigation_nodes_with_sentences_includes_headings_and_code() {
+    fn content_node_navigation_includes_headings_and_code() {
         let src = "# Title\n\nText here.\n\n```sh\necho hi\n```\n\nMore text.";
         let doc = Document::parse(src);
         // nodes: [Heading, Paragraph, CodeBlock, Paragraph]
-        // Headings and non-empty code blocks now count as having sentences.
-        assert_eq!(doc.next_node_with_sentences(0), Some(0)); // heading is visitable
-        assert_eq!(doc.next_node_with_sentences(2), Some(2)); // code block is visitable
-        assert_eq!(doc.prev_node_with_sentences(3), Some(2)); // prev from last paragraph hits code block
+        // Headings and non-empty code blocks count as content.
+        assert_eq!(doc.next_content_node(0), Some(0)); // heading is visitable
+        assert_eq!(doc.next_content_node(2), Some(2)); // code block is visitable
+        assert_eq!(doc.prev_content_node(3), Some(2)); // prev from last paragraph hits code block
     }
 
     #[test]
