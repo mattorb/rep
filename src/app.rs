@@ -3861,6 +3861,28 @@ mod tests {
     }
 
     #[test]
+    fn human_output_paragraph_change_emits_full_node_text() {
+        // Paragraph emit: target is the whole node's selection plain text,
+        // soft-wrapped lines / table rows space-joined, no embedded
+        // newlines (per modular_plan §"target / Paragraph").
+        let mut app = test_app("First paragraph here. Two sentences.\n");
+        app.changes.entry(0).or_default().push(ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Paragraph,
+            sentence_index: Some(0),
+            sentence_text: Some("First paragraph here. Two sentences.".into()),
+            change: "Rewrite the paragraph".into(),
+        });
+        let out = app.to_human_output();
+        assert!(out.contains("ACTION: change"), "{out}");
+        assert!(out.contains("WHERE: line 1\n"), "{out}");
+        assert!(
+            out.contains("target: \"First paragraph here. Two sentences.\""),
+            "{out}"
+        );
+    }
+
+    #[test]
     fn human_output_section_change_emits_full_section_text() {
         // Section selection on heading + body: target should be the
         // joined plain text of all constituent nodes, single-spaced,
