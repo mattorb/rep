@@ -215,8 +215,7 @@ fn tmux_unavailable() -> bool {
     Command::new("tmux")
         .arg("-V")
         .status()
-        .map(|status| !status.success())
-        .unwrap_or(true)
+        .map_or(true, |status| !status.success())
 }
 
 #[cfg(target_os = "macos")]
@@ -363,9 +362,7 @@ fn launch_failure(status_code: Option<i32>, stderr: &[u8], prefix: &str) -> anyh
     let detail = String::from_utf8_lossy(stderr);
     let detail = detail.trim();
     if detail.is_empty() {
-        let status = status_code
-            .map(|code| code.to_string())
-            .unwrap_or_else(|| "unknown".to_string());
+        let status = status_code.map_or_else(|| "unknown".to_string(), |code| code.to_string());
         anyhow::anyhow!("{prefix} (status: {status})")
     } else {
         anyhow::anyhow!("{prefix}: {detail}")

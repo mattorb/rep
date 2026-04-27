@@ -394,9 +394,10 @@ impl App {
         // tree the selection layer reads — otherwise tables, strikethrough,
         // and footnote refs would render in the popup with one shape and
         // be parsed by Document with another.
-        let ast_text = markdown::to_mdast(&raw, &markdown::ParseOptions::gfm())
-            .map(|node| format!("{node:#?}"))
-            .unwrap_or_else(|_| "Failed to parse AST".to_string());
+        let ast_text = markdown::to_mdast(&raw, &markdown::ParseOptions::gfm()).map_or_else(
+            |_| "Failed to parse AST".to_string(),
+            |node| format!("{node:#?}"),
+        );
         let ast_lines: Vec<String> = ast_text.lines().map(ToOwned::to_owned).collect();
         let doc = Document::parse(&raw);
         let rendered_nodes = build_rendered_nodes(&doc, &source_lines);
@@ -2656,8 +2657,10 @@ impl App {
                                 .get(sentence_idx)
                                 .and_then(|r| rn.plain.get(r.clone()))
                         })
-                        .map(|s| clean_context(s, EMIT_TARGET_MAX_CHARS))
-                        .unwrap_or_else(|| line_clean.clone());
+                        .map_or_else(
+                            || line_clean.clone(),
+                            |s| clean_context(s, EMIT_TARGET_MAX_CHARS),
+                        );
                     // Strike's WHERE: same per-sentence line resolution
                     // where_for_annotation does for Sentence-unit
                     // annotations.
@@ -2697,9 +2700,10 @@ impl App {
     ) {
         let where_line =
             self.where_for_annotation(target_unit, node_idx, sentence_index, node_first_line);
-        let target = sentence_text
-            .map(|s| clean_context(s, EMIT_TARGET_MAX_CHARS))
-            .unwrap_or_else(|| line_clean.to_owned());
+        let target = sentence_text.map_or_else(
+            || line_clean.to_owned(),
+            |s| clean_context(s, EMIT_TARGET_MAX_CHARS),
+        );
         Self::emit_action_header(out, action, where_line);
         self.emit_context_block(out, where_line, &target);
         out.push_str(&format!(
