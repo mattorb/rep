@@ -396,11 +396,11 @@ fn build_section_table(doc: &Document) -> Vec<Section> {
 mod tests {
     use super::*;
     use crate::document::Document;
+    use crate::selection::build_test_index as build;
 
     #[test]
     fn empty_doc_index_is_empty() {
-        let doc = Document::parse("");
-        let idx = SelectionIndex::build(&doc, &[]);
+        let idx = build("");
         assert!(idx.nodes.is_empty());
         assert!(idx.sections.is_empty());
         assert!(idx.paragraphs.is_empty());
@@ -409,10 +409,7 @@ mod tests {
 
     #[test]
     fn paragraph_sentences_round_trip() {
-        let src = "First sentence here. Second one too.";
-        let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
-        let doc = Document::parse(src);
-        let idx = SelectionIndex::build(&doc, &lines);
+        let idx = build("First sentence here. Second one too.");
         assert_eq!(idx.nodes.len(), 1);
         assert_eq!(idx.nodes[0].sentence_ranges.len(), 2);
         assert_eq!(idx.sentences.len(), 2);
@@ -420,10 +417,7 @@ mod tests {
 
     #[test]
     fn section_table_pre_heading_then_heading() {
-        let src = "Pre-heading prose.\n\n# Heading\n\nUnder heading.";
-        let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
-        let doc = Document::parse(src);
-        let idx = SelectionIndex::build(&doc, &lines);
+        let idx = build("Pre-heading prose.\n\n# Heading\n\nUnder heading.");
         // Sections: PreHeading (node 0..0), Heading (1..2)
         assert_eq!(idx.sections.len(), 2);
         assert_eq!(idx.sections[0].kind, SectionKind::PreHeading);
@@ -435,24 +429,18 @@ mod tests {
         // Top-level OL with no preceding heading is a single section that
         // spans every contiguous top-level OL item; the items don't each
         // become their own section starter.
-        let src = "1. first\n2. second\n3. third";
-        let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
-        let doc = Document::parse(src);
-        let idx = SelectionIndex::build(&doc, &lines);
+        let idx = build("1. first\n2. second\n3. third");
         assert_eq!(idx.sections.len(), 1, "{:?}", idx.sections);
         assert_eq!(idx.sections[0].kind, SectionKind::Ol);
         assert_eq!(idx.sections[0].start_node_idx, 0);
-        assert_eq!(idx.sections[0].end_node_idx, doc.nodes.len() - 1);
+        assert_eq!(idx.sections[0].end_node_idx, idx.nodes.len() - 1);
     }
 
     #[test]
     fn section_table_ol_after_heading_does_not_start_section() {
         // Once any heading is seen, a later top-level OL no longer starts
         // its own section — it folds into the surrounding heading section.
-        let src = "# Top\n\n1. a\n2. b";
-        let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
-        let doc = Document::parse(src);
-        let idx = SelectionIndex::build(&doc, &lines);
+        let idx = build("# Top\n\n1. a\n2. b");
         assert_eq!(idx.sections.len(), 1);
         assert_eq!(idx.sections[0].kind, SectionKind::Heading);
     }
@@ -461,10 +449,7 @@ mod tests {
     fn section_table_pre_heading_skipped_when_only_thematic_break() {
         // `---` alone before a heading does not contribute selectable
         // content, so no PreHeading section is emitted.
-        let src = "---\n\n# Heading";
-        let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
-        let doc = Document::parse(src);
-        let idx = SelectionIndex::build(&doc, &lines);
+        let idx = build("---\n\n# Heading");
         assert_eq!(idx.sections.len(), 1);
         assert_eq!(idx.sections[0].kind, SectionKind::Heading);
     }
