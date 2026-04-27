@@ -273,8 +273,7 @@ mod tests {
         let lines = plain_lines(spans, 12);
         assert!(
             lines[1].starts_with("word"),
-            "wrapped line should start directly with word, got {:?}",
-            lines
+            "wrapped line should start directly with word, got {lines:?}"
         );
     }
 
@@ -288,7 +287,7 @@ mod tests {
         // Each line must be no wider than 4 columns; together they must
         // contain every original character in order.
         for line in &lines {
-            assert!(line.chars().count() <= 4, "line {:?} exceeds width 4", line);
+            assert!(line.chars().count() <= 4, "line {line:?} exceeds width 4");
         }
         let rejoined: String = lines.concat();
         assert_eq!(rejoined, "abcdefghij");
@@ -305,8 +304,7 @@ mod tests {
         for line in &lines {
             assert!(
                 line.chars().count() <= 2,
-                "line {:?} exceeds 2 wide chars in 4-col budget",
-                line
+                "line {line:?} exceeds 2 wide chars in 4-col budget"
             );
         }
         let rejoined: String = lines.concat();

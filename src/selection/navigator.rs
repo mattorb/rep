@@ -147,7 +147,7 @@ mod tests {
                 assert_eq!(a2.unit_idx, 1);
                 assert_eq!(a2.node_idx, 0);
             }
-            o => panic!("unexpected: {:?}", o),
+            o => panic!("unexpected: {o:?}"),
         }
     }
 
@@ -168,7 +168,7 @@ mod tests {
                 assert_eq!(a.node_idx, 1);
                 assert_eq!(a.unit_idx, 0);
             }
-            o => panic!("unexpected: {:?}", o),
+            o => panic!("unexpected: {o:?}"),
         }
     }
 
@@ -194,7 +194,7 @@ mod tests {
         let n = next(&idx, a);
         match n {
             NavOutcome::Moved(b) => assert_eq!(b.node_idx, 2),
-            o => panic!("unexpected: {:?}", o),
+            o => panic!("unexpected: {o:?}"),
         }
     }
 
@@ -245,10 +245,10 @@ mod tests {
         for &from in &units {
             // Move to `from` first.
             let a = clamp(&idx, start, from);
-            assert_eq!(a.unit, from, "clamp should land on {:?}", from);
+            assert_eq!(a.unit, from, "clamp should land on {from:?}");
             for &to in &units {
                 let b = clamp(&idx, a, to);
-                assert_eq!(b.unit, to, "clamp({:?} -> {:?}) failed", from, to);
+                assert_eq!(b.unit, to, "clamp({from:?} -> {to:?}) failed");
             }
         }
     }

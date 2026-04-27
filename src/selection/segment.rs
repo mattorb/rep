@@ -214,7 +214,7 @@ mod tests {
         let r = segment_sentences(s);
         assert!(r.iter().all(|range| range.end <= s.len()));
         for w in r.windows(2) {
-            assert!(w[0].end <= w[1].start, "overlap: {:?}", w);
+            assert!(w[0].end <= w[1].start, "overlap: {w:?}");
         }
     }
 

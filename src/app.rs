@@ -4546,13 +4546,11 @@ mod tests {
 
         assert!(
             inner_rows[0].contains("tall line 0"),
-            "tall node should be top-aligned (bottom-aligned with 0 context): got {:?}",
-            inner_rows
+            "tall node should be top-aligned (bottom-aligned with 0 context): got {inner_rows:?}"
         );
         assert!(
             inner_rows[3].contains("tall line 3"),
-            "last visible inner row should show tall line 3: got {:?}",
-            inner_rows
+            "last visible inner row should show tall line 3: got {inner_rows:?}"
         );
     }
 
@@ -4589,13 +4587,11 @@ mod tests {
         );
         assert!(
             inner_rows[0].contains("tall line 0"),
-            "move_sentence to tall node must also bottom-align it: got {:?}",
-            inner_rows
+            "move_sentence to tall node must also bottom-align it: got {inner_rows:?}"
         );
         assert!(
             inner_rows[3].contains("tall line 3"),
-            "last inner row should show tall line 3: got {:?}",
-            inner_rows
+            "last inner row should show tall line 3: got {inner_rows:?}"
         );
     }
 

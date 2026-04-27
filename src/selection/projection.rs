@@ -89,7 +89,7 @@ mod tests {
                 assert_eq!(n, 0);
                 assert!(!r.is_empty());
             }
-            o => panic!("unexpected: {:?}", o),
+            o => panic!("unexpected: {o:?}"),
         }
     }
 
@@ -102,7 +102,7 @@ mod tests {
                 assert_eq!(r.start, 0);
                 assert!(r.end > 0);
             }
-            o => panic!("unexpected: {:?}", o),
+            o => panic!("unexpected: {o:?}"),
         }
     }
 
@@ -116,7 +116,7 @@ mod tests {
                 let plain = &idx.nodes[0].selection_plain_text;
                 assert_eq!(&plain[r], "beta");
             }
-            o => panic!("unexpected: {:?}", o),
+            o => panic!("unexpected: {o:?}"),
         }
     }
 
@@ -134,7 +134,7 @@ mod tests {
                 let plain = &idx.nodes[0].selection_plain_text;
                 assert_eq!(&plain[r], plain.as_str());
             }
-            o => panic!("unexpected: {:?}", o),
+            o => panic!("unexpected: {o:?}"),
         }
     }
 
@@ -146,7 +146,7 @@ mod tests {
         let a = SelectionAnchor::new(0, SelectionUnit::Word, 99);
         match highlight_for(a, &idx) {
             Highlight::Range(_, r) => assert!(r.is_empty()),
-            o => panic!("unexpected: {:?}", o),
+            o => panic!("unexpected: {o:?}"),
         }
     }
 
@@ -158,7 +158,7 @@ mod tests {
             Highlight::Section(nodes) => {
                 assert!(nodes.contains(&0));
             }
-            o => panic!("unexpected: {:?}", o),
+            o => panic!("unexpected: {o:?}"),
         }
     }
 }
