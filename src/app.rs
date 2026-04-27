@@ -316,8 +316,8 @@ pub struct App {
     /// Owned eager selection index built once at load time per Req 11.
     /// Drives navigation, per-unit emit, and unit-aware highlight lookup.
     index: SelectionIndex,
-    /// Canonical selection state — `(node_idx, unit, unit_idx)`. Replaces the
-    /// pre-phase-1 `cursor_node` + `cursor_sentence` pair.
+    /// Canonical selection state — `(node_idx, unit, unit_idx)` per
+    /// modular_plan §"Selection state".
     selection_state: SelectionState,
     /// When set on entry to Section mode (or by `move_section`), highlights
     /// every node from the section start through `end_node_idx` inclusive.
@@ -850,7 +850,7 @@ impl App {
 
     /// Mouse scroll: move through every content node (nodes that have at
     /// least one selection anchor). Arrow keys are bound to
-    /// `move_active_unit` per the phase-3b mode-switch keymap; this helper
+    /// `move_active_unit` per the mode-switch keymap; this helper
     /// only serves the mouse wheel handler now.
     fn move_node(&mut self, delta: isize) {
         if self.doc.node_count() == 0 || delta == 0 {
@@ -3688,7 +3688,7 @@ mod tests {
     fn strike_refused_in_word_mode_with_status_message() {
         // toggle_strike() in any non-Sentence unit refuses with a clear
         // status; storage is sentence-keyed today so word/line strikes
-        // need a wider model. Locks the phase-7 follow-up behavior.
+        // would need a wider model. This locks the refusal behavior.
         let mut app = test_app("alpha beta gamma\n");
         app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
         assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
@@ -3714,7 +3714,7 @@ mod tests {
         assert!(out.contains("\"Strike this.\""), "{out}");
         assert!(
             !out.contains(", sentence "),
-            "phase-5 emit must not carry a `, sentence M` suffix: {out}"
+            "emit must not carry a `, sentence M` suffix: {out}"
         );
     }
 
@@ -3870,7 +3870,10 @@ mod tests {
     }
 
     #[test]
-    fn human_output_phase5_strips_sentence_suffix() {
+    fn human_output_strips_sentence_suffix_from_where_line() {
+        // Per modular_plan §"WHERE": every unit emits `WHERE: line N`
+        // only — no `, sentence M` suffix carried over from the
+        // pre-multi-unit shape.
         let mut app = test_app("First. Second. Third.\n");
         app.changes.entry(0).or_default().push(ChangeAnnotation {
             created_at: "2026-01-01T00:00:00Z".into(),
@@ -3883,7 +3886,7 @@ mod tests {
         assert!(out.contains("WHERE: line 1\n"), "{out}");
         assert!(
             !out.contains(", sentence "),
-            "phase-5 emit must not carry a `, sentence M` suffix: {out}"
+            "emit must not carry a `, sentence M` suffix: {out}"
         );
     }
 
