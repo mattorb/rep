@@ -379,41 +379,58 @@ fn build_section_table(doc: &Document) -> Vec<Section> {
         return sections;
     }
 
-    let mut starters: Vec<(usize, SectionKind)> = Vec::new();
+    // Carry the heading level alongside each starter so end_node_idx can
+    // later be computed using "next equal-or-shallower heading" per
+    // modular_plan §"Section unit". OL starters use level u8::MAX (no
+    // heading-nesting interaction; OL section ends at next heading or
+    // end of doc). PreHeading uses level 0 conceptually but never plays
+    // into the close-out logic since it's emitted separately below.
+    let mut starters: Vec<(usize, SectionKind, u8)> = Vec::new();
     let mut seen_heading = false;
-    let mut last_starter_was_ol = false;
+    let mut current_top_ol_list_id: Option<usize> = None;
     for (i, node) in doc.nodes.iter().enumerate() {
         match node {
-            DocNode::Heading { .. } => {
-                starters.push((i, SectionKind::Heading));
+            DocNode::Heading { level, .. } => {
+                starters.push((i, SectionKind::Heading, *level));
                 seen_heading = true;
-                last_starter_was_ol = false;
+                current_top_ol_list_id = None;
             }
             DocNode::ListItem {
                 ordered: true,
                 depth: 0,
+                list_id,
                 ..
             } if !seen_heading => {
-                // Open a new OL-section starter only at the first OL item of
-                // a top-level OL run; subsequent items fold into the same
-                // section.
-                if !last_starter_was_ol {
-                    starters.push((i, SectionKind::Ol));
-                    last_starter_was_ol = true;
+                // Open a new OL starter only at the FIRST top-level item
+                // of a new list (different list_id). Top-level items of
+                // the same list — even with nested children sandwiched
+                // between them — fold into one section.
+                if current_top_ol_list_id != Some(*list_id) {
+                    starters.push((i, SectionKind::Ol, u8::MAX));
+                    current_top_ol_list_id = Some(*list_id);
                 }
             }
+            DocNode::ListItem { list_id, .. } if current_top_ol_list_id == Some(*list_id) => {
+                // Nested item of the active OL list — keeps the run open.
+            }
             _ => {
-                // Anything that's not a contiguous OL item resets the
-                // run-fold. The next OL would start a new section starter
-                // again — but only if `seen_heading` is still false.
-                last_starter_was_ol = false;
+                // Any non-list / different-list / non-heading node closes
+                // the active OL run. The next top-level OL with a fresh
+                // list_id will start a new section (still gated on
+                // !seen_heading per the pinned rule).
+                current_top_ol_list_id = None;
             }
         }
     }
 
-    // Pre-heading "section 0" — present only when the pre-starter region has
-    // any selectable node.
-    let first_starter = starters.first().map_or(n, |(i, _)| *i);
+    // Pre-heading "section 0" — present only when at least one pre-starter
+    // node would carry a paragraph-unit anchor (i.e. has selectable
+    // content per the wordless-skip rule). A heading-less document with
+    // no OL starter falls through this check (first_starter == n,
+    // first_starter > 0 is true but no real sections follow); skip
+    // emitting a PreHeading in that case so prose-only docs end up with
+    // an empty section table.
+    let first_starter = starters.first().map_or(n, |(i, _, _)| *i);
     let pre_has_content = (0..first_starter).any(|i| match &doc.nodes[i] {
         DocNode::ThematicBreak { .. } => false,
         DocNode::Heading { text, .. } => !text.is_empty(),
@@ -421,7 +438,8 @@ fn build_section_table(doc: &Document) -> Vec<Section> {
         DocNode::ListItem { text, .. } => !text.is_empty(),
         DocNode::CodeBlock { content, .. } => !content.is_empty(),
     });
-    if first_starter > 0 && pre_has_content {
+    let has_real_starters = !starters.is_empty();
+    if first_starter > 0 && pre_has_content && has_real_starters {
         sections.push(Section {
             start_node_idx: 0,
             end_node_idx: first_starter - 1,
@@ -429,8 +447,16 @@ fn build_section_table(doc: &Document) -> Vec<Section> {
         });
     }
 
-    for (i, &(start, kind)) in starters.iter().enumerate() {
-        let next_start = starters.get(i + 1).map_or(n, |(j, _)| *j);
+    for (i, &(start, kind, level)) in starters.iter().enumerate() {
+        // A heading at level L ends at the NEXT starter at level <= L,
+        // so subordinate (deeper) headings don't close the parent's
+        // section span. OL starters and (conceptually) PreHeading use
+        // level u8::MAX so the next ANY starter closes them.
+        let next_start = starters
+            .iter()
+            .skip(i + 1)
+            .find(|(_, _, l)| *l <= level)
+            .map_or(n, |(j, _, _)| *j);
         let end = next_start - 1;
         sections.push(Section {
             start_node_idx: start,
@@ -502,6 +528,74 @@ mod tests {
         let idx = build("---\n\n# Heading");
         assert_eq!(idx.sections.len(), 1);
         assert_eq!(idx.sections[0].kind, SectionKind::Heading);
+    }
+
+    #[test]
+    fn section_table_prose_only_doc_has_no_sections() {
+        // Per modular_plan §"Section unit": a document with no headings
+        // and no top-level OL has no section starters at all — section
+        // nav is a no-op, not a single-PreHeading-section walk.
+        let idx = build("Just plain prose. No headings.");
+        assert!(
+            idx.sections.is_empty(),
+            "prose-only doc should have zero sections, got {:?}",
+            idx.sections
+        );
+    }
+
+    #[test]
+    fn section_table_subordinate_heading_does_not_close_parent_section() {
+        // Per modular_plan §"Section unit": "Nested heading levels nest.
+        // ## sub inside a # parent does not end # parent's section; the
+        // section ends at the next #-or-shallower heading."
+        let idx = build("# A\n\nbody\n\n## sub\n\nmore body\n\n# B\n\nbody B");
+        let kinds: Vec<_> = idx.sections.iter().map(|s| s.kind).collect();
+        // Three section starters: A, sub, B. (Each subordinate heading
+        // is itself addressable as a section.)
+        assert_eq!(kinds.len(), 3);
+        // Section A spans through the body of sub up to (but not
+        // including) section B's start.
+        let sec_a = idx
+            .sections
+            .iter()
+            .find(|s| s.kind == SectionKind::Heading && s.start_node_idx == 0)
+            .expect("section A");
+        let sec_b = idx
+            .sections
+            .iter()
+            .filter(|s| s.kind == SectionKind::Heading)
+            .nth(2)
+            .expect("section B");
+        assert!(
+            sec_a.end_node_idx >= sec_b.start_node_idx - 1,
+            "A.end ({}) should reach up to B.start - 1 ({})",
+            sec_a.end_node_idx,
+            sec_b.start_node_idx - 1
+        );
+        assert!(
+            sec_a.end_node_idx > 0,
+            "section A must include nodes after the heading; ended at {}",
+            sec_a.end_node_idx
+        );
+    }
+
+    #[test]
+    fn section_table_top_level_ol_with_nested_items_stays_one_section() {
+        // Per modular_plan §"Section unit": "A section started by a
+        // top-level OL spans the entire list (not one section per
+        // item)." Nested items between top-level items are still part
+        // of the same list and must not split the section.
+        let idx = build("1. first\n   - nested bullet\n2. second\n3. third");
+        let ol_sections: Vec<_> = idx
+            .sections
+            .iter()
+            .filter(|s| s.kind == SectionKind::Ol)
+            .collect();
+        assert_eq!(
+            ol_sections.len(),
+            1,
+            "expected one OL section spanning the whole list, got {ol_sections:?}"
+        );
     }
 
     #[test]

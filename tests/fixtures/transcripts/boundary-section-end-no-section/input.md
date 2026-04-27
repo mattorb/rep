@@ -1,1 +1,3 @@
-Just plain prose with no headings or top-level OL.
+# Only heading
+
+A paragraph under the heading.
