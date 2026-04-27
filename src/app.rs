@@ -3688,6 +3688,26 @@ mod tests {
     }
 
     #[test]
+    fn strike_refused_in_word_mode_with_status_message() {
+        // toggle_strike() in any non-Sentence unit refuses with a clear
+        // status; storage is sentence-keyed today so word/line strikes
+        // need a wider model. Locks the phase-7 follow-up behavior.
+        let mut app = test_app("alpha beta gamma\n");
+        app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+        app.handle_key(key_char('x'));
+        assert!(
+            !app.strikes.contains_key(&0),
+            "strike must NOT be applied in word mode"
+        );
+        assert!(
+            app.status.contains("Strike (`x`) targets sentences only"),
+            "status: {}",
+            app.status
+        );
+    }
+
+    #[test]
     fn human_output_strike_emits_delete_action_and_extracts_sentence_text() {
         let mut app = test_app("Strike this. Keep this.\n");
         app.strikes.entry(0).or_default().insert(0);
@@ -3968,7 +3988,10 @@ mod tests {
             .find(|l| l.contains("target: "))
             .expect("target line present");
         assert!(
-            !target_line.trim_end_matches('"').trim_start().contains('\n'),
+            !target_line
+                .trim_end_matches('"')
+                .trim_start()
+                .contains('\n'),
             "target text must be single-line: {target_line}"
         );
     }
