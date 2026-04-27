@@ -2580,73 +2580,35 @@ impl App {
 
             if let Some(changes) = self.changes.get(&node_idx) {
                 for change in changes {
-                    let (where_line, sentence_suffix) = self.where_for_annotation(
-                        change.target_unit,
+                    self.emit_annotation_block(
+                        &mut out,
                         node_idx,
-                        change.sentence_index,
                         source_line,
+                        &line_clean,
+                        "change",
+                        "CHANGE",
+                        change.target_unit,
+                        change.sentence_index,
+                        change.sentence_text.as_deref(),
+                        &change.change,
                     );
-                    let target = change
-                        .sentence_text
-                        .as_deref()
-                        .map(|s| clean_context(s, EMIT_TARGET_MAX_CHARS))
-                        .unwrap_or_else(|| line_clean.clone());
-                    let (prev_clean_line, next_clean_line) = self.context_lines(where_line);
-                    out.push('\n');
-                    out.push_str("ACTION: change\n");
-                    out.push_str(&format!(
-                        "WHERE: line {}{}\n",
-                        where_line + 1,
-                        sentence_suffix
-                    ));
-                    out.push_str("CONTEXT:\n");
-                    if !prev_clean_line.is_empty() {
-                        out.push_str(&format!("  prev: \"{prev_clean_line}\"\n"));
-                    }
-                    out.push_str(&format!("  target: \"{target}\"\n"));
-                    if !next_clean_line.is_empty() {
-                        out.push_str(&format!("  next: \"{next_clean_line}\"\n"));
-                    }
-                    out.push_str(&format!(
-                        "CHANGE: \"{}\"\n",
-                        clean_context(&change.change, EMIT_PAYLOAD_MAX_CHARS)
-                    ));
                 }
             }
 
             if let Some(feedbacks) = self.feedbacks.get(&node_idx) {
                 for feedback in feedbacks {
-                    let (where_line, sentence_suffix) = self.where_for_annotation(
-                        feedback.target_unit,
+                    self.emit_annotation_block(
+                        &mut out,
                         node_idx,
-                        feedback.sentence_index,
                         source_line,
+                        &line_clean,
+                        "revise-to-incorporate-feedback",
+                        "FEEDBACK",
+                        feedback.target_unit,
+                        feedback.sentence_index,
+                        feedback.sentence_text.as_deref(),
+                        &feedback.feedback,
                     );
-                    let target = feedback
-                        .sentence_text
-                        .as_deref()
-                        .map(|s| clean_context(s, EMIT_TARGET_MAX_CHARS))
-                        .unwrap_or_else(|| line_clean.clone());
-                    let (prev_clean_line, next_clean_line) = self.context_lines(where_line);
-                    out.push('\n');
-                    out.push_str("ACTION: revise-to-incorporate-feedback\n");
-                    out.push_str(&format!(
-                        "WHERE: line {}{}\n",
-                        where_line + 1,
-                        sentence_suffix
-                    ));
-                    out.push_str("CONTEXT:\n");
-                    if !prev_clean_line.is_empty() {
-                        out.push_str(&format!("  prev: \"{prev_clean_line}\"\n"));
-                    }
-                    out.push_str(&format!("  target: \"{target}\"\n"));
-                    if !next_clean_line.is_empty() {
-                        out.push_str(&format!("  next: \"{next_clean_line}\"\n"));
-                    }
-                    out.push_str(&format!(
-                        "FEEDBACK: \"{}\"\n",
-                        clean_context(&feedback.feedback, EMIT_PAYLOAD_MAX_CHARS)
-                    ));
                 }
             }
 
@@ -2656,37 +2618,18 @@ impl App {
             ] {
                 let Some(inserts) = bucket else { continue };
                 for insert in inserts {
-                    let (where_line, sentence_suffix) = self.where_for_annotation(
-                        insert.target_unit,
+                    self.emit_annotation_block(
+                        &mut out,
                         node_idx,
-                        insert.sentence_index,
                         source_line,
+                        &line_clean,
+                        action,
+                        "INSERT",
+                        insert.target_unit,
+                        insert.sentence_index,
+                        insert.sentence_text.as_deref(),
+                        &insert.text,
                     );
-                    let target = insert
-                        .sentence_text
-                        .as_deref()
-                        .map(|s| clean_context(s, EMIT_TARGET_MAX_CHARS))
-                        .unwrap_or_else(|| line_clean.clone());
-                    let (prev_clean_line, next_clean_line) = self.context_lines(where_line);
-                    out.push('\n');
-                    out.push_str(&format!("ACTION: {action}\n"));
-                    out.push_str(&format!(
-                        "WHERE: line {}{}\n",
-                        where_line + 1,
-                        sentence_suffix
-                    ));
-                    out.push_str("CONTEXT:\n");
-                    if !prev_clean_line.is_empty() {
-                        out.push_str(&format!("  prev: \"{prev_clean_line}\"\n"));
-                    }
-                    out.push_str(&format!("  target: \"{target}\"\n"));
-                    if !next_clean_line.is_empty() {
-                        out.push_str(&format!("  next: \"{next_clean_line}\"\n"));
-                    }
-                    out.push_str(&format!(
-                        "INSERT: \"{}\"\n",
-                        clean_context(&insert.text, EMIT_PAYLOAD_MAX_CHARS)
-                    ));
                 }
             }
 
@@ -2733,6 +2676,52 @@ impl App {
         }
 
         out
+    }
+
+    /// Append a single annotation block (ACTION / WHERE / CONTEXT /
+    /// payload) to `out`. Centralizes the change / feedback / insert-* /
+    /// emit shape so the block grows in one place. Strikes follow a
+    /// different shape (sentence-keyed, no target_unit) so they stay
+    /// inline.
+    #[allow(clippy::too_many_arguments)]
+    fn emit_annotation_block(
+        &self,
+        out: &mut String,
+        node_idx: usize,
+        node_first_line: usize,
+        line_clean: &str,
+        action: &str,
+        payload_key: &str,
+        target_unit: SelectionUnit,
+        sentence_index: Option<usize>,
+        sentence_text: Option<&str>,
+        payload_text: &str,
+    ) {
+        let (where_line, sentence_suffix) =
+            self.where_for_annotation(target_unit, node_idx, sentence_index, node_first_line);
+        let target = sentence_text
+            .map(|s| clean_context(s, EMIT_TARGET_MAX_CHARS))
+            .unwrap_or_else(|| line_clean.to_owned());
+        let (prev_clean_line, next_clean_line) = self.context_lines(where_line);
+        out.push('\n');
+        out.push_str(&format!("ACTION: {action}\n"));
+        out.push_str(&format!(
+            "WHERE: line {}{}\n",
+            where_line + 1,
+            sentence_suffix
+        ));
+        out.push_str("CONTEXT:\n");
+        if !prev_clean_line.is_empty() {
+            out.push_str(&format!("  prev: \"{prev_clean_line}\"\n"));
+        }
+        out.push_str(&format!("  target: \"{target}\"\n"));
+        if !next_clean_line.is_empty() {
+            out.push_str(&format!("  next: \"{next_clean_line}\"\n"));
+        }
+        out.push_str(&format!(
+            "{payload_key}: \"{}\"\n",
+            clean_context(payload_text, EMIT_PAYLOAD_MAX_CHARS)
+        ));
     }
 
     fn node_line_context(&self, node_idx: usize) -> (usize, String) {
