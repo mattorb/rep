@@ -897,14 +897,7 @@ impl App {
             crate::selection::model::NavOutcome::Moved(a) => {
                 self.selection_state.anchor = a;
                 if a.unit == SelectionUnit::Section {
-                    let end = self
-                        .index
-                        .sections
-                        .iter()
-                        .find(|s| s.start_node_idx == a.node_idx)
-                        .map(|s| s.end_node_idx + 1)
-                        .unwrap_or_else(|| self.doc.node_count());
-                    self.section_highlight_range = Some(a.node_idx..end);
+                    self.section_highlight_range = self.section_span_for(a.node_idx);
                 } else {
                     // Moved within a non-Section unit — drop any stale
                     // section highlight from a previous Section-mode
@@ -960,19 +953,27 @@ impl App {
         let new_anchor =
             crate::selection::navigator::clamp(&self.index, self.selection_state.anchor, target);
         self.selection_state.anchor = new_anchor;
-        // Section mode also lights up the section span highlight.
+        // Section mode lights up the section span highlight; any other
+        // unit clears stale highlight from a previous Section entry.
         if new_anchor.unit == SelectionUnit::Section {
-            let end = self
-                .index
-                .sections
-                .iter()
-                .find(|s| s.start_node_idx == new_anchor.node_idx)
-                .map(|s| s.end_node_idx + 1)
-                .unwrap_or_else(|| self.doc.node_count());
-            self.section_highlight_range = Some(new_anchor.node_idx..end);
+            self.section_highlight_range = self.section_span_for(new_anchor.node_idx);
         } else {
             self.section_highlight_range = None;
         }
+    }
+
+    /// Compute the inclusive-start, exclusive-end node range for the section
+    /// starting at `node_idx`. Falls back to the rest of the document if the
+    /// section table doesn't carry an entry for this node.
+    fn section_span_for(&self, node_idx: usize) -> Option<Range<usize>> {
+        let end = self
+            .index
+            .sections
+            .iter()
+            .find(|s| s.start_node_idx == node_idx)
+            .map(|s| s.end_node_idx + 1)
+            .unwrap_or_else(|| self.doc.node_count());
+        Some(node_idx..end)
     }
 
     /// Stable string for the mode indicator in the left zone of the footer.
@@ -1014,15 +1015,7 @@ impl App {
             crate::selection::model::NavOutcome::Moved(a) => {
                 self.selection_state.anchor.node_idx = a.node_idx;
                 self.selection_state.anchor.unit_idx = 0;
-                // Look up the section's end to compute the highlight range.
-                let end = self
-                    .index
-                    .sections
-                    .iter()
-                    .find(|s| s.start_node_idx == a.node_idx)
-                    .map(|s| s.end_node_idx + 1)
-                    .unwrap_or_else(|| self.doc.node_count());
-                self.section_highlight_range = Some(a.node_idx..end);
+                self.section_highlight_range = self.section_span_for(a.node_idx);
                 self.status = format!("Section at node {}.", a.node_idx + 1);
             }
             crate::selection::model::NavOutcome::Boundary => {
