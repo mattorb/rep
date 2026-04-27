@@ -189,17 +189,11 @@ pub(crate) fn node_selection_plain_text(node: &DocNode, source_lines: &[String])
 
 fn strip_list_marker(text: &str) -> String {
     let trimmed = text.trim_start();
-    let stripped = if let Some(rest) = strip_ordered_marker(trimmed) {
-        rest
-    } else if let Some(rest) = trimmed
-        .strip_prefix("- ")
+    let stripped = strip_ordered_marker(trimmed)
+        .or_else(|| trimmed.strip_prefix("- "))
         .or_else(|| trimmed.strip_prefix("* "))
         .or_else(|| trimmed.strip_prefix("+ "))
-    {
-        rest
-    } else {
-        trimmed
-    };
+        .unwrap_or(trimmed);
     let stripped = stripped
         .strip_prefix("[ ] ")
         .or_else(|| stripped.strip_prefix("[x] "))
