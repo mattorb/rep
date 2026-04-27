@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write;
 use std::fs;
 use std::ops::Range;
 use std::path::PathBuf;
@@ -2579,7 +2580,7 @@ impl App {
         touched.extend(self.strikes.keys().copied());
 
         let mut out = String::new();
-        out.push_str(&format!("FILE: {}\n", self.source_path.display()));
+        let _ = writeln!(out, "FILE: {}", self.source_path.display());
 
         if touched.is_empty() {
             out.push_str("\nNo actions.\n");
@@ -2704,18 +2705,19 @@ impl App {
         );
         Self::emit_action_header(out, action, where_line);
         self.emit_context_block(out, where_line, &target);
-        out.push_str(&format!(
-            "{payload_key}: \"{}\"\n",
+        let _ = writeln!(
+            out,
+            "{payload_key}: \"{}\"",
             clean_context(payload_text, EMIT_PAYLOAD_MAX_CHARS)
-        ));
+        );
     }
 
     /// Write `\nACTION: <name>\nWHERE: line N\n` — shared by every
     /// emit shape (changes / feedbacks / inserts / strikes).
     fn emit_action_header(out: &mut String, action: &str, where_line: usize) {
         out.push('\n');
-        out.push_str(&format!("ACTION: {action}\n"));
-        out.push_str(&format!("WHERE: line {}\n", where_line + 1));
+        let _ = writeln!(out, "ACTION: {action}");
+        let _ = writeln!(out, "WHERE: line {}", where_line + 1);
     }
 
     /// Write the CONTEXT block: `CONTEXT:\n  prev: "..." (if any)\n  target: "..."\n  next: "..." (if any)\n`.
@@ -2724,11 +2726,11 @@ impl App {
         let (prev_clean_line, next_clean_line) = self.context_lines(where_line);
         out.push_str("CONTEXT:\n");
         if !prev_clean_line.is_empty() {
-            out.push_str(&format!("  prev: \"{prev_clean_line}\"\n"));
+            let _ = writeln!(out, "  prev: \"{prev_clean_line}\"");
         }
-        out.push_str(&format!("  target: \"{target}\"\n"));
+        let _ = writeln!(out, "  target: \"{target}\"");
         if !next_clean_line.is_empty() {
-            out.push_str(&format!("  next: \"{next_clean_line}\"\n"));
+            let _ = writeln!(out, "  next: \"{next_clean_line}\"");
         }
     }
 
@@ -4478,11 +4480,11 @@ mod tests {
         // That row must show "tall line 0", not be blank.
         let mut content = String::new();
         for i in 0..10 {
-            content.push_str(&format!("- Item {i}\n"));
+            let _ = writeln!(content, "- Item {i}");
         }
         content.push('\n'); // blank line separates list from following paragraph
         for j in 0..12 {
-            content.push_str(&format!("tall line {j}\n"));
+            let _ = writeln!(content, "tall line {j}");
         }
 
         let mut app = test_app(&content);
