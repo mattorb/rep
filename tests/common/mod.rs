@@ -72,7 +72,8 @@ pub fn parse_keys(body: &str) -> Vec<KeyEvent> {
 /// The emit is normalized so the absolute `FILE:` path is replaced with the
 /// stable token `<INPUT>` — goldens are otherwise machine-dependent.
 pub fn replay(input_md: &Path, keys: &[KeyEvent]) -> (String, String) {
-    let mut app = App::load(input_md.to_path_buf()).expect("App::load failed");
+    let mut app = App::load(input_md.to_path_buf())
+        .unwrap_or_else(|e| panic!("App::load({}) failed: {e}", input_md.display()));
     for &k in keys {
         app.handle_key(k);
         if app.should_quit {
