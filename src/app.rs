@@ -777,8 +777,7 @@ impl App {
         // find_search_matches returns sentence-keyed positions, so the
         // search jump always anchors at sentence granularity regardless of
         // the active unit at search time.
-        self.selection_state.anchor =
-            SelectionAnchor::new(ni, SelectionUnit::Sentence, si);
+        self.selection_state.anchor = SelectionAnchor::new(ni, SelectionUnit::Sentence, si);
         self.section_highlight_range = None;
         self.clamp_sentence();
         self.status = format!(
@@ -2705,8 +2704,7 @@ impl App {
                             source_line + prefix.bytes().filter(|&b| b == b'\n').count()
                         })
                         .unwrap_or(source_line);
-                    let (prev_clean_line, next_clean_line) =
-                        self.context_lines(strike_line);
+                    let (prev_clean_line, next_clean_line) = self.context_lines(strike_line);
                     out.push('\n');
                     out.push_str("ACTION: delete this\n");
                     out.push_str(&format!("WHERE: line {}\n", strike_line + 1));
@@ -2790,9 +2788,7 @@ impl App {
                     .unwrap_or(node_first_line);
                 (where_line, String::new())
             }
-            SelectionUnit::Paragraph | SelectionUnit::Section => {
-                (node_first_line, String::new())
-            }
+            SelectionUnit::Paragraph | SelectionUnit::Section => (node_first_line, String::new()),
         }
     }
 
