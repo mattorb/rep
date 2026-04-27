@@ -320,6 +320,11 @@ pub struct App {
     last_search: Option<String>,
     status: String,
     notification: Option<String>,
+    /// Transient navigator feedback (e.g. `"at end"`, `"at start"`). Lives in
+    /// the right zone of the two-zone footer alongside `notification`. Cleared
+    /// at the top of `handle_normal_key` so the message is shown for exactly
+    /// one keypress before being overwritten or cleared.
+    nav_feedback: Option<String>,
     pub should_quit: bool,
     pub silent_quit: bool,
     show_link_popup: bool,
@@ -383,6 +388,7 @@ impl App {
             ast_scroll: 0,
             ast_lines,
             notification: None,
+            nav_feedback: None,
             scroll_offset: 0,
             list_inner: Rect::default(),
             cached_node_heights: Vec::new(),
@@ -415,6 +421,7 @@ impl App {
 
     fn handle_normal_key(&mut self, key: KeyEvent) {
         self.notification = None;
+        self.nav_feedback = None;
 
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.should_quit = true;
@@ -504,26 +511,10 @@ impl App {
                 self.status = "Insert after: type text and press Enter. Esc cancels.".to_string();
             }
             KeyCode::Char('e') => self.begin_edit_annotation(),
-            KeyCode::Char('J') => self.move_section(true),
-            KeyCode::Char('K') => self.move_section(false),
-            KeyCode::Char('L') => self.move_block(true),
-            KeyCode::Char('H') => self.move_block(false),
-            KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                self.move_section(true)
-            }
-            KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                self.move_section(false)
-            }
-            KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                self.move_block(true)
-            }
-            KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                self.move_block(false)
-            }
-            KeyCode::Down => self.move_node(1),
-            KeyCode::Up => self.move_node(-1),
-            KeyCode::Char('j') | KeyCode::Right => self.move_sentence(true),
-            KeyCode::Char('k') | KeyCode::Left => self.move_sentence(false),
+            KeyCode::Char(' ') => self.mode_cycle(true),
+            KeyCode::Char('j') | KeyCode::Down | KeyCode::Right => self.move_active_unit(true),
+            KeyCode::Char('k') | KeyCode::Up | KeyCode::Left => self.move_active_unit(false),
+            KeyCode::Backspace => self.mode_cycle(false),
             KeyCode::Char('i') => {
                 self.show_ast = true;
                 self.ast_scroll = 0;
@@ -532,8 +523,6 @@ impl App {
             KeyCode::Char('u') if !self.reveal_links_for_current_sentence() => {
                 self.status = "No markdown links in current sentence.".to_string();
             }
-            KeyCode::Char('l') => self.move_sentence(true),
-            KeyCode::Char('h') => self.move_sentence(false),
             KeyCode::Char('x') => self.toggle_strike(),
             KeyCode::Char('r') => {
                 let output = self.to_human_output();
@@ -854,42 +843,101 @@ impl App {
         self.status = format!("Node {}/{}", self.selection_state.anchor.node_idx + 1, self.doc.node_count());
     }
 
-    /// h/j/k/l: move sentence by sentence, crossing node boundaries.
-    /// Phase 3a: thin wrapper around `selection::navigator::next/prev` with
-    /// `SelectionUnit::Sentence`. Parity-preserving — the navigator walks the
-    /// index's sentence linear-order table, which matches the legacy
-    /// `next_node_with_sentences`-keyed traversal.
-    fn move_sentence(&mut self, forward: bool) {
+    /// j / k / Down / Up / Right / Left — move by the currently active
+    /// selection unit. Pure delegate to `selection::navigator::next/prev`.
+    /// On `Boundary`, set `nav_feedback` ("at end" / "at start") for one
+    /// keypress in the right zone of the footer.
+    fn move_active_unit(&mut self, forward: bool) {
         if self.doc.node_count() == 0 {
             return;
         }
         self.section_highlight_range = None;
-        let mut sentence_anchor = self.selection_state.anchor;
-        sentence_anchor.unit = SelectionUnit::Sentence;
         let outcome = if forward {
-            crate::selection::navigator::next(&self.index, sentence_anchor)
+            crate::selection::navigator::next(&self.index, self.selection_state.anchor)
         } else {
-            crate::selection::navigator::prev(&self.index, sentence_anchor)
+            crate::selection::navigator::prev(&self.index, self.selection_state.anchor)
         };
-        if let crate::selection::model::NavOutcome::Moved(a) = outcome {
-            self.selection_state.anchor = a;
+        match outcome {
+            crate::selection::model::NavOutcome::Moved(a) => {
+                self.selection_state.anchor = a;
+                if a.unit == SelectionUnit::Section {
+                    let end = self
+                        .index
+                        .sections
+                        .iter()
+                        .find(|s| s.start_node_idx == a.node_idx)
+                        .map(|s| s.end_node_idx + 1)
+                        .unwrap_or_else(|| self.doc.node_count());
+                    self.section_highlight_range = Some(a.node_idx..end);
+                }
+            }
+            crate::selection::model::NavOutcome::Boundary => {
+                self.nav_feedback = Some(
+                    if forward { "at end" } else { "at start" }.to_string(),
+                );
+            }
         }
-        let total = self
-            .index
-            .nodes
-            .get(self.selection_state.anchor.node_idx)
-            .map(|n| n.sentence_ranges.len())
+    }
+
+    /// Space (forward) / Backspace (reverse) — cycle the active selection
+    /// unit. Re-anchors via `navigator::clamp` per the pinned rules.
+    fn mode_cycle(&mut self, forward: bool) {
+        let order = [
+            SelectionUnit::Section,
+            SelectionUnit::Paragraph,
+            SelectionUnit::Line,
+            SelectionUnit::Sentence,
+            SelectionUnit::Word,
+        ];
+        let i = order
+            .iter()
+            .position(|u| *u == self.selection_state.anchor.unit)
             .unwrap_or(0);
-        self.status = if total == 0 {
-            format!("Node {} has no sentences.", self.selection_state.anchor.node_idx + 1)
+        let next_i = if forward {
+            (i + 1) % order.len()
         } else {
-            format!(
-                "Sentence {}/{} on node {}",
-                self.selection_state.anchor.unit_idx + 1,
-                total,
-                self.selection_state.anchor.node_idx + 1
-            )
+            (i + order.len() - 1) % order.len()
         };
+        let target = order[next_i];
+        let new_anchor = crate::selection::navigator::clamp(
+            &self.index,
+            self.selection_state.anchor,
+            target,
+        );
+        self.selection_state.anchor = new_anchor;
+        // Section mode also lights up the section span highlight.
+        if new_anchor.unit == SelectionUnit::Section {
+            let end = self
+                .index
+                .sections
+                .iter()
+                .find(|s| s.start_node_idx == new_anchor.node_idx)
+                .map(|s| s.end_node_idx + 1)
+                .unwrap_or_else(|| self.doc.node_count());
+            self.section_highlight_range = Some(new_anchor.node_idx..end);
+        } else {
+            self.section_highlight_range = None;
+        }
+    }
+
+    /// Stable string for the mode indicator in the left zone of the footer.
+    pub fn mode_indicator(&self) -> &'static str {
+        match self.selection_state.anchor.unit {
+            SelectionUnit::Section => "section",
+            SelectionUnit::Paragraph => "paragraph",
+            SelectionUnit::Line => "line",
+            SelectionUnit::Sentence => "sentence",
+            SelectionUnit::Word => "word",
+        }
+    }
+
+    /// Phase-3a-compat shim still consumed by some legacy app tests; phase 6
+    /// retires the move_sentence name with the test migration.
+    fn move_sentence(&mut self, forward: bool) {
+        let saved_unit = self.selection_state.anchor.unit;
+        self.selection_state.anchor.unit = SelectionUnit::Sentence;
+        self.move_active_unit(forward);
+        self.selection_state.anchor.unit = saved_unit;
     }
 
     /// J/K: jump to the next/prev section heading or top-level ordered list item.
@@ -1525,22 +1573,29 @@ impl App {
         }
         frame.render_widget(Paragraph::new(Text::from(visible)), list_inner);
 
-        let footer_line = if let Some(note) = &self.notification {
-            Line::from(Span::styled(
-                format!(" {note}"),
-                Style::default().fg(Color::Green),
-            ))
+        // Two-zone footer: persistent left mode indicator + transient right
+        // zone (nav feedback / notification / hint). Mode indicator is never
+        // truncated; right zone shrinks first under width pressure.
+        let mode_text = format!(" mode: {}", self.mode_indicator());
+        let mode_style = Style::default().fg(Color::Cyan);
+        let hint_style = Style::default().fg(Color::DarkGray);
+        let right_text = if let Some(fb) = &self.nav_feedback {
+            (fb.clone(), Style::default().fg(Color::Yellow))
+        } else if let Some(note) = &self.notification {
+            (note.clone(), Style::default().fg(Color::Green))
         } else {
-            let hint_style = Style::default().fg(Color::DarkGray);
-            let left = " h/j/k/l/x/c/f/b/a/r";
-            let right = "? for help ";
-            let gap = (layout[1].width as usize).saturating_sub(left.len() + right.len());
-            Line::from(vec![
-                Span::styled(left, hint_style),
-                Span::raw(" ".repeat(gap)),
-                Span::styled(right, hint_style),
-            ])
+            ("? for help ".to_string(), hint_style)
         };
+        let total_width = layout[1].width as usize;
+        let mode_w = mode_text.len();
+        let right_w_target = right_text.0.len().min(total_width.saturating_sub(mode_w + 1));
+        let right_str: String = right_text.0.chars().take(right_w_target).collect();
+        let gap = total_width.saturating_sub(mode_w + right_str.len());
+        let footer_line = Line::from(vec![
+            Span::styled(mode_text, mode_style),
+            Span::raw(" ".repeat(gap)),
+            Span::styled(right_str, right_text.1),
+        ]);
         frame.render_widget(Paragraph::new(footer_line), layout[1]);
 
         let popup_spec: Option<(&str, &str, &str, &str)> = match &self.input_mode {
@@ -2717,7 +2772,7 @@ mod tests {
             .or_default()
             .push(make_change("for first"));
         // move cursor to sentence 1
-        app.handle_key(key_char('l'));
+        app.handle_key(key_char('j'));
         app.handle_key(key_char('c'));
         // should start a NEW change, not edit the one on sentence 0
         assert_eq!(app.input_mode, InputMode::Change);
@@ -2761,11 +2816,30 @@ mod tests {
     }
 
     #[test]
-    fn footer_shows_key_hints() {
+    fn footer_shows_mode_indicator_and_help_hint() {
         let mut app = test_app("line\n");
         let t = render(&mut app);
         let hint_row = row(&t, 23);
-        assert!(hint_row.contains("j/k"), "key hints missing: {hint_row:?}");
+        assert!(
+            hint_row.contains("mode: sentence"),
+            "mode indicator missing in left zone: {hint_row:?}"
+        );
+        assert!(
+            hint_row.contains("? for help"),
+            "help hint missing in right zone: {hint_row:?}"
+        );
+    }
+
+    #[test]
+    fn footer_shows_boundary_feedback_after_overshoot() {
+        let mut app = test_app("Only sentence.\n");
+        app.handle_key(key_char('j'));
+        let t = render(&mut app);
+        let row23 = row(&t, 23);
+        assert!(
+            row23.contains("at end"),
+            "expected 'at end' nav_feedback: {row23:?}"
+        );
     }
 
     #[test]
@@ -3182,48 +3256,6 @@ mod tests {
         assert_eq!(app.selection_state.anchor.node_idx, 3, "should jump to tail");
         app.move_block(false);
         assert_eq!(app.selection_state.anchor.node_idx, 2, "should jump back");
-    }
-
-    #[test]
-    fn section_navigation_finds_headings_and_numbered_sections() {
-        // Intro / ## Heading A / text / 1. Heading B / text / - list item
-        let mut app =
-            test_app("Intro\n\n## Heading A\ntext\n\n1. Heading B\ntext\n\n- list item\n");
-        assert_eq!(app.selection_state.anchor.node_idx, 0);
-        app.move_section(true);
-        // node 1 = Heading "Heading A"
-        let heading_node = app.selection_state.anchor.node_idx;
-        assert!(
-            app.doc.nodes[heading_node].is_heading(),
-            "should land on heading: node {heading_node}"
-        );
-        app.move_section(true);
-        // node 3 = ordered ListItem "Heading B" (top-level numbered section)
-        let section_node = app.selection_state.anchor.node_idx;
-        assert!(
-            app.doc.nodes[section_node].is_section(),
-            "should land on section: node {section_node}"
-        );
-        app.move_section(false);
-        assert_eq!(app.selection_state.anchor.node_idx, heading_node, "should jump back to heading");
-    }
-
-    #[test]
-    fn section_navigation_works_for_numbered_sections() {
-        let mut app = test_app("Intro\n\n  1. First section\nline\n\n  2. Second section\n");
-        assert_eq!(app.selection_state.anchor.node_idx, 0);
-        app.move_section(true);
-        let first = app.selection_state.anchor.node_idx;
-        assert!(app.doc.nodes[first].is_section(), "first numbered section");
-        app.move_section(true);
-        let second = app.selection_state.anchor.node_idx;
-        assert!(
-            app.doc.nodes[second].is_section(),
-            "second numbered section"
-        );
-        assert!(second > first, "should be a later node");
-        app.move_section(false);
-        assert_eq!(app.selection_state.anchor.node_idx, first, "should jump back");
     }
 
     // ── Sentence context and highlight ────────────────────────────────────────

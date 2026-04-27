@@ -56,15 +56,15 @@ impl SelectionIndex {
         for (node_idx, node) in doc.nodes.iter().enumerate() {
             let plain = node_selection_plain_text(node, source_lines);
             let source_line_ranges = node_source_line_ranges(node, source_lines, &plain);
-            // Sentence-bearing rules (phase 3a parity-preserving):
+            // Sentence-bearing rules per modular_plan:
             //   - Paragraph: segment with the canonical segmenter.
-            //   - Heading / ListItem / CodeBlock: exactly one anchor covering
-            //     the full plain text (matches today's rendered_nodes
-            //     single_range behavior used by the legacy mover).
-            //   - ThematicBreak: zero.
-            // Phase 3b's modular_plan rules (no sentence anchors in code
-            // blocks; multiple sentences per ListItem) ship with the
-            // observable-change phase that regenerates affected goldens.
+            //   - Heading / ListItem: one anchor covering the full plain
+            //     text (matches today's rendered_nodes single_range count).
+            //     Multi-paragraph list items remain a known limitation; the
+            //     full item is one sentence anchor.
+            //   - CodeBlock: zero anchors (excluded from sentence-level
+            //     navigation per Pinned decisions § Movement rules).
+            //   - ThematicBreak: zero anchors.
             let sentence_ranges: Vec<Range<usize>> = if plain.is_empty() {
                 Vec::new()
             } else {
@@ -72,10 +72,8 @@ impl SelectionIndex {
                     DocNode::Paragraph { .. } => {
                         crate::selection::segment::segment_sentences(&plain)
                     }
-                    DocNode::Heading { .. }
-                    | DocNode::ListItem { .. }
-                    | DocNode::CodeBlock { .. } => vec![0..plain.len()],
-                    DocNode::ThematicBreak { .. } => Vec::new(),
+                    DocNode::Heading { .. } | DocNode::ListItem { .. } => vec![0..plain.len()],
+                    DocNode::CodeBlock { .. } | DocNode::ThematicBreak { .. } => Vec::new(),
                 }
             };
 
@@ -257,15 +255,17 @@ fn node_contributes_paragraph_anchor(node: &DocNode, plain: &str) -> bool {
     }
 }
 
-/// Build the section table.
+/// Build the section table per the pinned modular_plan rules.
 ///
-/// Phase 3a uses the legacy section model for parity with phase-0 transcripts:
-/// every node where `DocNode::is_section()` returns true is a section starter
-/// (including every top-level ordered list item, regardless of whether any
-/// heading precedes it). Phase 3b switches to the modular_plan rules
-/// (top-level OL counts as a starter only when no heading appears earlier;
-/// the OL spans the whole list rather than one section per item) and
-/// regenerates the affected goldens.
+/// - Headings always start a section.
+/// - A top-level ordered list counts as a section start **only when no
+///   `#`-level heading appears anywhere before it**. The OL section spans
+///   the whole list (all contiguous top-level OL items), not one section per
+///   item.
+/// - Pre-heading content (a "section 0") is present iff at least one node
+///   in the pre-starter region has selectable content.
+/// - Section endpoints are inclusive on both ends and run contiguously over
+///   `node_idx` values.
 fn build_section_table(doc: &Document) -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
     let n = doc.nodes.len();
@@ -274,15 +274,34 @@ fn build_section_table(doc: &Document) -> Vec<Section> {
     }
 
     let mut starters: Vec<(usize, SectionKind)> = Vec::new();
+    let mut seen_heading = false;
+    let mut last_starter_was_ol = false;
     for (i, node) in doc.nodes.iter().enumerate() {
         match node {
-            DocNode::Heading { .. } => starters.push((i, SectionKind::Heading)),
+            DocNode::Heading { .. } => {
+                starters.push((i, SectionKind::Heading));
+                seen_heading = true;
+                last_starter_was_ol = false;
+            }
             DocNode::ListItem {
                 ordered: true,
                 depth: 0,
                 ..
-            } => starters.push((i, SectionKind::Ol)),
-            _ => {}
+            } if !seen_heading => {
+                // Open a new OL-section starter only at the first OL item of
+                // a top-level OL run; subsequent items fold into the same
+                // section.
+                if !last_starter_was_ol {
+                    starters.push((i, SectionKind::Ol));
+                    last_starter_was_ol = true;
+                }
+            }
+            _ => {
+                // Anything that's not a contiguous OL item resets the
+                // run-fold. The next OL would start a new section starter
+                // again — but only if `seen_heading` is still false.
+                last_starter_was_ol = false;
+            }
         }
     }
 

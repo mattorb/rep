@@ -1,5 +1,7 @@
-# section nav over a top-level OL
-Shift+J
-Shift+J
-Shift+K
+# section nav over a single-section OL: cycle backward into Section then bump
+# the section boundary forward. Demonstrates boundary feedback in the right zone.
+Backspace
+Backspace
+Backspace
+j
 q
