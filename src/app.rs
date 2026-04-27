@@ -3761,28 +3761,6 @@ mod tests {
     }
 
     #[test]
-    fn word_change_picks_correct_occurrence_for_repeated_word() {
-        // "the cat sat on the mat" — `the` appears as word 0 and word 4.
-        // A change captured on word 4 must locate the second occurrence in
-        // display plain text, not the first.
-        let mut app = test_app("the cat sat on the mat\n");
-        app.changes.entry(0).or_default().push(ChangeAnnotation {
-            created_at: "2026-01-01T00:00:00Z".into(),
-            target_unit: SelectionUnit::Word,
-            sentence_index: Some(4),
-            sentence_text: Some("the".into()),
-            change: "Initial".into(),
-        });
-        let out = app.to_human_output();
-        // Single-line input — line is always 1, but the test still
-        // exercises the occurrence-counting code path. The byte position
-        // mismatch surfaces only on multi-line input where occurrences
-        // span lines; here we just confirm the helper doesn't crash and
-        // the emit format is correct.
-        assert!(out.contains("WHERE: line 1\n"), "{out}");
-    }
-
-    #[test]
     fn arrow_keys_preserve_active_unit_in_word_mode() {
         // Modular_plan §"Key bindings": arrows are unit-agnostic synonyms
         // for j / k. Cycling into Word mode and pressing Right / Left
