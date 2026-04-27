@@ -723,10 +723,7 @@ impl App {
             self.status = format!("No matches for \"{query}\".");
             return;
         }
-        let current = (
-            self.selection_state.anchor.node_idx,
-            self.selection_state.anchor.unit_idx,
-        );
+        let current = self.search_current_position();
         let target_idx = if forward {
             matches.iter().position(|m| *m >= current).unwrap_or(0)
         } else {
@@ -748,10 +745,7 @@ impl App {
             self.status = format!("No matches for \"{query}\".");
             return;
         }
-        let current = (
-            self.selection_state.anchor.node_idx,
-            self.selection_state.anchor.unit_idx,
-        );
+        let current = self.search_current_position();
         let target_idx = if forward {
             matches.iter().position(|m| *m > current).unwrap_or(0)
         } else {
@@ -761,6 +755,21 @@ impl App {
                 .unwrap_or(matches.len() - 1)
         };
         self.apply_search_target(&query, &matches, target_idx);
+    }
+
+    /// `(node_idx, sentence_idx)` cursor position used to seed forward /
+    /// backward search match lookup. In Sentence mode this is the literal
+    /// anchor; in any other mode the unit_idx is not a sentence index, so
+    /// we treat the cursor as positioned at sentence 0 of the current node
+    /// — forward search finds the first match in or after this node, and
+    /// backward search finds the last match strictly before this node.
+    fn search_current_position(&self) -> (usize, usize) {
+        let n = self.selection_state.anchor.node_idx;
+        if self.selection_state.anchor.unit == SelectionUnit::Sentence {
+            (n, self.selection_state.anchor.unit_idx)
+        } else {
+            (n, 0)
+        }
     }
 
     fn apply_search_target(&mut self, query: &str, matches: &[(usize, usize)], target_idx: usize) {
