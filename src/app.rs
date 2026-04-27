@@ -2295,13 +2295,18 @@ impl App {
                 // drift when markers (footnote refs, task markers, etc.)
                 // appear in display but not in selection plain text — the
                 // word index aligns to selection plain text, not display.
-                // Match by text instead so the painted range tracks the
-                // right word regardless of marker visibility.
+                // Count which occurrence the word is in selection plain
+                // text so repeated words map to the right display position.
                 let node_idx = self.selection_state.anchor.node_idx;
                 let index_node = self.index.nodes.get(node_idx)?;
                 let word_range = index_node.word_ranges.get(unit_idx)?;
                 let word_text = index_node.selection_plain_text.get(word_range.clone())?;
-                let pos = plain.find(word_text)?;
+                let occurrence = count_occurrences_before(
+                    &index_node.selection_plain_text,
+                    word_text,
+                    word_range.start,
+                );
+                let pos = nth_occurrence(plain, word_text, occurrence)?;
                 Some(pos..pos + word_text.len())
             }
             SelectionUnit::Section => None,
@@ -2826,13 +2831,18 @@ impl App {
                     .map(|n| n.source_start_line())
                     .unwrap_or(0)
             });
-        // Find the word in the rendered display plain text (which preserves
-        // `\n` between source lines for multi-line paragraphs / code blocks)
-        // and count newlines before the match position. Falls back to the
-        // node's first source line if the lookup fails.
+        // Find the same occurrence of the word in the rendered display
+        // plain text — repeated words must map to the right occurrence,
+        // not just the first match. Count occurrences in selection plain
+        // text up to word_range.start, then locate the Nth occurrence in
+        // display.
         let rn = self.rendered_nodes.get(node_idx)?;
-        let needle = word_text;
-        let pos = rn.plain.find(needle).unwrap_or(0);
+        let occurrence = count_occurrences_before(
+            &index_node.selection_plain_text,
+            word_text,
+            word_range.start,
+        );
+        let pos = nth_occurrence(&rn.plain, word_text, occurrence).unwrap_or(0);
         let prefix = rn.plain.get(..pos).unwrap_or("");
         Some(first_line + prefix.bytes().filter(|&b| b == b'\n').count())
     }
@@ -2858,6 +2868,46 @@ enum ClipboardOutcome {
     OsCommand,
     Osc52,
     Failed,
+}
+
+/// Count occurrences of `needle` in `haystack[..before_byte]` (i.e. the
+/// number of complete `needle` matches whose start position is strictly
+/// before `before_byte`).
+fn count_occurrences_before(haystack: &str, needle: &str, before_byte: usize) -> usize {
+    if needle.is_empty() {
+        return 0;
+    }
+    let stop = before_byte.min(haystack.len());
+    let mut count = 0usize;
+    let mut cursor = 0usize;
+    while cursor < stop {
+        match haystack[cursor..stop].find(needle) {
+            Some(off) => {
+                count += 1;
+                cursor += off + needle.len().max(1);
+            }
+            None => break,
+        }
+    }
+    count
+}
+
+/// Return the byte offset of the `n`th occurrence (0-indexed) of `needle`
+/// in `haystack`, if any.
+fn nth_occurrence(haystack: &str, needle: &str, n: usize) -> Option<usize> {
+    if needle.is_empty() {
+        return None;
+    }
+    let mut cursor = 0usize;
+    for i in 0..=n {
+        let off = haystack[cursor..].find(needle)?;
+        let abs = cursor + off;
+        if i == n {
+            return Some(abs);
+        }
+        cursor = abs + needle.len().max(1);
+    }
+    None
 }
 
 fn copy_to_clipboard(text: &str) -> ClipboardOutcome {
@@ -3622,6 +3672,64 @@ mod tests {
             !out.contains(", sentence "),
             "phase-5 emit must not carry a `, sentence M` suffix: {out}"
         );
+    }
+
+    #[test]
+    fn word_change_picks_correct_occurrence_for_repeated_word() {
+        // "the cat sat on the mat" — `the` appears as word 0 and word 4.
+        // A change captured on word 4 must locate the second occurrence in
+        // display plain text, not the first.
+        let mut app = test_app("the cat sat on the mat\n");
+        app.changes.entry(0).or_default().push(ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Word,
+            sentence_index: Some(4),
+            sentence_text: Some("the".into()),
+            change: "Initial".into(),
+        });
+        let out = app.to_human_output();
+        // Single-line input — line is always 1, but the test still
+        // exercises the occurrence-counting code path. The byte position
+        // mismatch surfaces only on multi-line input where occurrences
+        // span lines; here we just confirm the helper doesn't crash and
+        // the emit format is correct.
+        assert!(out.contains("WHERE: line 1\n"), "{out}");
+    }
+
+    #[test]
+    fn word_change_repeated_word_lands_on_correct_source_line() {
+        // Multi-line paragraph with the same word on both lines.
+        // Word 0 = "the" on line 1; word 3 = "the" on line 2.
+        let mut app = test_app("the cat sat\nthe mat slept\n");
+        app.changes.entry(0).or_default().push(ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Word,
+            sentence_index: Some(3),
+            sentence_text: Some("the".into()),
+            change: "Initial".into(),
+        });
+        let out = app.to_human_output();
+        assert!(
+            out.contains("WHERE: line 2\n"),
+            "second `the` must map to line 2, not line 1: {out}"
+        );
+    }
+
+    #[test]
+    fn count_occurrences_before_basic() {
+        assert_eq!(super::count_occurrences_before("a b a c a", "a", 0), 0);
+        assert_eq!(super::count_occurrences_before("a b a c a", "a", 1), 1);
+        assert_eq!(super::count_occurrences_before("a b a c a", "a", 4), 1);
+        assert_eq!(super::count_occurrences_before("a b a c a", "a", 5), 2);
+        assert_eq!(super::count_occurrences_before("a b a c a", "a", 9), 3);
+    }
+
+    #[test]
+    fn nth_occurrence_basic() {
+        assert_eq!(super::nth_occurrence("a b a c a", "a", 0), Some(0));
+        assert_eq!(super::nth_occurrence("a b a c a", "a", 1), Some(4));
+        assert_eq!(super::nth_occurrence("a b a c a", "a", 2), Some(8));
+        assert_eq!(super::nth_occurrence("a b a c a", "a", 3), None);
     }
 
     #[test]
