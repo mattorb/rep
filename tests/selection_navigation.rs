@@ -161,6 +161,80 @@ fn word_walk_round_trip_holds_for_every_word() {
 }
 
 #[test]
+fn yaml_frontmatter_is_a_codeblock_not_a_setext_heading() {
+    // Regression: real-world Astro / Hugo posts open with a YAML
+    // frontmatter block delimited by `---`. Without explicit
+    // frontmatter handling, the markdown crate parses the closing
+    // `---` as a setext H2 underline for the YAML body, turning the
+    // entire frontmatter into one giant Heading. That made
+    // word-mode highlight invisible: the index's word ranges
+    // referenced bytes deep inside the heading's selection plain
+    // text, but the renderer only displayed the heading's first
+    // source line, so the selection→display mapping returned None
+    // for most words and nothing got painted.
+    //
+    // With frontmatter enabled the YAML is a Yaml node we fold into
+    // a CodeBlock with `language="yaml"`. Selection / word-nav still
+    // works through the frontmatter tokens (CodeBlock contributes
+    // word anchors per modular_plan §"Block-type coverage"), and the
+    // rest of the document parses as expected.
+    let src = "---\n\
+title: Example post\n\
+date: 2026-04-27\n\
+draft: true\n\
+---\n\
+\n\
+# First heading\n\
+\n\
+Body paragraph here.\n";
+    let idx = build(src);
+    // Node 0 must be the frontmatter block — emitted as CodeBlock
+    // (not Heading) so word-mode highlight can map ranges correctly.
+    let plain0 = &idx.nodes[0].selection_plain_text;
+    assert!(
+        plain0.contains("title") && plain0.contains("Example post"),
+        "frontmatter content missing from node 0: {plain0:?}"
+    );
+    // Subsequent nodes: the actual heading + paragraph.
+    let kinds_have_real_heading = idx
+        .nodes
+        .iter()
+        .skip(1)
+        .any(|n| n.selection_plain_text.contains("First heading"));
+    assert!(
+        kinds_have_real_heading,
+        "expected the actual `# First heading` to land on a later node"
+    );
+}
+
+#[test]
+fn word_walk_through_frontmatter_then_into_body() {
+    // End-to-end repro of the macbook-neo file's word-mode behavior:
+    // walk word anchors from the start of the doc and verify they
+    // pass through the YAML frontmatter and continue into the body.
+    let src = "---\n\
+title: Hello world\n\
+draft: true\n\
+---\n\
+\n\
+First body word here.\n";
+    let idx = build(src);
+    let walk = word_walk(&idx);
+    let words: Vec<&str> = walk.iter().map(|(_, w)| w.as_str()).collect();
+    // Exact sequence: frontmatter words first, then body words.
+    assert_eq!(
+        words,
+        vec![
+            "title", "Hello", "world", "draft", "true", "First", "body", "word", "here"
+        ],
+        "{walk:?}"
+    );
+    // Frontmatter words live on node 0 (CodeBlock), body on node 1.
+    assert_eq!(walk[0].0, 0);
+    assert_eq!(walk[5].0, 1, "body words should start on a different node");
+}
+
+#[test]
 fn boundary_at_last_sentence_returns_boundary() {
     // Single-sentence document: next on the only anchor is Boundary,
     // not Moved. Mirrors the app-level "stays put" coverage that used

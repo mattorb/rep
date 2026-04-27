@@ -80,7 +80,18 @@ impl DocNode {
 
 impl Document {
     pub fn parse(content: &str) -> Self {
-        let options = markdown::ParseOptions::gfm();
+        // Start from GFM and additionally enable the frontmatter
+        // construct. Without this, a YAML/TOML block delimited by
+        // `---\n...\n---` at the top of the file would be misparsed
+        // as a setext H2 heading (the closing `---` becomes the H2
+        // underline for the YAML body), turning the entire frontmatter
+        // into one giant Heading node whose selection plain text
+        // contained every YAML token. That broke word-mode highlight
+        // because the display plain text only renders the heading's
+        // first source line — most of the words couldn't be located
+        // in display, so no highlight got painted.
+        let mut options = markdown::ParseOptions::gfm();
+        options.constructs.frontmatter = true;
         let Ok(ast) = markdown::to_mdast(content, &options) else {
             return Self { nodes: Vec::new() };
         };
@@ -242,6 +253,38 @@ fn collect_nodes(
             out.push(DocNode::CodeBlock {
                 language: None,
                 content: h.value.clone(),
+                source_lines,
+            });
+        }
+        mdast::Node::Yaml(y) => {
+            // YAML frontmatter — fold into a CodeBlock with `yaml`
+            // language tag. Without explicit handling, the markdown
+            // crate's `frontmatter` construct still emits a Yaml node
+            // that we'd otherwise drop, leaving a 12-line gap at the
+            // top of the file with no anchors. Modeling as CodeBlock
+            // gives word/line-mode navigation through frontmatter
+            // tokens without misclassifying the content as prose.
+            let source_lines = y
+                .position
+                .as_ref()
+                .map(|pos| (pos.start.line - 1)..pos.end.line)
+                .unwrap_or(0..1);
+            out.push(DocNode::CodeBlock {
+                language: Some("yaml".to_string()),
+                content: y.value.clone(),
+                source_lines,
+            });
+        }
+        mdast::Node::Toml(t) => {
+            // TOML frontmatter — same treatment as YAML.
+            let source_lines = t
+                .position
+                .as_ref()
+                .map(|pos| (pos.start.line - 1)..pos.end.line)
+                .unwrap_or(0..1);
+            out.push(DocNode::CodeBlock {
+                language: Some("toml".to_string()),
+                content: t.value.clone(),
                 source_lines,
             });
         }

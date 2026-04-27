@@ -399,7 +399,12 @@ impl App {
         // tree the selection layer reads — otherwise tables, strikethrough,
         // and footnote refs would render in the popup with one shape and
         // be parsed by Document with another.
-        let ast_text = markdown::to_mdast(&raw, &markdown::ParseOptions::gfm()).map_or_else(
+        let ast_text = {
+            let mut opts = markdown::ParseOptions::gfm();
+            opts.constructs.frontmatter = true;
+            markdown::to_mdast(&raw, &opts)
+        }
+        .map_or_else(
             |_| "Failed to parse AST".to_string(),
             |node| format!("{node:#?}"),
         );

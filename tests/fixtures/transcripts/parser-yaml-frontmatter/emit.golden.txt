@@ -1,0 +1,7 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 6
+CONTEXT:
+  target: "heading"
+CHANGE: "X"

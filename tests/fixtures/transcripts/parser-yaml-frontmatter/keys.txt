@@ -1,0 +1,14 @@
+# YAML frontmatter must NOT become a setext heading. The doc parses as
+# CodeBlock(yaml) + Heading + Paragraph. Cycle to Word, walk past the
+# frontmatter into the body, and change the first body word.
+Space
+j
+j
+j
+j
+j
+j
+c
+X
+Enter
+q
