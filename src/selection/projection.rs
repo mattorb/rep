@@ -125,9 +125,7 @@ mod tests {
     #[test]
     fn line_highlight_for_heading_covers_full_plain() {
         // Heading nodes have a single source line; Line projection returns
-        // the whole node range. Multi-line paragraphs return the same coarse
-        // node range per source line (the renderer does its own per-line
-        // slicing); pin the heading case here as the precise contract.
+        // the whole node range as the precise contract.
         let idx = build("# Title");
         let a = SelectionAnchor::new(0, SelectionUnit::Line, 0);
         match highlight_for(a, &idx) {
@@ -137,6 +135,27 @@ mod tests {
                 assert_eq!(&plain[r], plain.as_str());
             }
             o => panic!("unexpected: {o:?}"),
+        }
+    }
+
+    #[test]
+    fn line_highlight_for_multi_line_paragraph_returns_per_line_slice() {
+        // Per modular_plan §"Line-unit anchors per node" each source line
+        // gets its own anchor; the projection contract says each anchor
+        // returns a per-line byte slice within selection plain text.
+        // Adjacent soft-wrapped lines in one paragraph map to two
+        // distinct slices — not the whole-node range repeated.
+        let idx = build("first line\nsecond line");
+        let plain = &idx.nodes[0].selection_plain_text;
+        let line0 = SelectionAnchor::new(0, SelectionUnit::Line, 0);
+        let line1 = SelectionAnchor::new(0, SelectionUnit::Line, 1);
+        match (highlight_for(line0, &idx), highlight_for(line1, &idx)) {
+            (Highlight::Range(_, r0), Highlight::Range(_, r1)) => {
+                assert_eq!(&plain[r0.clone()], "first line");
+                assert_eq!(&plain[r1.clone()], "second line");
+                assert!(r0.end <= r1.start, "{r0:?} should precede {r1:?}");
+            }
+            other => panic!("expected two Range highlights, got {other:?}"),
         }
     }
 

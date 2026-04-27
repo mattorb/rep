@@ -10,6 +10,7 @@
 //! unavailable in the current node.
 
 use std::borrow::Cow;
+use std::ops::Range;
 
 use crate::selection::index::SelectionIndex;
 use crate::selection::model::{NavOutcome, SelectionAnchor, SelectionUnit};
@@ -88,11 +89,21 @@ fn locate(table: &[(usize, usize)], node_idx: usize, unit_idx: usize) -> Option<
 
 /// Re-anchor onto the requested target unit per the pinned `clamp` rules.
 ///
-/// Looks up the target's linear table; for upgrades and downgrades within
-/// the current node, returns the matching entry. Out-of-current-node
-/// targets walk backward then forward in document order; if neither
-/// direction finds an entry, the unit switch is a silent no-op (returns
-/// the original anchor).
+/// Same-node:
+///   - Upgrade (finer → coarser): land on the target unit anchor that
+///     **contains** the current anchor's bytes. Word `fast` in sentence
+///     S → clamp(Word→Sentence) = S, not sentence 0.
+///   - Downgrade (coarser → finer): land on the **first child** anchor
+///     of the target unit whose bytes lie within the source anchor's
+///     bytes. Sentence "Dogs run fast." → clamp(Sentence→Word) = "Dogs".
+///   - Section containment uses the section table (a section can span
+///     multiple nodes).
+///
+/// Cross-node fallback: if the target unit has no representative inside
+/// the source anchor's containing context, walk **backward** then
+/// **forward** in document order; on backward land on that node's
+/// **last** target-unit anchor, on forward land on its **first**.
+/// If neither direction finds anything, the switch is a silent no-op.
 pub fn clamp(
     index: &SelectionIndex,
     anchor: SelectionAnchor,
@@ -101,18 +112,14 @@ pub fn clamp(
     if anchor.unit == target {
         return anchor;
     }
-    // Containing-unit upgrade and first-child downgrade are both expressible
-    // as: look up the target unit's anchor that is within the current node;
-    // if absent in this node, walk backward first, then forward, per pinned
-    // rules. For containing-unit cases (Word -> Sentence -> Paragraph ->
-    // Section) the anchor at unit_idx 0 of the same node trivially satisfies
-    // "containing" semantics with the node-scoped table layouts.
+
+    if let Some(found) = clamp_within_node(index, anchor, target) {
+        return found;
+    }
+
     let table = unit_table(index, target);
     if table.is_empty() {
         return anchor;
-    }
-    if let Some(&(n, u)) = table.iter().find(|&&(n, _)| n == anchor.node_idx) {
-        return SelectionAnchor::new(n, target, u);
     }
     // Walk backward in document order for a node with the target unit, land
     // on its last anchor in that unit.
@@ -121,7 +128,6 @@ pub fn clamp(
         .rev()
         .find(|&&(n, _)| n < anchor.node_idx)
         .and_then(|prev| {
-            // Find the LAST (n, _) entry for this node, i.e. its highest unit_idx.
             let target_node = prev.0;
             table.iter().rfind(|&&(nn, _)| nn == target_node)
         })
@@ -133,6 +139,127 @@ pub fn clamp(
         return SelectionAnchor::new(n, target, u);
     }
     anchor
+}
+
+/// Resolve clamp within the same node when possible, returning Some on
+/// match. Section is special — a section can span multiple nodes — so
+/// containment uses the section table rather than a per-node check.
+fn clamp_within_node(
+    index: &SelectionIndex,
+    anchor: SelectionAnchor,
+    target: SelectionUnit,
+) -> Option<SelectionAnchor> {
+    if target == SelectionUnit::Section {
+        let section = index
+            .sections
+            .iter()
+            .find(|s| s.start_node_idx <= anchor.node_idx && anchor.node_idx <= s.end_node_idx)?;
+        return Some(SelectionAnchor::new(
+            section.start_node_idx,
+            SelectionUnit::Section,
+            0,
+        ));
+    }
+    let node = index.nodes.get(anchor.node_idx)?;
+    // The source anchor might not have a real byte range in this node —
+    // e.g. a CodeBlock has no Sentence anchors but the cursor can still
+    // sit at (CodeBlock, Sentence, 0) when the user cycles into Sentence
+    // mode. Fall back to whole-node range so within-node clamp lands on
+    // the first available target-unit anchor (matches pre-containment
+    // behavior for these phantom-anchor cases).
+    let source_range = anchor_byte_range(node, anchor.unit, anchor.unit_idx)
+        .unwrap_or(0..node.selection_plain_text.len());
+
+    // Build the candidate (unit_idx, byte_range) list for the target unit
+    // restricted to this node.
+    let candidates: Vec<(usize, Range<usize>)> = match target {
+        SelectionUnit::Word => node
+            .word_ranges
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (i, r.clone()))
+            .collect(),
+        SelectionUnit::Sentence => node
+            .sentence_ranges
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (i, r.clone()))
+            .collect(),
+        SelectionUnit::Line => node
+            .source_line_ranges
+            .iter()
+            .enumerate()
+            .map(|(i, (_, r))| (i, r.clone()))
+            .collect(),
+        SelectionUnit::Paragraph => {
+            // Paragraph is whole-node; presence is gated by the index's
+            // `paragraphs` linear table (ThematicBreak / empty-content
+            // nodes don't appear there).
+            if index.paragraphs.iter().any(|&(n, _)| n == anchor.node_idx) {
+                vec![(0, 0..node.selection_plain_text.len())]
+            } else {
+                Vec::new()
+            }
+        }
+        SelectionUnit::Section => unreachable!("handled above"),
+    };
+    if candidates.is_empty() {
+        return None;
+    }
+
+    let upgrade = is_upgrade(anchor.unit, target);
+    let pick = if upgrade {
+        // Upgrade: target range contains the source range's start byte.
+        candidates
+            .iter()
+            .find(|(_, r)| {
+                r.start <= source_range.start && source_range.start < r.end.max(r.start + 1)
+            })
+            .or_else(|| candidates.first())
+    } else {
+        // Downgrade: first target whose start byte lies within the source
+        // range. Falls back to the first overall if the source is wider
+        // than any candidate (shouldn't happen for valid anchors but
+        // keeps the function total).
+        candidates
+            .iter()
+            .find(|(_, r)| {
+                source_range.start <= r.start && r.start < source_range.end.max(r.start + 1)
+            })
+            .or_else(|| candidates.first())
+    };
+    let (unit_idx, _) = pick?;
+    Some(SelectionAnchor::new(anchor.node_idx, target, *unit_idx))
+}
+
+/// Byte range of an anchor within its node's selection plain text. Used
+/// for clamp containment checks. Section returns None — section
+/// containment is computed against the section table.
+fn anchor_byte_range(
+    node: &crate::selection::index::NodeIndex,
+    unit: SelectionUnit,
+    unit_idx: usize,
+) -> Option<Range<usize>> {
+    match unit {
+        SelectionUnit::Word => node.word_ranges.get(unit_idx).cloned(),
+        SelectionUnit::Sentence => node.sentence_ranges.get(unit_idx).cloned(),
+        SelectionUnit::Line => node
+            .source_line_ranges
+            .get(unit_idx)
+            .map(|(_, r)| r.clone()),
+        SelectionUnit::Paragraph | SelectionUnit::Section => {
+            Some(0..node.selection_plain_text.len())
+        }
+    }
+}
+
+/// True when `target` is coarser than `from` — clamp(from→target) is an
+/// upgrade. CYCLE_ORDER runs coarse→fine: Section, Paragraph, Line,
+/// Sentence, Word.
+fn is_upgrade(from: SelectionUnit, target: SelectionUnit) -> bool {
+    let order = SelectionUnit::CYCLE_ORDER;
+    let pos = |u: SelectionUnit| order.iter().position(|x| *x == u).unwrap_or(0);
+    pos(target) < pos(from)
 }
 
 #[cfg(test)]
@@ -186,6 +313,65 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn clamp_word_to_sentence_lands_on_containing_sentence() {
+        // Per modular_plan §"Unit-switch rules": clamp(Word→Sentence)
+        // returns the sentence that CONTAINS the word, not sentence 0.
+        // Pre-containment shape was wrong: it picked the first sentence
+        // anchor in the node regardless of where the word lived.
+        let idx = build("First sentence here. Second sentence here. Third here.");
+        // Find a word anchor inside the second sentence.
+        let s2 = idx.nodes[0].sentence_ranges[1].clone();
+        let (w_idx, _) = idx.nodes[0]
+            .word_ranges
+            .iter()
+            .enumerate()
+            .find(|(_, r)| r.start >= s2.start && r.end <= s2.end)
+            .expect("at least one word in second sentence");
+        let word_anchor = SelectionAnchor::new(0, SelectionUnit::Word, w_idx);
+        let result = clamp(&idx, word_anchor, SelectionUnit::Sentence);
+        assert_eq!(
+            result.unit_idx, 1,
+            "expected sentence index 1 (containing), got {}",
+            result.unit_idx
+        );
+    }
+
+    #[test]
+    fn clamp_sentence_to_word_lands_on_first_word_in_sentence() {
+        // Downgrade Sentence→Word lands on the first WORD of the
+        // current sentence, not the first word of the node.
+        let idx = build("First sentence here. Second sentence here.");
+        let s2_anchor = SelectionAnchor::new(0, SelectionUnit::Sentence, 1);
+        let result = clamp(&idx, s2_anchor, SelectionUnit::Word);
+        assert_eq!(result.unit, SelectionUnit::Word);
+        let plain = &idx.nodes[0].selection_plain_text;
+        let word_range = idx.nodes[0].word_ranges[result.unit_idx].clone();
+        assert_eq!(
+            &plain[word_range], "Second",
+            "expected first word of second sentence, got idx {}",
+            result.unit_idx
+        );
+    }
+
+    #[test]
+    fn clamp_section_picks_containing_section_not_starting() {
+        // A section spans multiple nodes. Clamping to Section from a
+        // body-paragraph anchor should land on the section's
+        // start_node_idx, not require the cursor to already be on a
+        // heading.
+        let idx = build("# A\n\nbody paragraph one.\n\n# B\n\nbody two.");
+        // Sentence anchor in section A's body paragraph (node 1, sentence 0).
+        let body_anchor = SelectionAnchor::new(1, SelectionUnit::Sentence, 0);
+        let result = clamp(&idx, body_anchor, SelectionUnit::Section);
+        assert_eq!(result.unit, SelectionUnit::Section);
+        assert_eq!(
+            result.node_idx, 0,
+            "section A starts at node 0; got node_idx {}",
+            result.node_idx
+        );
     }
 
     #[test]

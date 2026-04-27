@@ -239,12 +239,20 @@ fn node_source_line_ranges(
             // line (`| --- | --- |` shape) is excluded since it's not
             // part of the selection plain text per modular_plan
             // §"Block-type coverage / GFM table".
-            range
+            //
+            // Each anchor's byte range is the source line's slice within
+            // the node's selection plain text — needed so projection /
+            // clamp / strike rendering can paint per-line precisely.
+            // Plain text is the parser-joined paragraph text (soft-wraps
+            // collapsed to spaces; tables joined with `\n`); we locate
+            // each source line by scanning forward from the previous
+            // line's end with progressively-trimmed content.
+            let lines: Vec<usize> = range
                 .clone()
                 .filter(|l| *l < source_lines.len())
                 .filter(|l| !is_table_separator_line(&source_lines[*l]))
-                .map(|l| (l, 0..plain.len()))
-                .collect()
+                .collect();
+            paragraph_per_line_ranges(&lines, source_lines, plain)
         }
         DocNode::ListItem {
             source_lines: range,
@@ -258,24 +266,72 @@ fn node_source_line_ranges(
             source_lines: range,
             ..
         } => {
-            // One anchor per non-fence source line. We emit `(line, full-range)` —
-            // the byte range covers the whole node and the (line, _) pair is what
-            // line-unit lookups consult. Per-line slice mapping isn't needed
-            // because where_for_annotation Line case reads the line number from
-            // this entry and `current_line_capture` reads the source line text
-            // directly via `source_lines[line]`.
-            range
+            // One anchor per non-fence source line. Plain text for code
+            // blocks preserves source lines joined by `\n`, so per-line
+            // ranges split cleanly on those newline boundaries.
+            let lines: Vec<usize> = range
                 .clone()
                 .filter(|&l| {
                     source_lines
                         .get(l)
                         .is_some_and(|s| !s.trim_start().starts_with("```"))
                 })
-                .map(|l| (l, 0..plain.len()))
-                .collect()
+                .collect();
+            code_block_per_line_ranges(&lines, plain)
         }
         DocNode::ThematicBreak { .. } => Vec::new(),
     }
+}
+
+/// Scan paragraph plain text to locate each source line's contribution.
+/// Returns a `(source_line_no, byte_range_in_plain)` per kept line. A
+/// source line that can't be found falls back to `0..plain.len()` so the
+/// caller never sees a missing anchor.
+fn paragraph_per_line_ranges(
+    lines: &[usize],
+    source_lines: &[String],
+    plain: &str,
+) -> Vec<(usize, Range<usize>)> {
+    let mut out = Vec::with_capacity(lines.len());
+    let mut cursor = 0usize;
+    for &l in lines {
+        let needle = source_lines.get(l).map(|s| s.trim()).unwrap_or("");
+        if needle.is_empty() {
+            // Empty source line contributes no real text; collapse to a
+            // zero-width range at the cursor.
+            out.push((l, cursor..cursor));
+            continue;
+        }
+        if let Some(rel) = plain[cursor..].find(needle) {
+            let start = cursor + rel;
+            let end = start + needle.len();
+            out.push((l, start..end));
+            cursor = end;
+        } else {
+            // Soft-wrap may have collapsed leading/trailing punct; fall
+            // back to whole-node range so callers can still reason about
+            // this line at all.
+            out.push((l, 0..plain.len()));
+        }
+    }
+    out
+}
+
+/// Code-block plain text preserves source lines joined by `\n`. Walk
+/// the byte string and map each non-fence source line to its slice.
+fn code_block_per_line_ranges(lines: &[usize], plain: &str) -> Vec<(usize, Range<usize>)> {
+    let mut out = Vec::with_capacity(lines.len());
+    let mut cursor = 0usize;
+    for &l in lines {
+        let next_nl = plain[cursor..].find('\n').map(|i| cursor + i);
+        let end = next_nl.unwrap_or(plain.len());
+        out.push((l, cursor..end));
+        cursor = end + 1; // step past the `\n`
+        if cursor > plain.len() {
+            cursor = plain.len();
+        }
+    }
+    out
 }
 
 /// True when a source line is a GFM table header-separator row, e.g.
