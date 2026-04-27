@@ -22,8 +22,8 @@ Hard constraints, gathered from a design-review dialogue. Where any section furt
 
 ### Internal representation
 
-8. **AST carries accurate source byte spans per node** so selection can render correct highlights, resolve containment queries, and produce unambiguous `target` text. Byte-level precision is an internal invariant only — it never leaks into the output.
-9. **One coordinate for positions: source byte offset** (Rust-idiomatic `Range<usize>`). No separate codepoint, grapheme, or column space is required internally.
+8. **AST nodes carry source line ranges; per-node rendered plain text carries byte ranges within that node.** No byte spans on `DocNode` itself. Annotation output emits line numbers + text only — byte offsets never leak out.
+9. **Internal selection coordinate is `(node_idx, source_line, range_within_node_plain_text)`.** No global byte offsets, no codepoint/grapheme/column space is required.
 
 ### Scope
 
@@ -62,9 +62,9 @@ These requirements drove the following revisions to the architecture sections:
 
 - `SelectionUnit`: `Section | Paragraph | Line | Sentence | Word`
 - `SelectionAnchor`: stable location, resolved via the AST
-  - `node_idx: usize` — index into the `Document`'s flat node list; stable for a loaded file
+  - `node_idx: usize` — index into the `Document`'s flat **block-level** node list; stable for a loaded file (see Pinned decisions for domain and order)
   - `unit: SelectionUnit`
-  - `unit_idx: usize` — index within the node for line/sentence/word; unused for paragraph and section (node identity suffices)
+  - `unit_idx: usize` — index within the node for line/sentence/word; unused for paragraph (node identity suffices) and section (the section's start node is the anchor; section spans are derived from the start node's `node_idx` plus the document-level section table)
 - `SelectionState`: the current anchor — nothing else
 
 The highlight span is **not** stored on state. It is computed on demand by `projection` from `(anchor, index)`. Per req 4, there is no end-anchor and no range-extension state.
@@ -95,9 +95,8 @@ Built eagerly from the parsed AST + rendered plain text at load time. Not a para
 
 Notes:
 - All ranges are **scoped to a node**; they index into that node's rendered plain text and never serve as global document offsets.
-- The index holds no long-lived plain-text copies — ranges reference the render pipeline's existing per-node plain text (`RenderedNode.plain`).
-- Valid only for the AST it was built from; discard on reload. Per req 1 the file is read-only, so invalidation reduces to reload.
-- Build is eager at load time (req 11 caps the input at ~5k lines).
+- `SelectionIndex` owns its own `Vec<Range<usize>>` data per unit per node — no borrows from `RenderedNode`, no self-referential lifetimes (see Pinned decisions).
+- Build is eager at load time (req 11 caps the input at ~5k lines). The index lives for the process — there is no reload or file-watcher in this iteration.
 
 ### 4) `selection::navigator` (pure next/prev logic)
 
@@ -109,11 +108,14 @@ Single pure API:
 
 #### Movement rules
 
-- **Boundary crossing is silent.** `next` at the end of the current containing unit advances into the next containing unit with no status message. Word-next at end-of-sentence jumps straight to the first word of the next sentence; sentence-next at end-of-paragraph jumps to the first sentence of the next paragraph; etc. Same at paragraph and section boundaries.
-- **Wrap-around at document edges.** `next` on the last unit wraps to the first; `prev` on the first wraps to the last. Applies uniformly to all five units.
+- **Fully silent.** Navigator returns no status messages — not on within-document moves, not on boundary crossings, not on wrap. `App` does not write a movement string. (Status line is reserved for annotation feedback and errors.)
+- **Boundary crossing is implicit.** `next` at the end of the current containing unit advances into the next containing unit. Word-next at end-of-sentence jumps straight to the first word of the next sentence; sentence-next at end-of-paragraph jumps to the first sentence of the next paragraph; etc.
+- **Wrap-around is document-global.** `next` on the last anchor of a unit wraps to the first anchor of that unit in the document — *not* the first anchor in the current containing unit. `prev` on the first wraps to the last. Applies uniformly to all five units.
+- **Headings count as paragraphs** for paragraph-unit traversal. Paragraph-next/prev visits headings, paragraphs, list items, code blocks, tables, footnote defs, and HTML blocks (the full block-level domain), in document order.
 - **Wordless / unit-less nodes are skipped.** When walking a unit's linear order table, nodes whose rendered plain text contributes no entries of that unit type (thematic break, image-only paragraph if the renderer emits nothing, empty code block, etc.) produce no anchors and are silently stepped over.
 - **Code blocks are excluded from the sentence-level linear order.** Sentence-next / sentence-prev skip fenced and indented code blocks entirely. Users navigate code blocks via line or word units, or select them as a whole paragraph. Code blocks still participate normally in paragraph, line, word, and (via containment) section traversal.
-- **Section nav is a no-op when the document has no headings.** `next` / `prev` in section mode do nothing; switching to section mode does nothing. No wrap, no status, no error. (A document with one heading wraps to itself under the normal wrap rule, which is also effectively a no-op — this rule just generalizes it.)
+- **Section nav is a no-op when the document has no sections.** A document with no headings *and* no top-level ordered list (per the section-unit pinned decisions) has no sections; `next` / `prev` / mode-cycle into section mode are silent no-ops.
+- **Word-to-word punctuation skip.** Word-next at the last word of a sentence advances to the first word of the next sentence — the sentence-terminating period/`!`/`?` is not visited. Same for `,`, `;`, `:`, em/en-dash, ellipsis at any word boundary.
 - **Roundtrip invariant.** `prev(next(x)) == x` for any anchor not at a wrap point.
 
 #### Unit-switch rules (`clamp`)
@@ -138,14 +140,21 @@ Given `(SelectionAnchor, SelectionIndex)`, return what the render layer should p
 
 The render layer paints exactly what projection returns. Anchors are never resolved in the render layer; no anchor math happens outside this module.
 
-The same module also exposes the **annotation emit view**: given an anchor, return `(source_line_number, target_text)` derived from the AST node's source span + the node's rendered plain text sliced by the anchor's range. This is what the output contract (req 6) consumes — no byte offsets.
+The same module also exposes the **annotation emit view**: given an anchor, return `(source_line_number, target_text)` where `source_line_number` is the line on which the *selection's text* begins (not the node's first source line). For ListItem selections, the line is always the item's start line (per the line-unit decision: list items have one line anchor). This is what the output contract (req 6) consumes — no byte offsets.
 
 ### 6) Thin app integration
 
 `App` changes:
 
 - Replace `cursor_node/cursor_sentence` ownership with a single `SelectionState`.
-- Key handlers call navigator only.
+- Initial `SelectionState`: first node with content (`next_node_with_sentences(0)`), `unit = Sentence`, `unit_idx = 0`. Initial mode (the unit `j/k` acts on) is **sentence**.
+- Key handlers call navigator only. Bindings are mode-switch-style:
+  - `Space` — cycle unit coarsest → finest (calls navigator `clamp` on each step).
+  - `Backspace` — cycle unit finest → coarsest (same).
+  - `j` / `Down` — `navigator::next`.
+  - `k` / `Up` — `navigator::prev`.
+  - Legacy per-unit keys (`J K H L h l`, `Right`/`Left`) are **removed**.
+  - `Space` and `Backspace` cycle modes only in normal mode; in input/edit mode they're literal characters.
 - Existing annotation APIs query current sentence/word via projection/context helpers.
 
 ## Architecture refinements (from design review)
@@ -162,14 +171,14 @@ The app decomposes into three layers, in this order:
 
 ### Coordinate spaces
 
-Exactly four global coordinate-ish things exist. Anything claiming to be a fifth is a bug.
+Exactly four coordinate-ish things exist. Anything claiming to be a fifth is a bug.
 
-1. **source-offset** — byte position in the original markdown file. AST node spans live here; annotation line numbers derive from here. Per req 7, annotations emit line numbers + text — not raw byte offsets.
-2. **AST** — structured nodes keyed by `node_idx`, each carrying a source byte span.
+1. **source-line** — 1-based line number in the original markdown file. AST node line ranges live here; annotation line numbers come from here.
+2. **AST** — structured nodes keyed by `node_idx`, each carrying a `source_lines: Range<usize>`.
 3. **Selection** — anchors expressed as `(node_idx, unit, unit_idx)`; resolution to characters goes through the AST + index.
 4. **Viewport / lens** — terminal cell geometry, grapheme → cell width, wrap decisions. Must not leak into selection.
 
-Rendered plain text, and ranges into it, are **per-node and scoped** — they live inside the render / segment / index pipeline and never cross node boundaries. They are not a global coordinate space, and they never appear in the output contract.
+Rendered plain text, and `Range<usize>` byte ranges into it, are **per-node and scoped** — they live inside the render / segment / index pipeline and never cross node boundaries. They are not a global coordinate space, and they never appear in the output contract.
 
 ### Segmenter contract
 
@@ -183,10 +192,221 @@ Shape: `(rendered_plain_text: &str) -> Vec<Range<usize>>` — each range identif
 
 ## Definition clarifications (to lock before implementation)
 
-1. **Line** means **source markdown line**, not wrapped terminal row. A paragraph whose source spans multiple lines (soft-wrapped by the author) contributes one line anchor per source line, each mapped to the portion of the node's rendered plain text covering that line. A paragraph written on one source line contributes one line anchor covering the whole node.
-2. **Word** should be segmented on rendered plain text but respect markdown stripping rules already used by renderer.
-3. Word selection **excludes leading and trailing punctuation**. `word.` selects `word`; the period is not itself a selectable word. Punctuation tokens are boundaries, not units. Apostrophes and hyphens *internal* to a word are preserved as part of the word (`don't`, `word-level` remain one word each); edge cases (abbreviations like `U.S.A.`, ellipses, em-dashes) are pinned via test fixtures.
-4. For code blocks (fenced and indented), word segmentation uses the same rules as prose — the segment engine runs over the rendered plain text of the code block with no language-aware tokenization.
+1. **Line** means **source markdown line**, not wrapped terminal row. Per-node line-anchor counts: Heading = 1; Paragraph / Table / CodeBlock = N (one per source line); ListItem = **1** (regardless of source-line span — known limitation). See Pinned decisions for the full table.
+2. **Word** is segmented on **rendered plain text** (markdown syntax already stripped by the renderer). Fenced code-block fences (` ``` `) are excluded from rendered plain text and not selectable; indented code blocks have no fences.
+3. Word selection **excludes leading and trailing punctuation**. `word.` selects `word`. Punctuation tokens are boundaries, not units. Specific edge cases — internal periods (`U.S.A`), em/en-dash, ellipsis, decimals (`3.14`), thousands separators (`1,000`), dates (`2026-04-24`), Unicode alphabetic characters, internal-only apostrophes — are pinned in the Pinned decisions section.
+4. For code blocks (fenced and indented), word segmentation uses the same rules as prose — the segment engine runs over the rendered plain text of the code block (fences excluded) with no language-aware tokenization.
+
+## Pinned decisions
+
+Authoritative answers to questions that would otherwise be ambiguous during implementation. Where any earlier section conflicts with this one, this one wins. Implementer should treat this section as a checklist.
+
+### Selection-mode meta-rule
+
+Every selection mode traverses contiguously over content. Word-to-word movement skips intervening punctuation across sentence boundaries (the period at end of sentence A is not visited when going from A's last word to B's first word).
+
+### Section unit
+
+- Section is a **span**, not a single node. It runs from a heading (or top-level ordered list) through the last node before the next section start at equal-or-shallower depth.
+- A **top-level ordered list** (depth 0) is treated as a single section spanning the entire list — not one section per item.
+- **Nested heading levels nest.** `## sub` inside a `# parent` does not end `# parent`'s section; the section ends at the next `#`-or-shallower heading.
+- **Pre-heading content** is an implicit "section 0" — addressable by section nav. Section-prev from the first real section wraps to it; section-next from it goes to the first heading.
+
+### Block-type coverage (`DocNode` variants)
+
+- **Heading, Paragraph, ListItem, CodeBlock, ThematicBreak**: as today.
+- **Blockquote**: children flattened to top level (current behavior). No `Blockquote` variant.
+- **GFM table**: whole table = one Paragraph node. Plain text = newline-joined cell text. Each row maps to one source line for line-unit nav.
+- **Footnote definition**: Paragraph node carrying the body text.
+- **Footnote reference** (`[^1]` inline): stripped from rendered plain text; not selectable.
+- **Task list items** (`- [ ]` / `- [x]`): the `[ ] ` / `[x] ` marker is part of the prefix, stripped from rendered plain text.
+- **HTML block**: treated as a CodeBlock variant (whole-selectable, no sentence/word breakdown).
+
+### `node_idx` domain and order
+
+- **Domain**: block-level nodes only (the variants listed above). Inline nodes (emphasis, links, code spans, footnote refs) are not addressable by `node_idx`; they only contribute to a containing block's rendered plain text.
+- **Order**: document order — first appearance in the source file, matching the current `Vec<DocNode>` push order.
+
+### Paragraph-unit nav
+
+- **Headings count as paragraphs.** Paragraph-next/prev visits headings, paragraphs, list items, code blocks, tables, footnote defs, and HTML blocks. (ThematicBreak has no content so it is skipped per the wordless-node rule.)
+- `clamp(section → paragraph)` returns the section's heading as the first paragraph.
+- **Multi-paragraph list items**: known limitation. A `<li>` containing multiple paragraphs collapses to one ListItem node with joined text and one set of source lines. Defer structural fix.
+
+### Line-unit anchors per node
+
+- **Heading**: 1 anchor.
+- **Paragraph**: N anchors (one per source line).
+- **CodeBlock**: N anchors (one per source line; fence lines excluded — see code-block plain text below).
+- **Table**: N anchors (one per source row).
+- **ListItem**: **1 anchor** regardless of source-line span.
+
+### Sentence segmenter
+
+- `sentence_ranges_from_plain` (today's render-side segmenter) is the canonical implementation.
+- Parser **drops** the `sentences: Vec<String>` field from `DocNode::Paragraph` and `DocNode::ListItem`. Sentences are computed only on rendered plain text, only when the index is built.
+
+### Word boundary rules
+
+- Internal periods stay: `U.S.A` is one word.
+- Em-dash and en-dash are boundaries: `foo—bar` → two words.
+- Ellipsis (`...` or `…`) is a boundary.
+- Numbers with internal punctuation are one word: `3.14`, `1,000`, `2026-04-24`.
+- Word characters: any Unicode `\p{Alphabetic}` plus digits.
+- Apostrophes: internal only. Leading apostrophe (`'tis`) and trailing apostrophe (`users'`) are stripped along with other leading/trailing punctuation.
+
+### Code block plain text
+
+- Fenced code block fences (` ``` `) are **excluded** from the rendered plain text the segmenter and index see. Fence lines are not addressable by line/sentence/word units.
+- Indented code blocks have no fences; whole content is the plain text.
+
+### Annotation `WHERE` line number
+
+- For sentence/word selections inside a multi-source-line node, emit the source line where the selection's text **begins**, not the node's first source line.
+- For ListItem selections (1 line anchor per item per the rule above), emit the item's start line regardless of which sentence/word inside.
+- For Heading, Paragraph, Table, CodeBlock, FootnoteDef: emit the line containing the start of the selected sentence/word.
+
+### Initial selection on load
+
+- Initial node: first node with content (skips a leading thematic break or empty heading). Matches current `next_node_with_sentences(0)` behavior.
+- Initial unit: **sentence**.
+
+### Status line
+
+- **Fully silent on navigation.** Navigator returns no status; `App` writes no movement strings.
+- Status line is reserved for annotation feedback (e.g. `"queued change for line 12"`) and errors.
+
+### Reload semantics
+
+- **No reload, no file watcher.** Index is built once at startup and lives for the process. User exits and reopens to re-read.
+
+### Phase 0 parity oracle
+
+- Phase 0 goldens lock **current behavior exactly**, including any quirks of the existing sentence segmenter.
+- Bug fixes ("this looks wrong") are **not** part of phases 1–3. They go in separate post-refactor PRs with their own goldens diffs and justification.
+
+### `SelectionIndex` storage
+
+- Owns its own `Vec<Range<usize>>` per node per unit, plus the linear order tables.
+- **No borrows** from `RenderedNode` — no self-referential lifetimes. Memory cost is negligible at the 5k-line cap.
+
+### Wrap-around scope
+
+- **Document-global.** `next` at the last anchor of a unit wraps to the first anchor of that unit in the document, not the first anchor in the current containing unit.
+
+### Key bindings (mode-switch model)
+
+Selection nav uses a **mode-switch UX**, not per-unit keys.
+
+- **`Space`**: cycle unit coarsest → finest (`section → paragraph → line → sentence → word → section …`).
+- **`Backspace`**: cycle unit finest → coarsest (reverse of above).
+- **`j` / `Down`**: next anchor in the current unit.
+- **`k` / `Up`**: prev anchor in the current unit.
+- Mode change re-anchors per the navigator `clamp` rule (upgrade = containing unit; downgrade = first child).
+- **Removed** from the legacy keymap: `J`, `K`, `H`, `L`, `h`, `l` (their per-unit semantics are now subsumed by mode + `j/k`). The `Right`/`Left` arrows currently bound to sentence nav are also removed.
+- `Space` and `Backspace` are mode-cycle keys **only in normal mode**. In any input/edit mode they remain literal characters.
+
+### Highlighting visuals
+
+- **Uniform style across all units.** Selection paints today's `bg(Blue) + fg(Black) + Modifier::BOLD` on the selected range, regardless of unit. The user disambiguates mode via a textual indicator (see below), not by visual style.
+- **Section span** (multi-node): paint each constituent node with the same style. Today's `section_highlight_range` already implements this — keep as-is.
+- **Mode indicator**: surface the active selection unit somewhere on screen (e.g. status line: `mode: word`). This is the only way the user tells word vs. sentence vs. paragraph apart at a glance.
+- **Sub-node autoscroll.** Viewport scrolls to keep the selected line/sentence/word visible within a tall paragraph or code block. Today's node-level autoscroll is preserved and extended.
+- **No containing-unit indicator.** When in word mode, only the word is painted — the surrounding sentence/line is not separately styled.
+
+### Output schema
+
+The per-payload selection shape uniformly carries a `target` sub-struct:
+
+```rust
+target: {
+    unit: "word" | "sentence" | "line" | "paragraph" | "section",
+    text: String,
+    index: Option<usize>,            // word/sentence: index within the line
+    line_span: Option<Range<usize>>, // paragraph/section: multi-line extent
+}
+```
+
+- Replaces `sentence_index` + `sentence_text` in `ChangeOutput` / `FeedbackOutput` / `InsertOutput` / `ReactionOutput`.
+- `index` is populated for **word** and **sentence** (its position within the keyed line). Unused (`None`) for **line**, **paragraph**, and **section**.
+- `line_span` is populated for **paragraph** and **section** (multi-line extent, half-open). Unused (`None`) for **word**, **sentence**, and **line**.
+- **Multi-line targets are keyed on their first line.** A paragraph spanning lines 5–6 emits one annotation with `line_number = 5` and `line_span = 5..7`. A section spanning lines 8–11 emits one annotation with `line_number = 8` and `line_span = 8..12`. The LLM uses `line_span` to locate the rest.
+- **Context is always line-based.** `previous_line` / `current_line` / `next_line` are the source lines around `line_number`, regardless of unit. No unit-aware context.
+- **Section `text` is rendered plain text** — markdown markers (e.g. `## `, list bullets, table pipes) stripped. Consistent with "markdown syntax is invisible to selection."
+
+## Worked output examples
+
+Concrete examples for each unit against this sample document:
+
+```
+ 1: # Project Plan
+ 2:
+ 3: This is the first paragraph. It has two sentences.
+ 4:
+ 5: Here is a second paragraph that
+ 6: wraps across multiple source lines.
+ 7:
+ 8: ## Section Two
+ 9:
+10: Content of section two.
+11: More content.
+```
+
+A `change` annotation in each unit (TOML-ish for readability; real serialization is whatever the existing emit uses):
+
+**Word** — `first` on line 3, change to `initial`:
+
+```
+[[annotations]]
+line_number = 3
+line_text = "This is the first paragraph. It has two sentences."
+context = { previous_line = "", current_line = "This is the first paragraph. It has two sentences.", next_line = "" }
+[[annotations.changes]]
+target = { unit = "word", text = "first", index = 3 }
+change = "initial"
+```
+
+**Sentence** — `It has two sentences.` on line 3:
+
+```
+target = { unit = "sentence", text = "It has two sentences.", index = 1 }
+```
+
+**Line** — line 3 as a whole:
+
+```
+target = { unit = "line", text = "This is the first paragraph. It has two sentences." }
+# index and line_span both None
+```
+
+**Paragraph** — paragraph spanning lines 5–6:
+
+```
+[[annotations]]
+line_number = 5
+line_text = "Here is a second paragraph that"
+context = { previous_line = "", current_line = "Here is a second paragraph that", next_line = "wraps across multiple source lines." }
+[[annotations.changes]]
+target = { unit = "paragraph", text = "Here is a second paragraph that wraps across multiple source lines.", line_span = [5, 7] }
+change = "..."
+```
+
+**Section** — `## Section Two` and its content (lines 8–11), markers stripped:
+
+```
+[[annotations]]
+line_number = 8
+line_text = "## Section Two"
+context = { previous_line = "", current_line = "## Section Two", next_line = "" }
+[[annotations.changes]]
+target = { unit = "section", text = "Section Two\n\nContent of section two.\nMore content.", line_span = [8, 12] }
+change = "..."
+```
+
+Notes on these examples:
+- `line_text` is the **source markdown line** verbatim (preserves markers like `##`), but `target.text` is the **rendered plain text** of the selection (markers stripped). The two diverge on heading lines and section selections.
+- `previous_line` / `next_line` are `Option<String>`; out-of-range becomes `None`.
+- `line_span` is a half-open range `[start, end)` matching Rust's `Range<usize>`.
 
 ## Test strategy
 
@@ -201,9 +421,14 @@ Module: `selection::segment`
    - uppercase/new paragraph boundaries
 2. Word splitting fixtures:
    - punctuation (`word,`, `word.`)
-   - contractions (`don't`)
+   - contractions (`don't`), leading apostrophe (`'tis`), trailing apostrophe (`users'`)
    - hyphenated terms (`word-level`)
    - markdown-derived text (`[label](url)`, inline code)
+   - internal periods: `U.S.A`, `e.g.`
+   - em-dash / en-dash boundary: `foo—bar`, `foo–bar`
+   - ellipsis boundary: `foo... bar`, `foo…bar`
+   - numbers with internal punctuation: `3.14`, `1,000`, `2026-04-24`
+   - Unicode alphabetic: `café`, `naïve`, `日本語`
 3. Invariants:
    - ranges sorted, non-overlapping, in-bounds, non-empty after trim.
 
@@ -242,9 +467,74 @@ Table-driven tests across all units (`section/paragraph/line/sentence/word`):
 
 Keep only thin tests in `app.rs`:
 
-1. keypress -> navigator call -> state updated.
-2. correct status messages at boundaries.
-3. existing output behavior still uses selected context correctly.
+1. keypress → navigator call → state updated (covers `Space` / `Backspace` mode cycling and `j` / `k` / arrows movement).
+2. **No status messages on navigation.** Assert the status line is unchanged after any nav keypress. Status line only changes on annotation actions or errors.
+3. Mode indicator on screen reflects the current `SelectionState.unit`.
+4. Existing annotation flows (change / feedback / insert / reaction) emit the new `target` sub-struct with correct `unit`, `text`, `index`, and `line_span` for the current selection.
+
+### F) Output emit tests (worked examples)
+
+Module-level tests that verify the documented worked examples produce the documented output. One test per (unit × payload-type) cell:
+
+1. **Word change** → emits `target = { unit = "word", text, index }` with `line_span = None`.
+2. **Sentence change** → emits `target = { unit = "sentence", text, index }` with `line_span = None`.
+3. **Line change** → emits `target = { unit = "line", text }` with `index = None`, `line_span = None`.
+4. **Paragraph change** (multi-line) → emits one annotation keyed on first line, with `target.line_span = [first, last+1)`, `target.text` = full paragraph rendered plain text, `index = None`.
+5. **Section change** (multi-line, multi-paragraph) → emits one annotation keyed on first line (the heading), with `target.line_span = [first, last+1)`, `target.text` = full section rendered plain text **with markdown markers stripped** (no `##`, no list bullets, no table pipes), `index = None`.
+6. **Multi-line target context.** For the paragraph and section cases, `previous_line` / `current_line` / `next_line` are the source lines around the keyed first line — *not* unit-aware (e.g. previous_line is the source line before the section's heading, not the previous section).
+
+These tests use the sample document from "Worked output examples" as the fixture and assert byte-exact output.
+
+## Testing posture
+
+Authoritative rules for what "phase done" means and how tests are written and maintained. Where this section conflicts with implementer judgment, this section wins.
+
+### Phase gating
+
+- A phase is **done** when, on a clean checkout, `cargo test` passes with zero failures and zero `#[ignore]`d tests, all prior phases' tests still pass, and the phase's own new tests are green.
+- No phase ships with new `todo!()` in production paths or new `#[allow(dead_code)]` markers added by the phase. (Existing markers may persist; the phase doesn't add more.)
+
+### Test direction (TDD vs. test-after)
+
+- Phase-N tests and phase-N code may be written in either order **as long as both are committed together** for the phase.
+- Exception: **Phase 0** captures current behavior — tests are written first by definition.
+
+### Goldens discipline
+
+- Goldens are **byte-exact**. Any drift fails the test.
+- Goldens are regenerated only when an explicit `UPDATE_GOLDENS=1` environment variable is set. Without that flag, a golden mismatch is a test failure.
+- Regenerating goldens is a deliberate act with its own commit — not a side-effect of running tests.
+
+### Snapshot / fixture tooling
+
+- Implementer picks the tool that's easiest to test, extend, and maintain (`insta`, plain string equality against fixture files, or otherwise). Required behavior: byte-exact comparison plus the `UPDATE_GOLDENS` flow above.
+
+### Test runner
+
+- `cargo test` is sufficient. No separate test binaries beyond standard `tests/`. No feature flags gating tests.
+
+### Test placement rule
+
+- **Prefer unit tests pushed down** to the smallest module that owns the behavior — faster, easier to iterate.
+- **Integration tests** (section D) verify that segment + index + projection compose correctly across an AST. They live in `tests/`.
+- **App-level tests** (section E) assert *wiring only*: keypress dispatches to navigator, mode indicator reflects state, emit calls the right helper. They do **not** re-test navigation behavior — that lives in section C.
+- Rule of thumb: if a test could be written against `selection::*` directly, it should be — the app layer should be too thin to need its own coverage of selection rules.
+
+### Coverage
+
+- Not a strict line-coverage threshold. The bar is **behavior coverage**: every rule in the Pinned decisions section has at least one test that would fail if the rule were violated.
+- "All behaviors covered" should naturally produce ≥80% line coverage. A coverage tool dropping well below that is a signal of untested behavior, not a separate target to chase.
+
+### Phase 0 oracle failures during phases 1–3
+
+- A Phase 0 golden failure during a parity phase is **the implementer's call**. Investigate root cause first.
+- If it surfaces a real bug in current behavior (the refactor exposed a previously-hidden flaw), document it, regenerate the golden under `UPDATE_GOLDENS=1`, and ship — with the resolution called out in the commit message.
+- If it's an unintended behavior change introduced by the refactor, fix the refactor.
+- Either way, **silent golden updates are not acceptable** — the commit message must state which case applies and why.
+
+### Conflicts between existing tests and Pinned decisions
+
+- **Pinned decisions win.** Tests asserting removed legacy behavior (e.g. `J` jumps to next section, status messages on movement, `sentence_index`/`sentence_text` fields) are **deleted, not rewritten**. The replacement behavior is covered by the new tests in sections A–F under the new keymap, silent-nav, and `target` sub-struct rules.
 
 ## Suggested file/module layout
 
@@ -262,7 +552,7 @@ Keep only thin tests in `app.rs`:
 
 Phases 0–3 are a **parity refactor** — no observable behavior changes. Phases 4–5 are **additive**. The phase 0 harness is the oracle for req 5 parity throughout.
 
-0. **Regression harness (no production code changes).** Capture current behavior as a test suite before any refactoring: existing navigation keybindings, annotation output fixtures for representative markdown inputs, and `RenderedNode.plain` snapshots. This becomes the parity oracle for phases 1–3.
+0. **Regression harness (no production code changes).** Capture current behavior as a test suite before any refactoring: existing navigation keybindings, annotation output fixtures for representative markdown inputs, and `RenderedNode.plain` snapshots. This becomes the parity oracle for phases 1–3. **Goldens lock current behavior exactly**, including any quirks of the existing sentence segmenter — bug fixes are post-refactor PRs with their own goldens diffs and justification, not part of this refactor.
 1. **Extract `selection::model` + `selection::index`.** Introduce the types and build the eager index over the existing AST; wire it into `App` to replace `cursor_node` / `cursor_sentence` internally. No new features. All phase-0 tests green.
 2. **Extract `selection::segment`.** Move `text_to_sentences`, `sentence_ranges_from_plain`, and the test-only `split_sentences` into one module; delete duplicates. Phase-0 tests green.
 3. **Extract `selection::navigator`.** Move navigation logic out of `App` and `Document` into one pure module driven by the index. Phase-0 tests green.
@@ -281,48 +571,42 @@ Phases 0–3 are a **parity refactor** — no observable behavior changes. Phase
 6. Word selection over inline-formatted text (`**milk**`, `[label](url)`, `*italic*`, `` `code` ``) identifies a single word matching the rendered-visible text. Annotations reference it by rendered text + line number — not source byte ranges.
 7. Viewport/render concerns (terminal cell width, wrapping, grapheme handling) do not appear in selection or annotation APIs.
 
-## Open questions (next to pin)
+## Required fixtures
 
-These are unresolved decisions that don't block the architecture but will block specific implementation phases. Ordered by when they're needed.
+The previous "Open questions" section is resolved — see **Pinned decisions** for the answers. The fixture corpus that an implementer must build is listed below.
 
-### 1. Phase 0 regression fixture scope (blocks phase 0)
+### Phase 0 corpus (parity oracle)
 
-Need a concrete list of markdown fixtures the harness must cover before the parity refactor can safely start. Candidate categories — confirm or trim:
+Markdown fixtures the harness must cover, paired with annotation golden-file outputs for a fixed keystroke sequence so phase-1–3 refactors can be verified byte-for-byte:
 
 - plain prose paragraphs (single line; soft-wrapped multi-source-line)
 - headings at multiple depths (`#`, `##`, `###`), and documents with zero headings
 - unordered, ordered, and nested lists
-- task list items (GFM)
+- task list items (GFM) — verifies marker-stripping rule
 - inline formatting: `**bold**`, `*italic*`, `` `code` ``, strikethrough
-- links `[label](url)`, autolinks, reference-style links
-- images `![alt](src)` — inline and block-level
+- links `[label](url)`, autolinks, one reference-style link (smoke test only)
+- images `![alt](src)` — single fixture covering inline and block-level (plain-text smoke test)
 - fenced code blocks (with and without info-strings), indented code blocks
-- GFM tables
-- footnotes
+- GFM tables — verifies whole-table-as-paragraph rule
+- footnotes — verifies definition-as-paragraph + reference-stripping rules
 - thematic breaks (`---`)
+- blockquotes — verifies flatten rule
+- multi-paragraph list item — locks current join-children behavior as known limitation
+- HTML block — verifies HTML-as-CodeBlock rule
 - mixed: list item containing inline-formatted text, code blocks inside list items, headings with inline formatting
+- a real existing plan file (e.g. a copy of `modular_plan.md` itself) — covers end-to-end "use rep on actual plans"
 - edge cases: empty document, single-word document, single-heading document, document that is one code block
 
-And a paired set of **annotation golden-file outputs** for a fixed keystroke sequence against each fixture, so phase-1–3 refactors can be verified byte-for-byte.
+### Phase 4–5 fixtures (new unit behaviors)
 
-### 2. Word-mode key assignments (blocks phase 5)
-
-Two shapes to choose between:
-
-- **(A) Mode switch.** A dedicated key toggles the current selection unit (section / paragraph / line / sentence / word), and the existing `next`/`prev` keys act on the current unit. Adds one key; keeps the navigation keyset small.
-- **(B) Dedicated word keys.** New keys for word-next / word-prev (e.g. analogous to how sentence/line nav are keyed today), unit stays implicit. No mode state; more keys.
-- **(C) Mixed.** Keep existing per-unit keys for section/paragraph/line/sentence, add two new keys specifically for word.
-
-Questions: which shape? And for (A) or (C), what key toggles unit / invokes word-nav — avoiding collision with current bindings?
-
-### 3. Edge-case fixtures for navigator behavior (blocks phase 4–5)
-
-Beyond the phase-0 corpus, the new unit-level behaviors need their own fixtures:
-
-- line-nav on a paragraph spanning 5 source lines: assert 5 distinct line anchors, each highlighting the right plain-text slice.
-- sentence-nav crossing a code block: assert the code block is silently skipped.
-- section-nav on a heading-less document: assert no movement and no status.
-- clamp from word inside a code block to sentence mode: assert walk-outward to nearest non-code sentence (or no-op if none).
-- wrap-around at both ends for each of the five units.
-
-Confirm this list, or extend.
+- line-nav on a paragraph spanning 5 source lines: 5 distinct line anchors, each highlighting the right plain-text slice.
+- line-nav on a multi-source-line list item: 1 anchor only (per Pinned decisions); line-next from inside it advances to the next node.
+- sentence-nav crossing a code block: code block silently skipped.
+- section-nav on a heading-less, top-level-ordered-list-less document: silent no-op (no wrap, no status, no movement).
+- `clamp` from word inside a code block to sentence mode: walk outward to nearest non-code sentence (or no-op if none).
+- wrap-around (document-global) at both ends for each of the five units.
+- mode-cycle clamp matrix: every (from-unit, to-unit) transition tested for upgrade and downgrade behavior.
+- word-prev punctuation skip: from "the." in sentence A, word-prev lands on the last word of sentence A — not the period; same for `,`, `;`, `:`, em/en-dash, ellipsis.
+- footnote reference invisibility: `[^1]` inline is stripped from rendered plain text; word-nav skips it; sentence-nav segments around it.
+- code-block fence invisibility: line-nav inside a fenced code block visits content lines only.
+- mode-cycle keys disabled in input mode: in any annotation-edit field, `Space` and `Backspace` are literal characters and do not cycle modes.
