@@ -1,7 +1,10 @@
 //! Integration tests for `rep::selection::segment`. The unit tests in
-//! `src/selection/segment.rs` cover the canonical behaviors; this file
-//! adds end-to-end coverage that goes through the public API the way
-//! consumers do.
+//! `src/selection/segment.rs` cover canonical behaviors per fixture;
+//! this file pins two cross-cutting properties that don't fit a single
+//! unit test (sentence-segmentation totality across many inputs, and
+//! a multi-feature word-segmentation aggregate) plus keeps the public
+//! API surface alive — `segment_sentences` and `segment_words` must
+//! remain reachable for external consumers.
 
 use rep::selection::segment::{segment_sentences, segment_words};
 
@@ -44,18 +47,4 @@ fn word_segmentation_round_trips_per_unit_text() {
             "U.S.A"
         ]
     );
-}
-
-#[test]
-fn word_segmentation_handles_unicode_alphabetic_and_combining() {
-    let s = "café naïve résumé";
-    let words: Vec<&str> = segment_words(s).into_iter().map(|r| &s[r]).collect();
-    assert_eq!(words, vec!["café", "naïve", "résumé"]);
-}
-
-#[test]
-fn word_segmentation_strips_em_dashes_and_ellipsis_as_boundaries() {
-    let s = "alpha—beta…gamma–delta";
-    let words: Vec<&str> = segment_words(s).into_iter().map(|r| &s[r]).collect();
-    assert_eq!(words, vec!["alpha", "beta", "gamma", "delta"]);
 }
