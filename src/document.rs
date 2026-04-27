@@ -81,9 +81,8 @@ impl DocNode {
 impl Document {
     pub fn parse(content: &str) -> Self {
         let options = markdown::ParseOptions::gfm();
-        let ast = match markdown::to_mdast(content, &options) {
-            Ok(node) => node,
-            Err(_) => return Self { nodes: Vec::new() },
+        let Ok(ast) = markdown::to_mdast(content, &options) else {
+            return Self { nodes: Vec::new() };
         };
 
         let mut nodes = Vec::new();
