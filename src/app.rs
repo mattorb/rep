@@ -24,6 +24,20 @@ use crate::ui::wrap_styled_spans;
 const FOOTER_HEIGHT: u16 = 1;
 const GUTTER_WIDTH: usize = 2;
 
+/// Max char width for the `target:` quote in `to_human_output`. Long
+/// enough that typical sentences fit; short enough to keep emit
+/// blocks readable when consumed by an LLM.
+const EMIT_TARGET_MAX_CHARS: usize = 180;
+
+/// Max char width for the prev/next CONTEXT lines around `target:`.
+/// Slightly narrower than EMIT_TARGET_MAX_CHARS — they're decoration.
+const EMIT_CONTEXT_MAX_CHARS: usize = 140;
+
+/// Max char width for the action payload (`CHANGE:` / `FEEDBACK:` /
+/// `INSERT:`). Wider than the target/context — the user types these
+/// so they tend to be longer.
+const EMIT_PAYLOAD_MAX_CHARS: usize = 220;
+
 // ── Annotation types ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2605,7 +2619,7 @@ impl App {
 
         for node_idx in touched {
             let (source_line, line_text) = self.node_line_context(node_idx);
-            let line_clean = clean_context(&line_text, 180);
+            let line_clean = clean_context(&line_text, EMIT_TARGET_MAX_CHARS);
 
             if let Some(changes) = self.changes.get(&node_idx) {
                 for change in changes {
@@ -2618,7 +2632,7 @@ impl App {
                     let target = change
                         .sentence_text
                         .as_deref()
-                        .map(|s| clean_context(s, 180))
+                        .map(|s| clean_context(s, EMIT_TARGET_MAX_CHARS))
                         .unwrap_or_else(|| line_clean.clone());
                     let (prev_clean_line, next_clean_line) = self.context_lines(where_line);
                     out.push('\n');
@@ -2638,7 +2652,7 @@ impl App {
                     }
                     out.push_str(&format!(
                         "CHANGE: \"{}\"\n",
-                        clean_context(&change.change, 220)
+                        clean_context(&change.change, EMIT_PAYLOAD_MAX_CHARS)
                     ));
                 }
             }
@@ -2654,7 +2668,7 @@ impl App {
                     let target = feedback
                         .sentence_text
                         .as_deref()
-                        .map(|s| clean_context(s, 180))
+                        .map(|s| clean_context(s, EMIT_TARGET_MAX_CHARS))
                         .unwrap_or_else(|| line_clean.clone());
                     let (prev_clean_line, next_clean_line) = self.context_lines(where_line);
                     out.push('\n');
@@ -2674,7 +2688,7 @@ impl App {
                     }
                     out.push_str(&format!(
                         "FEEDBACK: \"{}\"\n",
-                        clean_context(&feedback.feedback, 220)
+                        clean_context(&feedback.feedback, EMIT_PAYLOAD_MAX_CHARS)
                     ));
                 }
             }
@@ -2694,7 +2708,7 @@ impl App {
                     let target = insert
                         .sentence_text
                         .as_deref()
-                        .map(|s| clean_context(s, 180))
+                        .map(|s| clean_context(s, EMIT_TARGET_MAX_CHARS))
                         .unwrap_or_else(|| line_clean.clone());
                     let (prev_clean_line, next_clean_line) = self.context_lines(where_line);
                     out.push('\n');
@@ -2714,7 +2728,7 @@ impl App {
                     }
                     out.push_str(&format!(
                         "INSERT: \"{}\"\n",
-                        clean_context(&insert.text, 220)
+                        clean_context(&insert.text, EMIT_PAYLOAD_MAX_CHARS)
                     ));
                 }
             }
@@ -2729,7 +2743,7 @@ impl App {
                     let sentence_text = sentence_range
                         .as_ref()
                         .and_then(|r| self.rendered_nodes[node_idx].plain.get(r.clone()))
-                        .map(|s| clean_context(s, 180))
+                        .map(|s| clean_context(s, EMIT_TARGET_MAX_CHARS))
                         .unwrap_or_else(|| line_clean.clone());
                     // WHERE: line where the struck sentence's text begins.
                     // Per modular_plan §"Annotation WHERE line number" —
@@ -2881,7 +2895,10 @@ impl App {
             .get(source_line + 1)
             .map(String::as_str)
             .unwrap_or("");
-        (clean_context(prev, 140), clean_context(next, 140))
+        (
+            clean_context(prev, EMIT_CONTEXT_MAX_CHARS),
+            clean_context(next, EMIT_CONTEXT_MAX_CHARS),
+        )
     }
 }
 
@@ -3343,8 +3360,7 @@ mod tests {
         // and pre-conditions are tricky to engineer. Instead, build
         // directly on a one-code-block doc which has zero sentence anchors.
         let mut app2 = test_app("```\nfn x() {}\n```");
-        app2.selection_state.anchor =
-            SelectionAnchor::new(0, SelectionUnit::Sentence, 0);
+        app2.selection_state.anchor = SelectionAnchor::new(0, SelectionUnit::Sentence, 0);
         app2.handle_key(key_char('j'));
         assert_eq!(
             app2.nav_feedback, None,
