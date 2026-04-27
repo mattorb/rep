@@ -65,19 +65,6 @@ impl DocNode {
         matches!(self, Self::Heading { .. })
     }
 
-    /// True for markdown headings and top-level ordered list items (numbered sections).
-    pub fn is_section(&self) -> bool {
-        matches!(self, Self::Heading { .. })
-            || matches!(
-                self,
-                Self::ListItem {
-                    ordered: true,
-                    depth: 0,
-                    ..
-                }
-            )
-    }
-
     pub fn source_start_line(&self) -> usize {
         match self {
             Self::Heading { source_line, .. } | Self::ThematicBreak { source_line } => *source_line,
