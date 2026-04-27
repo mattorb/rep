@@ -152,7 +152,7 @@ fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode 
                     links: r.links,
                 }
             } else {
-                let sentence_ranges = sentence_ranges_from_plain(&plain);
+                let sentence_ranges = crate::selection::segment::segment_sentences(&plain);
                 RenderedNode {
                     plain,
                     spans,
@@ -240,10 +240,6 @@ fn single_range(s: &str) -> Vec<std::ops::Range<usize>> {
 /// Convenience wrapper that delegates to the canonical segmenter in
 /// `selection::segment`. Kept as a local alias to minimize churn at call
 /// sites; the canonical entrypoint is selection::segment::segment_sentences.
-fn sentence_ranges_from_plain(plain: &str) -> Vec<Range<usize>> {
-    crate::selection::segment::segment_sentences(plain)
-}
-
 fn join_node_source_lines(lines: &[String]) -> String {
     lines
         .iter()
@@ -4220,55 +4216,6 @@ mod tests {
             first_line, "Option 1 — Lean (~60 lines)",
             "first line should be the literal first source line"
         );
-    }
-
-    // ── sentence_ranges_from_plain: byte-range values ────────────────────────
-
-    #[test]
-    fn sentence_ranges_from_plain_byte_ranges_slice_correctly() {
-        let text = "First sentence. Second sentence.";
-        let ranges = sentence_ranges_from_plain(text);
-        assert_eq!(ranges.len(), 2, "{ranges:?}");
-        assert_eq!(&text[ranges[0].clone()], "First sentence.");
-        assert_eq!(&text[ranges[1].clone()], "Second sentence.");
-    }
-
-    // ── sentence_ranges_from_plain: hard-wrap continuation ────────────────────
-
-    #[test]
-    fn hard_wrap_lowercase_continuation_is_not_split() {
-        let ranges = sentence_ranges_from_plain("First line\ncontinuation here");
-        assert_eq!(
-            ranges.len(),
-            1,
-            "lowercase after newline must not split: {ranges:?}"
-        );
-    }
-
-    #[test]
-    fn hard_wrap_uppercase_after_newline_does_split() {
-        let ranges = sentence_ranges_from_plain("First line\nSecond line");
-        assert_eq!(
-            ranges.len(),
-            2,
-            "uppercase after newline must split: {ranges:?}"
-        );
-    }
-
-    #[test]
-    fn hard_wrap_indented_lowercase_continuation_no_split() {
-        let ranges = sentence_ranges_from_plain("Some text\n  continued here");
-        assert_eq!(
-            ranges.len(),
-            1,
-            "indented lowercase continuation must not split: {ranges:?}"
-        );
-    }
-
-    #[test]
-    fn hard_wrap_indented_uppercase_splits() {
-        let ranges = sentence_ranges_from_plain("Some text\n  Capitalized here");
-        assert_eq!(ranges.len(), 2, "indented uppercase must split: {ranges:?}");
     }
 
     // ── move_sentence boundary conditions ─────────────────────────────────────

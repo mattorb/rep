@@ -193,6 +193,23 @@ mod tests {
     }
 
     #[test]
+    fn newline_indented_lowercase_continuation_does_not_split() {
+        // Soft-wrap continuation indented with spaces still folds into
+        // the prior sentence — the whitespace skip ahead of the lowercase
+        // check looks past leading spaces.
+        let r = segment_sentences("Some text\n  continued here");
+        assert_eq!(r.len(), 1, "{r:?}");
+    }
+
+    #[test]
+    fn newline_indented_uppercase_splits() {
+        // The uppercase character after the leading-space skip still
+        // counts as a sentence boundary.
+        let r = segment_sentences("Some text\n  Capitalized here");
+        assert_eq!(r.len(), 2, "{r:?}");
+    }
+
+    #[test]
     fn exclamation_and_question_mark_split_like_period() {
         let r = segment_sentences("Done! Already? Sure.");
         assert_eq!(r.len(), 3);
