@@ -2888,7 +2888,7 @@ fn count_occurrences_before(haystack: &str, needle: &str, before_byte: usize) ->
         match haystack[cursor..stop].find(needle) {
             Some(off) => {
                 count += 1;
-                cursor += off + needle.len().max(1);
+                cursor += off + needle.len();
             }
             None => break,
         }
@@ -2909,7 +2909,7 @@ fn nth_occurrence(haystack: &str, needle: &str, n: usize) -> Option<usize> {
         if i == n {
             return Some(abs);
         }
-        cursor = abs + needle.len().max(1);
+        cursor = abs + needle.len();
     }
     None
 }
