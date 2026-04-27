@@ -74,6 +74,47 @@ fn word_walk_skips_punctuation_between_words() {
 }
 
 #[test]
+fn boundary_at_last_sentence_returns_boundary() {
+    // Single-sentence document: next on the only anchor is Boundary,
+    // not Moved. Mirrors the app-level "stays put" coverage that used
+    // to live in src/app.rs but moves the assertion to the navigator
+    // API where it belongs.
+    let idx = build("Single sentence.");
+    let only = SelectionAnchor::new(0, SelectionUnit::Sentence, 0);
+    assert_eq!(navigator::next(&idx, only), NavOutcome::Boundary);
+    assert_eq!(navigator::prev(&idx, only), NavOutcome::Boundary);
+}
+
+#[test]
+fn boundary_within_multi_sentence_node_returns_boundary_only_at_doc_end() {
+    // `One. Two. Three.` — cursor on sentence 2 is the doc's last
+    // anchor; next returns Boundary. Cursor on sentence 1 advances
+    // forward to sentence 2 normally.
+    let idx = build("One. Two. Three.");
+    let last = SelectionAnchor::new(0, SelectionUnit::Sentence, 2);
+    assert_eq!(navigator::next(&idx, last), NavOutcome::Boundary);
+    let middle = SelectionAnchor::new(0, SelectionUnit::Sentence, 1);
+    let moved = navigator::next(&idx, middle);
+    assert!(matches!(moved, NavOutcome::Moved(a) if a.unit_idx == 2));
+}
+
+#[test]
+fn prev_from_first_of_node_lands_on_last_of_previous_node() {
+    // `First. Second.\n\nThird.\n` — node 0 has 2 sentences, node 1
+    // has 1. prev from (1, 0) lands on (0, 1) — the last sentence of
+    // the previous node — not on (0, 0).
+    let idx = build("First. Second.\n\nThird.\n");
+    let first_of_node1 = SelectionAnchor::new(1, SelectionUnit::Sentence, 0);
+    match navigator::prev(&idx, first_of_node1) {
+        NavOutcome::Moved(a) => {
+            assert_eq!(a.node_idx, 0);
+            assert_eq!(a.unit_idx, 1, "must land on last sentence of node 0");
+        }
+        o => panic!("unexpected: {o:?}"),
+    }
+}
+
+#[test]
 fn clamp_round_trips_through_every_unit() {
     let src = "# Heading\n\nFirst. Second.\n\nWrapped\nparagraph here.";
     let idx = build(src);

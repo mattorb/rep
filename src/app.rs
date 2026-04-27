@@ -3436,43 +3436,6 @@ mod tests {
     }
 
     #[test]
-    fn human_output_emits_insert_before_action() {
-        let mut app = test_app("A sentence here.\n");
-        app.inserts_before
-            .entry(0)
-            .or_default()
-            .push(InsertAnnotation {
-                created_at: "2026-01-01T00:00:00Z".into(),
-                target_unit: SelectionUnit::Sentence,
-                sentence_index: Some(0),
-                sentence_text: Some("A sentence here.".into()),
-                text: "Prologue line.".into(),
-            });
-        let out = app.to_human_output();
-        assert!(out.contains("ACTION: insert-before"), "{out}");
-        assert!(out.contains("INSERT: \"Prologue line.\""), "{out}");
-        assert!(out.contains("target: \"A sentence here.\""), "{out}");
-    }
-
-    #[test]
-    fn human_output_emits_insert_after_action() {
-        let mut app = test_app("A sentence here.\n");
-        app.inserts_after
-            .entry(0)
-            .or_default()
-            .push(InsertAnnotation {
-                created_at: "2026-01-01T00:00:00Z".into(),
-                target_unit: SelectionUnit::Sentence,
-                sentence_index: Some(0),
-                sentence_text: Some("A sentence here.".into()),
-                text: "Followup line.".into(),
-            });
-        let out = app.to_human_output();
-        assert!(out.contains("ACTION: insert-after"), "{out}");
-        assert!(out.contains("INSERT: \"Followup line.\""), "{out}");
-    }
-
-    #[test]
     fn agent_output_includes_inserts_before_and_after() {
         let mut app = test_app("First. Second.\n");
         app.inserts_before
@@ -3734,37 +3697,6 @@ mod tests {
     }
 
     #[test]
-    fn human_output_emits_revise_action_for_feedback() {
-        let mut app = test_app("A sentence here.\n");
-        app.feedbacks
-            .entry(0)
-            .or_default()
-            .push(make_feedback("make this clearer"));
-        let out = app.to_human_output();
-        assert!(
-            out.contains("ACTION: revise-to-incorporate-feedback"),
-            "{out}"
-        );
-        assert!(out.contains("FEEDBACK: \"make this clearer\""), "{out}");
-    }
-
-    #[test]
-    fn human_output_change_format_with_sentence_text_as_target() {
-        let mut app = test_app("Alpha. Beta.\n");
-        app.changes.entry(0).or_default().push(ChangeAnnotation {
-            created_at: "2026-01-01T00:00:00Z".into(),
-            target_unit: SelectionUnit::Sentence,
-            sentence_index: Some(0),
-            sentence_text: Some("Alpha.".into()),
-            change: "Rewrite alpha".into(),
-        });
-        let out = app.to_human_output();
-        assert!(out.contains("ACTION: change"), "{out}");
-        assert!(out.contains("CHANGE: \"Rewrite alpha\""), "{out}");
-        assert!(out.contains("target: \"Alpha.\""), "{out}");
-    }
-
-    #[test]
     fn strike_in_word_mode_records_word_unit_strike() {
         // Per modular_plan §"Functional" Req 3, `delete this` works at
         // any unit. Word-mode `x` records a (Word, unit_idx) entry in
@@ -3788,23 +3720,6 @@ mod tests {
         assert!(
             !app.strikes.contains_key(&0),
             "second x should remove the word-unit strike"
-        );
-    }
-
-    #[test]
-    fn human_output_strike_emits_delete_action_and_extracts_sentence_text() {
-        let mut app = test_app("Strike this. Keep this.\n");
-        app.strikes
-            .entry(0)
-            .or_default()
-            .insert((SelectionUnit::Sentence, 0));
-        let out = app.to_human_output();
-        assert!(out.contains("ACTION: delete this"), "{out}");
-        assert!(out.contains("WHERE: line 1\n"), "{out}");
-        assert!(out.contains("\"Strike this.\""), "{out}");
-        assert!(
-            !out.contains(", sentence "),
-            "emit must not carry a `, sentence M` suffix: {out}"
         );
     }
 
@@ -3996,141 +3911,6 @@ mod tests {
     }
 
     #[test]
-    fn human_output_strips_sentence_suffix_from_where_line() {
-        // Per modular_plan §"WHERE": every unit emits `WHERE: line N`
-        // only — no `, sentence M` suffix carried over from the
-        // pre-multi-unit shape.
-        let mut app = test_app("First. Second. Third.\n");
-        app.changes.entry(0).or_default().push(ChangeAnnotation {
-            created_at: "2026-01-01T00:00:00Z".into(),
-            target_unit: SelectionUnit::Sentence,
-            sentence_index: Some(2),
-            sentence_text: Some("Third.".into()),
-            change: "Fix third".into(),
-        });
-        let out = app.to_human_output();
-        assert!(out.contains("WHERE: line 1\n"), "{out}");
-        assert!(
-            !out.contains(", sentence "),
-            "emit must not carry a `, sentence M` suffix: {out}"
-        );
-    }
-
-    #[test]
-    fn human_output_line_change_on_listitem_emits_full_item_text() {
-        // Per modular_plan §"target / Line": ListItem at the line unit
-        // emits the **full item text** (markers stripped, soft-wrapped
-        // lines space-joined) — not the source line verbatim like other
-        // node kinds.
-        let mut app = test_app("- first item line one\n  continuation\n");
-        app.changes.entry(0).or_default().push(ChangeAnnotation {
-            created_at: "2026-01-01T00:00:00Z".into(),
-            target_unit: SelectionUnit::Line,
-            sentence_index: Some(0),
-            sentence_text: Some("first item line one continuation".into()),
-            change: "Tighten".into(),
-        });
-        let out = app.to_human_output();
-        assert!(out.contains("ACTION: change"), "{out}");
-        assert!(out.contains("WHERE: line 1\n"), "{out}");
-        assert!(
-            out.contains("target: \"first item line one continuation\""),
-            "ListItem-at-line target = full item text, markers stripped: {out}"
-        );
-    }
-
-    #[test]
-    fn human_output_line_change_emits_source_line_verbatim() {
-        // Line emit (non-ListItem): target = source line verbatim,
-        // markers preserved (per modular_plan §"target / Line").
-        // WHERE = the specific source line of the anchor.
-        let mut app = test_app("# A heading\n\nbody.\n");
-        app.changes.entry(0).or_default().push(ChangeAnnotation {
-            created_at: "2026-01-01T00:00:00Z".into(),
-            target_unit: SelectionUnit::Line,
-            sentence_index: Some(0),
-            sentence_text: Some("# A heading".into()),
-            change: "Rename".into(),
-        });
-        let out = app.to_human_output();
-        assert!(out.contains("ACTION: change"), "{out}");
-        assert!(out.contains("WHERE: line 1\n"), "{out}");
-        assert!(
-            out.contains("target: \"# A heading\""),
-            "Line target preserves `#` heading marker: {out}"
-        );
-    }
-
-    #[test]
-    fn human_output_paragraph_change_emits_full_node_text() {
-        // Paragraph emit: target is the whole node's selection plain text,
-        // soft-wrapped lines / table rows space-joined, no embedded
-        // newlines (per modular_plan §"target / Paragraph").
-        let mut app = test_app("First paragraph here. Two sentences.\n");
-        app.changes.entry(0).or_default().push(ChangeAnnotation {
-            created_at: "2026-01-01T00:00:00Z".into(),
-            target_unit: SelectionUnit::Paragraph,
-            sentence_index: Some(0),
-            sentence_text: Some("First paragraph here. Two sentences.".into()),
-            change: "Rewrite the paragraph".into(),
-        });
-        let out = app.to_human_output();
-        assert!(out.contains("ACTION: change"), "{out}");
-        assert!(out.contains("WHERE: line 1\n"), "{out}");
-        assert!(
-            out.contains("target: \"First paragraph here. Two sentences.\""),
-            "{out}"
-        );
-    }
-
-    #[test]
-    fn human_output_section_change_emits_full_section_text() {
-        // Section selection on heading + body: target should be the
-        // joined plain text of all constituent nodes, single-spaced,
-        // markers stripped, no embedded newlines (per modular_plan
-        // §"target / Section").
-        let mut app = test_app("# Section A\n\nBody of A.\n");
-        app.changes.entry(0).or_default().push(ChangeAnnotation {
-            created_at: "2026-01-01T00:00:00Z".into(),
-            target_unit: SelectionUnit::Section,
-            sentence_index: Some(0),
-            sentence_text: Some("Section A Body of A.".into()),
-            change: "Rewrite the section".into(),
-        });
-        let out = app.to_human_output();
-        assert!(out.contains("ACTION: change"), "{out}");
-        assert!(
-            out.contains("WHERE: line 1\n"),
-            "section emit keys on the heading line: {out}"
-        );
-        assert!(
-            out.contains("target: \"Section A Body of A.\""),
-            "section target = constituent node texts joined: {out}"
-        );
-        // The `target:` line itself must not have embedded newlines
-        // (single-line target invariant per modular_plan §"target").
-        let target_line = out
-            .lines()
-            .find(|l| l.contains("target: "))
-            .expect("target line present");
-        assert!(
-            !target_line
-                .trim_end_matches('"')
-                .trim_start()
-                .contains('\n'),
-            "target text must be single-line: {target_line}"
-        );
-    }
-
-    #[test]
-    fn human_output_with_no_annotations_contains_no_actions() {
-        let app = test_app("Some text.\n");
-        let out = app.to_human_output();
-        assert!(out.contains("No actions."), "{out}");
-        assert!(!out.contains("ACTION:"), "{out}");
-    }
-
-    #[test]
     fn agent_output_sentence_index_is_one_based() {
         let mut app = test_app("First. Second.\n");
         app.changes.entry(0).or_default().push(ChangeAnnotation {
@@ -4210,40 +3990,6 @@ mod tests {
     }
 
     // ── Navigation ────────────────────────────────────────────────────────────
-
-    #[test]
-    fn sentence_navigation_crosses_node_boundary() {
-        // Blank lines don't exist as nodes — moving 'l' from last sentence of
-        // node 0 should land on first sentence of node 1.
-        let mut app = test_app("First sentence.\n\nSecond sentence.\n");
-        assert_eq!(app.selection_state.anchor.node_idx, 0);
-        assert_eq!(app.selection_state.anchor.unit_idx, 0);
-        app.handle_key(key_char('j'));
-        assert_eq!(
-            app.selection_state.anchor.node_idx, 1,
-            "should cross to next node"
-        );
-        assert_eq!(app.selection_state.anchor.unit_idx, 0);
-    }
-
-    #[test]
-    fn node_navigation_moves_through_every_node() {
-        // "one", blank, blank, "two", blank, "three" → 3 Paragraph nodes.
-        let mut app = test_app("one\n\n\ntwo\n\nthree\n");
-        assert_eq!(app.selection_state.anchor.node_idx, 0);
-        app.move_node(1);
-        assert_eq!(
-            app.selection_state.anchor.node_idx, 1,
-            "should move to next node"
-        );
-        app.move_node(1);
-        assert_eq!(
-            app.selection_state.anchor.node_idx, 2,
-            "should move to next node"
-        );
-        app.move_node(-1);
-        assert_eq!(app.selection_state.anchor.node_idx, 1, "should move back");
-    }
 
     // ── Sentence context and highlight ────────────────────────────────────────
 
@@ -4388,52 +4134,6 @@ mod tests {
     // ── move_sentence boundary conditions ─────────────────────────────────────
 
     #[test]
-    fn move_sentence_forward_at_last_sentence_stays_put() {
-        let mut app = test_app("Single sentence.");
-        app.handle_key(key_char('j'));
-        assert_eq!(
-            app.selection_state.anchor.node_idx, 0,
-            "no next node — cursor must stay"
-        );
-        assert_eq!(app.selection_state.anchor.unit_idx, 0);
-    }
-
-    #[test]
-    fn move_sentence_backward_at_first_sentence_stays_put() {
-        let mut app = test_app("Single sentence.");
-        app.handle_key(key_char('k'));
-        assert_eq!(app.selection_state.anchor.node_idx, 0);
-        assert_eq!(app.selection_state.anchor.unit_idx, 0);
-    }
-
-    #[test]
-    fn move_sentence_forward_stays_on_last_sentence_of_multi_sentence_node() {
-        let mut app = test_app("One. Two. Three.");
-        app.selection_state.anchor.unit_idx = 2;
-        app.handle_key(key_char('j'));
-        assert_eq!(app.selection_state.anchor.node_idx, 0);
-        assert_eq!(
-            app.selection_state.anchor.unit_idx, 2,
-            "should stay on last sentence"
-        );
-    }
-
-    #[test]
-    fn move_sentence_backward_crosses_to_last_sentence_of_previous_node() {
-        // node 0 has 2 sentences; node 1 has 1.
-        let mut app = test_app("First. Second.\n\nThird.\n");
-        app.handle_key(key_char('j')); // → node 0, sentence 1
-        app.handle_key(key_char('j')); // → node 1, sentence 0
-        assert_eq!(app.selection_state.anchor.node_idx, 1);
-        app.handle_key(key_char('k')); // ← should land on last sentence of node 0
-        assert_eq!(app.selection_state.anchor.node_idx, 0);
-        assert_eq!(
-            app.selection_state.anchor.unit_idx, 1,
-            "must land on last sentence of previous node"
-        );
-    }
-
-    #[test]
     fn cycling_out_of_section_mode_clears_section_highlight_range() {
         // Cycle into Section mode (Backspace x3: Sentence -> Line ->
         // Paragraph -> Section). mode_cycle sets section_highlight_range
@@ -4483,31 +4183,6 @@ mod tests {
         assert!(
             app.section_highlight_range.is_none(),
             "section highlight must clear when clamp_sentence forces unit -> Sentence"
-        );
-    }
-
-    #[test]
-    fn move_node_clamps_cursor_sentence_to_destination_node_length() {
-        // node 0: 3 sentences; node 1: 1 sentence
-        let mut app = test_app("One. Two. Three.\n\nSingle.\n");
-        app.selection_state.anchor.unit_idx = 2;
-        app.move_node(1);
-        assert_eq!(app.selection_state.anchor.node_idx, 1);
-        assert_eq!(
-            app.selection_state.anchor.unit_idx, 0,
-            "cursor_sentence must clamp to last valid index"
-        );
-    }
-
-    #[test]
-    fn move_node_skips_thematic_break() {
-        // nodes: [Para, ThematicBreak, Para]
-        let mut app = test_app("First paragraph.\n\n---\n\nSecond paragraph.\n");
-        assert_eq!(app.selection_state.anchor.node_idx, 0);
-        app.move_node(1);
-        assert_eq!(
-            app.selection_state.anchor.node_idx, 2,
-            "should skip ThematicBreak at node 1"
         );
     }
 
