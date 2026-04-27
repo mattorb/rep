@@ -3861,6 +3861,28 @@ mod tests {
     }
 
     #[test]
+    fn human_output_line_change_emits_source_line_verbatim() {
+        // Line emit (non-ListItem): target = source line verbatim,
+        // markers preserved (per modular_plan §"target / Line").
+        // WHERE = the specific source line of the anchor.
+        let mut app = test_app("# A heading\n\nbody.\n");
+        app.changes.entry(0).or_default().push(ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Line,
+            sentence_index: Some(0),
+            sentence_text: Some("# A heading".into()),
+            change: "Rename".into(),
+        });
+        let out = app.to_human_output();
+        assert!(out.contains("ACTION: change"), "{out}");
+        assert!(out.contains("WHERE: line 1\n"), "{out}");
+        assert!(
+            out.contains("target: \"# A heading\""),
+            "Line target preserves `#` heading marker: {out}"
+        );
+    }
+
+    #[test]
     fn human_output_paragraph_change_emits_full_node_text() {
         // Paragraph emit: target is the whole node's selection plain text,
         // soft-wrapped lines / table rows space-joined, no embedded
