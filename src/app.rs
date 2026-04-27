@@ -41,7 +41,7 @@ const EMIT_PAYLOAD_MAX_CHARS: usize = 220;
 // ── Annotation types ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InputMode {
+pub(crate) enum InputMode {
     Normal,
     Change,
     Feedback,
