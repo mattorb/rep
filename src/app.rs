@@ -1902,7 +1902,9 @@ impl App {
             Line::from("  c  change (literal)"),
             Line::from("  f  feedback (intent)"),
             Line::from("  b  a  insert before · after"),
-            Line::from("  e  x  r  edit · clear/strike · copy result"),
+            Line::from("  e  edit existing change/feedback"),
+            Line::from("  x  clear annotation, or strike (sentence mode only)"),
+            Line::from("  r  copy result to clipboard"),
             Line::from("  q  Q          quit · silent quit"),
             Line::from("  ? / Esc       help · close"),
         ];
