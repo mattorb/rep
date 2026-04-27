@@ -3770,6 +3770,16 @@ mod tests {
     }
 
     #[test]
+    fn count_occurrences_before_empty_needle_returns_zero() {
+        assert_eq!(super::count_occurrences_before("a b c", "", 5), 0);
+    }
+
+    #[test]
+    fn nth_occurrence_empty_needle_returns_none() {
+        assert_eq!(super::nth_occurrence("a b c", "", 0), None);
+    }
+
+    #[test]
     fn count_occurrences_before_basic() {
         assert_eq!(super::count_occurrences_before("a b a c a", "a", 0), 0);
         assert_eq!(super::count_occurrences_before("a b a c a", "a", 1), 1);
