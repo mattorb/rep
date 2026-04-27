@@ -1342,7 +1342,14 @@ impl App {
     }
 
     fn editable_annotation_at_cursor(&self) -> Option<EditableAnnotation> {
-        let sentence_idx = self.current_sentence_context().map(|(idx, _)| idx);
+        // Sentence-keyed match only fires in Sentence mode; in any other
+        // unit the unit_idx is not a sentence index. Mirrors the same
+        // gate applied in existing_change/feedback_for_cursor.
+        let sentence_idx = if self.selection_state.anchor.unit == SelectionUnit::Sentence {
+            self.current_sentence_context().map(|(idx, _)| idx)
+        } else {
+            None
+        };
 
         let sentence_match = sentence_idx.and_then(|idx| {
             let change = self
