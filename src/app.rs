@@ -1214,29 +1214,26 @@ impl App {
     fn current_line_capture(&self) -> Option<(usize, String)> {
         let node_idx = self.selection_state.anchor.node_idx;
         let unit_idx = self.selection_state.anchor.unit_idx;
-        match self.doc.nodes.get(node_idx)? {
-            DocNode::ListItem { .. } => {
-                // ListItem at line unit: full item text, markers already
-                // stripped by the index's selection_plain_text.
-                let plain = self
-                    .index
-                    .nodes
-                    .get(node_idx)
-                    .map(|n| n.selection_plain_text.clone())?;
-                Some((unit_idx, plain))
-            }
-            _ => {
-                // Non-ListItem: source line verbatim.
-                let (line, _) = self
-                    .index
-                    .nodes
-                    .get(node_idx)?
-                    .source_line_ranges
-                    .get(unit_idx)?
-                    .clone();
-                let line_text = self.source_lines.get(line)?.clone();
-                Some((unit_idx, line_text))
-            }
+        if let DocNode::ListItem { .. } = self.doc.nodes.get(node_idx)? {
+            // ListItem at line unit: full item text, markers already
+            // stripped by the index's selection_plain_text.
+            let plain = self
+                .index
+                .nodes
+                .get(node_idx)
+                .map(|n| n.selection_plain_text.clone())?;
+            Some((unit_idx, plain))
+        } else {
+            // Non-ListItem: source line verbatim.
+            let (line, _) = self
+                .index
+                .nodes
+                .get(node_idx)?
+                .source_line_ranges
+                .get(unit_idx)?
+                .clone();
+            let line_text = self.source_lines.get(line)?.clone();
+            Some((unit_idx, line_text))
         }
     }
 
