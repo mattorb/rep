@@ -1,0 +1,8 @@
+# Cycle backward into Paragraph mode and change the second paragraph.
+Backspace
+Backspace
+j
+c
+X
+Enter
+q

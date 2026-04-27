@@ -1,0 +1,7 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 5
+CONTEXT:
+  target: "Section B Body of B. Two sentences here."
+CHANGE: "X"

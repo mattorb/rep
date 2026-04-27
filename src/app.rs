@@ -1152,8 +1152,38 @@ impl App {
         match self.selection_state.anchor.unit {
             SelectionUnit::Line => self.current_line_capture(),
             SelectionUnit::Word => self.current_word_capture(),
-            _ => self.current_sentence_context(),
+            SelectionUnit::Paragraph => self.current_paragraph_capture(),
+            SelectionUnit::Section => self.current_section_capture(),
+            SelectionUnit::Sentence => self.current_sentence_context(),
         }
+    }
+
+    fn current_paragraph_capture(&self) -> Option<(usize, String)> {
+        let node_idx = self.selection_state.anchor.node_idx;
+        let plain = self
+            .index
+            .nodes
+            .get(node_idx)
+            .map(|n| n.selection_plain_text.clone())?;
+        Some((0, plain))
+    }
+
+    fn current_section_capture(&self) -> Option<(usize, String)> {
+        let node_idx = self.selection_state.anchor.node_idx;
+        let section = self
+            .index
+            .sections
+            .iter()
+            .find(|s| s.start_node_idx == node_idx)?;
+        let mut parts: Vec<String> = Vec::new();
+        for i in section.start_node_idx..=section.end_node_idx {
+            if let Some(n) = self.index.nodes.get(i) {
+                if !n.selection_plain_text.is_empty() {
+                    parts.push(n.selection_plain_text.clone());
+                }
+            }
+        }
+        Some((0, parts.join(" ")))
     }
 
     fn current_word_capture(&self) -> Option<(usize, String)> {

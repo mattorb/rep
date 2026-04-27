@@ -1,0 +1,9 @@
+# Cycle backward into Section mode and change Section B.
+Backspace
+Backspace
+Backspace
+j
+c
+X
+Enter
+q
