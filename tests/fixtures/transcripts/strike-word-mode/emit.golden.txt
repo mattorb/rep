@@ -1,3 +1,6 @@
 FILE: <INPUT>
 
-No actions.
+ACTION: delete this
+WHERE: line 1
+CONTEXT:
+  target: "sentence"

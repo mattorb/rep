@@ -5,7 +5,7 @@
 //! `SelectionState` is a thin wrapper to give future state (mode-cycle
 //! history, etc.) a home without changing call sites.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SelectionUnit {
     Section,
     Paragraph,

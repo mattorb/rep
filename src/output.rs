@@ -90,8 +90,14 @@ pub struct InsertOutput {
 #[derive(Debug)]
 pub struct ReactionOutput {
     pub kind: String,
-    pub sentence_index: usize,
-    pub sentence_text: String,
+    /// Selection unit at the time the reaction (e.g. strike) was applied —
+    /// "sentence" / "word" / "line" / "paragraph" / "section".
+    pub target_unit: String,
+    /// Per-unit index within the node, 1-based.
+    pub unit_index: usize,
+    /// Captured text of the targeted unit (selection plain text, markers
+    /// stripped per Req 11).
+    pub target_text: String,
 }
 
 pub fn clean_context(value: &str, max_chars: usize) -> String {

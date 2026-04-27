@@ -353,7 +353,11 @@ pub struct App {
     feedbacks: BTreeMap<usize, Vec<FeedbackAnnotation>>,
     inserts_before: BTreeMap<usize, Vec<InsertAnnotation>>,
     inserts_after: BTreeMap<usize, Vec<InsertAnnotation>>,
-    strikes: BTreeMap<usize, BTreeSet<usize>>,
+    /// Strikes are keyed by (unit, unit_idx) within each node so a single
+    /// node can carry strikes at different granularities — Sentence-unit
+    /// strikes (the original shape) and Word/Line/Paragraph/Section strikes.
+    /// BTreeSet ordering gives deterministic emit order.
+    strikes: BTreeMap<usize, BTreeSet<(SelectionUnit, usize)>>,
     input_mode: InputMode,
     change_buffer: String,
     feedback_buffer: String,
@@ -1242,6 +1246,54 @@ impl App {
         }
     }
 
+    /// Lookup variant of `current_target_capture` that takes an explicit
+    /// `(node_idx, unit, unit_idx)` instead of reading from
+    /// `selection_state.anchor`. Used by strike emit to render the target
+    /// text for each saved (unit, unit_idx) strike entry.
+    fn target_text_for_unit(
+        &self,
+        node_idx: usize,
+        unit: SelectionUnit,
+        unit_idx: usize,
+    ) -> Option<String> {
+        let node = self.index.nodes.get(node_idx)?;
+        match unit {
+            SelectionUnit::Sentence => {
+                let r = node.sentence_ranges.get(unit_idx)?;
+                Some(node.selection_plain_text.get(r.clone())?.trim().to_string())
+            }
+            SelectionUnit::Word => {
+                let r = node.word_ranges.get(unit_idx)?;
+                Some(node.selection_plain_text.get(r.clone())?.to_string())
+            }
+            SelectionUnit::Line => {
+                if let DocNode::ListItem { .. } = self.doc.nodes.get(node_idx)? {
+                    Some(node.selection_plain_text.clone())
+                } else {
+                    let (line, _) = node.source_line_ranges.get(unit_idx)?.clone();
+                    Some(self.source_lines.get(line)?.clone())
+                }
+            }
+            SelectionUnit::Paragraph => Some(node.selection_plain_text.replace('\n', " ")),
+            SelectionUnit::Section => {
+                let section = self
+                    .index
+                    .sections
+                    .iter()
+                    .find(|s| s.start_node_idx == node_idx)?;
+                let mut parts: Vec<String> = Vec::new();
+                for i in section.start_node_idx..=section.end_node_idx {
+                    if let Some(n) = self.index.nodes.get(i)
+                        && !n.selection_plain_text.is_empty()
+                    {
+                        parts.push(n.selection_plain_text.replace('\n', " "));
+                    }
+                }
+                Some(parts.join(" "))
+            }
+        }
+    }
+
     // ── Annotations ───────────────────────────────────────────────────────────
 
     fn existing_change_for_cursor(&self) -> Option<usize> {
@@ -1517,47 +1569,41 @@ impl App {
             return;
         }
 
-        // Strike storage is sentence-keyed today (BTreeSet<usize> per node).
-        // Word- and line-level strikes need a wider storage model -- defer
-        // to a future iteration. For now `x` only operates in Sentence
-        // mode; in other units we surface a clear "not supported" message.
-        if self.selection_state.anchor.unit != SelectionUnit::Sentence {
+        let unit = self.selection_state.anchor.unit;
+        let unit_idx = self.selection_state.anchor.unit_idx;
+        let node_idx = self.selection_state.anchor.node_idx;
+
+        // Verify the active anchor actually points at a real unit on this
+        // node — otherwise an empty paragraph or out-of-range word index
+        // would create a phantom strike.
+        if self.current_target_capture().is_none() {
             self.status = format!(
-                "Strike (`x`) targets sentences only; current mode is {}. Cycle to sentence mode first.",
-                self.mode_indicator()
+                "Node {} has no {} target to strike.",
+                node_idx + 1,
+                unit.mode_str()
             );
             return;
         }
 
-        let Some((sentence_idx, _)) = self.current_sentence_context() else {
-            self.status = format!(
-                "Node {} has no sentence to strike.",
-                self.selection_state.anchor.node_idx + 1
-            );
-            return;
-        };
-
-        let entry = self
-            .strikes
-            .entry(self.selection_state.anchor.node_idx)
-            .or_default();
-        if entry.contains(&sentence_idx) {
-            entry.remove(&sentence_idx);
-            let node = self.selection_state.anchor.node_idx;
+        let key = (unit, unit_idx);
+        let entry = self.strikes.entry(node_idx).or_default();
+        let unit_label = unit.mode_str();
+        if entry.contains(&key) {
+            entry.remove(&key);
             if entry.is_empty() {
-                self.strikes.remove(&node);
+                self.strikes.remove(&node_idx);
             }
             self.status = format!(
-                "Removed strike from node {}, sentence {}.",
-                self.selection_state.anchor.node_idx + 1,
-                sentence_idx + 1
+                "Removed strike from node {} ({unit_label} {}).",
+                node_idx + 1,
+                unit_idx + 1
             );
         } else {
-            entry.insert(sentence_idx);
+            entry.insert(key);
             self.status = format!(
-                "Struck node {}, sentence {}.",
-                self.selection_state.anchor.node_idx + 1,
-                sentence_idx + 1
+                "Struck node {} ({unit_label} {}).",
+                node_idx + 1,
+                unit_idx + 1
             );
         }
     }
@@ -2251,14 +2297,37 @@ impl App {
     /// active selection unit should paint. Returns None when the active
     /// anchor doesn't resolve to a paintable range on this node (the
     /// section_highlight_range path covers Section selections).
+    /// Active-anchor variant: maps `selection_state.anchor` to a display
+    /// byte range. Thin wrapper over `unit_byte_range_in_display`.
     fn unit_highlight_for(
         &self,
-        _node_idx: usize,
+        node_idx: usize,
         plain: &str,
         sentence_ranges: &[Range<usize>],
     ) -> Option<Range<usize>> {
-        let unit_idx = self.selection_state.anchor.unit_idx;
-        match self.selection_state.anchor.unit {
+        self.unit_byte_range_in_display(
+            node_idx,
+            self.selection_state.anchor.unit,
+            self.selection_state.anchor.unit_idx,
+            plain,
+            sentence_ranges,
+        )
+    }
+
+    /// Map any `(unit, unit_idx)` on `node_idx` to a byte range inside the
+    /// node's display plain text, so strike rendering and live-anchor
+    /// highlight can share the same mapping logic. Section returns None
+    /// (sections paint whole-node ranges, handled by section_highlight_range
+    /// in the caller).
+    fn unit_byte_range_in_display(
+        &self,
+        node_idx: usize,
+        unit: SelectionUnit,
+        unit_idx: usize,
+        plain: &str,
+        sentence_ranges: &[Range<usize>],
+    ) -> Option<Range<usize>> {
+        match unit {
             SelectionUnit::Sentence => sentence_ranges.get(unit_idx).cloned(),
             SelectionUnit::Paragraph => Some(0..plain.len()),
             SelectionUnit::Line => {
@@ -2269,7 +2338,6 @@ impl App {
                 // are present in display but excluded from index lines).
                 // Count which occurrence in source so two identical lines
                 // map to the correct display position.
-                let node_idx = self.selection_state.anchor.node_idx;
                 let index_node = self.index.nodes.get(node_idx)?;
                 let (line, _) = index_node.source_line_ranges.get(unit_idx)?;
                 let line_text = self.source_lines.get(*line)?;
@@ -2295,7 +2363,6 @@ impl App {
                 // word index aligns to selection plain text, not display.
                 // Count which occurrence the word is in selection plain
                 // text so repeated words map to the right display position.
-                let node_idx = self.selection_state.anchor.node_idx;
                 let index_node = self.index.nodes.get(node_idx)?;
                 let word_range = index_node.word_ranges.get(unit_idx)?;
                 let word_text = index_node.selection_plain_text.get(word_range.clone())?;
@@ -2329,7 +2396,23 @@ impl App {
         }
 
         let sentence_ranges = &rn.sentence_ranges;
-        let strikes = self.strikes.get(&node_idx);
+
+        // Resolve every strike anchor on this node to a display byte
+        // range. Empty when nothing is struck. Sentence-unit strikes use
+        // the existing rn.sentence_ranges; Word/Line/Paragraph strikes
+        // route through unit_byte_range_in_display so the painted span
+        // matches what the user struck.
+        let strike_ranges: Vec<Range<usize>> = self
+            .strikes
+            .get(&node_idx)
+            .map(|set| {
+                set.iter()
+                    .filter_map(|&(unit, idx)| {
+                        self.unit_byte_range_in_display(node_idx, unit, idx, plain, sentence_ranges)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
         // Map span style → byte range segments.
         let mut seg: Vec<(usize, usize, Style)> = Vec::new();
@@ -2363,7 +2446,8 @@ impl App {
 
         // Collect all split points. Include the active highlight boundaries so
         // sub-node units (Word/Line) can paint precisely rather than tinting an
-        // entire pre-existing span chunk.
+        // entire pre-existing span chunk. Same for each strike range so
+        // word-unit strikes paint just the word.
         let mut bounds = vec![0, plain_len];
         for &(s, e, _) in &seg {
             bounds.push(s);
@@ -2374,6 +2458,10 @@ impl App {
             bounds.push(r.end.min(plain_len));
         }
         if let Some(r) = &highlight {
+            bounds.push(r.start.min(plain_len));
+            bounds.push(r.end.min(plain_len));
+        }
+        for r in &strike_ranges {
             bounds.push(r.start.min(plain_len));
             bounds.push(r.end.min(plain_len));
         }
@@ -2399,10 +2487,6 @@ impl App {
                 .map(|&(_, _, sty)| sty)
                 .unwrap_or_default();
 
-            let sentence_idx = sentence_ranges
-                .iter()
-                .position(|r| start >= r.start && start < r.end);
-
             if highlight
                 .as_ref()
                 .is_some_and(|r| start < r.end && end > r.start)
@@ -2415,7 +2499,7 @@ impl App {
                 );
             }
 
-            if sentence_idx.is_some_and(|idx| strikes.is_some_and(|s| s.contains(&idx))) {
+            if strike_ranges.iter().any(|r| start < r.end && end > r.start) {
                 style = style.patch(
                     Style::default()
                         .fg(Color::Red)
@@ -2502,18 +2586,15 @@ impl App {
                 .get(&node_idx)
                 .map(|set| {
                     set.iter()
-                        .map(|&sidx| {
-                            let sentence_text = self
-                                .rendered_nodes
-                                .get(node_idx)
-                                .and_then(|rn| rn.sentence_ranges.get(sidx))
-                                .and_then(|r| self.rendered_nodes[node_idx].plain.get(r.clone()))
-                                .map(|s| s.trim().to_string())
+                        .map(|&(unit, idx)| {
+                            let target_text = self
+                                .target_text_for_unit(node_idx, unit, idx)
                                 .unwrap_or_default();
                             ReactionOutput {
                                 kind: "strike".to_string(),
-                                sentence_index: sidx + 1,
-                                sentence_text,
+                                target_unit: unit.mode_str().to_string(),
+                                unit_index: idx + 1,
+                                target_text,
                             }
                         })
                         .collect()
@@ -2636,28 +2717,16 @@ impl App {
             }
 
             if let Some(strikes) = self.strikes.get(&node_idx) {
-                for &sentence_idx in strikes {
-                    let target = self
-                        .rendered_nodes
-                        .get(node_idx)
-                        .and_then(|rn| {
-                            rn.sentence_ranges
-                                .get(sentence_idx)
-                                .and_then(|r| rn.plain.get(r.clone()))
-                        })
-                        .map_or_else(
-                            || line_clean.clone(),
-                            |s| clean_context(s, EMIT_TARGET_MAX_CHARS),
-                        );
-                    // Strike's WHERE: same per-sentence line resolution
-                    // where_for_annotation does for Sentence-unit
-                    // annotations.
-                    let strike_line = self.where_for_annotation(
-                        SelectionUnit::Sentence,
-                        node_idx,
-                        Some(sentence_idx),
-                        source_line,
-                    );
+                for &(unit, unit_idx) in strikes {
+                    // Target text comes from the selection plain text
+                    // view per Req 11 — same source the index uses for
+                    // navigation / sentence emit.
+                    let raw_target = self
+                        .target_text_for_unit(node_idx, unit, unit_idx)
+                        .unwrap_or_else(|| line_clean.clone());
+                    let target = clean_context(&raw_target, EMIT_TARGET_MAX_CHARS);
+                    let strike_line =
+                        self.where_for_annotation(unit, node_idx, Some(unit_idx), source_line);
                     Self::emit_action_header(&mut out, "delete this", strike_line);
                     self.emit_context_block(&mut out, strike_line, &target);
                 }
@@ -3068,7 +3137,10 @@ mod tests {
     #[test]
     fn gutter_shows_x_after_strike() {
         let mut app = test_app("A sentence here.\n");
-        app.strikes.entry(0).or_default().insert(0);
+        app.strikes
+            .entry(0)
+            .or_default()
+            .insert((SelectionUnit::Sentence, 0));
         let t = render(&mut app);
         assert_eq!(cell(&t, 1, 1), 'X', "expected strike indicator 'X'");
     }
@@ -3107,7 +3179,10 @@ mod tests {
     fn gutter_shows_star_for_both() {
         let mut app = test_app("A sentence.\n");
         app.changes.entry(0).or_default().push(make_change("x"));
-        app.strikes.entry(0).or_default().insert(0);
+        app.strikes
+            .entry(0)
+            .or_default()
+            .insert((SelectionUnit::Sentence, 0));
         let t = render(&mut app);
         assert_eq!(cell(&t, 1, 1), '*', "expected combined indicator '*'");
     }
@@ -3214,7 +3289,10 @@ mod tests {
         let mut app = test_app("A sentence.\n");
         app.changes.entry(0).or_default().push(make_change("x"));
         app.feedbacks.entry(0).or_default().push(make_feedback("y"));
-        app.strikes.entry(0).or_default().insert(0);
+        app.strikes
+            .entry(0)
+            .or_default()
+            .insert((SelectionUnit::Sentence, 0));
         let t = render(&mut app);
         let top = row(&t, 0);
         assert!(top.contains("1C"), "change count missing: {top:?}");
@@ -3687,29 +3765,39 @@ mod tests {
     }
 
     #[test]
-    fn strike_refused_in_word_mode_with_status_message() {
-        // toggle_strike() in any non-Sentence unit refuses with a clear
-        // status; storage is sentence-keyed today so word/line strikes
-        // would need a wider model. This locks the refusal behavior.
+    fn strike_in_word_mode_records_word_unit_strike() {
+        // Per modular_plan §"Functional" Req 3, `delete this` works at
+        // any unit. Word-mode `x` records a (Word, unit_idx) entry in
+        // self.strikes so emit / render can target the word, not the
+        // surrounding sentence.
         let mut app = test_app("alpha beta gamma\n");
         app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
         assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+        let word_idx = app.selection_state.anchor.unit_idx;
+        app.handle_key(key_char('x'));
+        let strikes = app
+            .strikes
+            .get(&0)
+            .expect("strike entry created on first x");
+        assert!(
+            strikes.contains(&(SelectionUnit::Word, word_idx)),
+            "expected (Word, {word_idx}) in strikes, got {strikes:?}"
+        );
+        // Toggle: a second `x` removes it.
         app.handle_key(key_char('x'));
         assert!(
             !app.strikes.contains_key(&0),
-            "strike must NOT be applied in word mode"
-        );
-        assert!(
-            app.status.contains("Strike (`x`) targets sentences only"),
-            "status: {}",
-            app.status
+            "second x should remove the word-unit strike"
         );
     }
 
     #[test]
     fn human_output_strike_emits_delete_action_and_extracts_sentence_text() {
         let mut app = test_app("Strike this. Keep this.\n");
-        app.strikes.entry(0).or_default().insert(0);
+        app.strikes
+            .entry(0)
+            .or_default()
+            .insert((SelectionUnit::Sentence, 0));
         let out = app.to_human_output();
         assert!(out.contains("ACTION: delete this"), "{out}");
         assert!(out.contains("WHERE: line 1\n"), "{out}");
@@ -3894,7 +3982,10 @@ mod tests {
         // line.". Striking sentence index 1 must emit `WHERE: line 2`,
         // not the paragraph's first line.
         let mut app = test_app("First line.\nSecond line.\n");
-        app.strikes.entry(0).or_default().insert(1);
+        app.strikes
+            .entry(0)
+            .or_default()
+            .insert((SelectionUnit::Sentence, 1));
         let out = app.to_human_output();
         assert!(out.contains("ACTION: delete this"), "{out}");
         assert!(
@@ -4092,7 +4183,9 @@ mod tests {
 
         app.handle_key(key_char('x'));
         assert!(
-            app.strikes.get(&0).is_some_and(|set| set.contains(&0)),
+            app.strikes
+                .get(&0)
+                .is_some_and(|set| set.contains(&(SelectionUnit::Sentence, 0))),
             "second x should strike once no change/feedback remains"
         );
     }
