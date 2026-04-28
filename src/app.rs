@@ -3,6 +3,7 @@ use std::fmt::Write;
 use std::fs;
 use std::ops::Range;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -112,6 +113,16 @@ struct RenderedNode {
     /// smart-punctuation and emphasis-marker stripping, so a source line
     /// can't be searched verbatim inside display plain.
     line_ranges: Vec<Range<usize>>,
+    /// Word byte ranges in display `plain` (re-segmented from display).
+    /// Used by mouse-click resolution to map a clicked display byte to a
+    /// word_idx; the existing `index.nodes[i].word_ranges` is in
+    /// selection plain (markers stripped, smart-punctuation NOT applied),
+    /// so its byte values don't index into display plain. Word counts
+    /// should match between the two views in practice; if they ever
+    /// diverge, the click path falls back to whichever index it
+    /// resolves and the rest of the pipeline remains valid (paint/emit
+    /// re-uses selection plain via `unit_byte_range_in_display`).
+    display_word_ranges: Vec<Range<usize>>,
     links: Vec<MarkdownLinkRange>,
 }
 
@@ -121,6 +132,7 @@ impl std::fmt::Debug for RenderedNode {
             .field("plain", &self.plain)
             .field("sentence_ranges", &self.sentence_ranges)
             .field("line_ranges", &self.line_ranges)
+            .field("display_word_ranges", &self.display_word_ranges)
             .finish_non_exhaustive()
     }
 }
@@ -133,7 +145,7 @@ fn build_rendered_nodes(doc: &Document, source_lines: &[String]) -> Vec<Rendered
 }
 
 fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode {
-    match node {
+    let mut rn = match node {
         DocNode::Heading { source_line, .. } => {
             let text = source_lines.get(*source_line).cloned().unwrap_or_default();
             let r = render_markdown_line(&text);
@@ -144,6 +156,7 @@ fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode 
                 spans: r.spans,
                 sentence_ranges: ranges,
                 line_ranges,
+                display_word_ranges: Vec::new(),
                 links: r.links,
             }
         }
@@ -163,6 +176,7 @@ fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode 
                     spans: r.spans,
                     sentence_ranges,
                     line_ranges,
+                    display_word_ranges: Vec::new(),
                     links: r.links,
                 }
             } else {
@@ -172,6 +186,7 @@ fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode 
                     spans,
                     sentence_ranges,
                     line_ranges,
+                    display_word_ranges: Vec::new(),
                     links,
                 }
             }
@@ -201,6 +216,7 @@ fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode 
                 spans,
                 sentence_ranges: ranges,
                 line_ranges,
+                display_word_ranges: Vec::new(),
                 links: r.links,
             }
         }
@@ -242,6 +258,7 @@ fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode 
                 spans,
                 sentence_ranges: ranges,
                 line_ranges,
+                display_word_ranges: Vec::new(),
                 links: vec![],
             }
         }
@@ -252,10 +269,13 @@ fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode 
                 spans: r.spans,
                 sentence_ranges: vec![],
                 line_ranges: vec![],
+                display_word_ranges: Vec::new(),
                 links: r.links,
             }
         }
-    }
+    };
+    rn.display_word_ranges = crate::selection::segment::segment_words(&rn.plain);
+    rn
 }
 
 /// Return a single byte-range covering the entire string, or empty if empty.
@@ -366,6 +386,91 @@ fn truncate_to_columns(s: &str, max_cols: usize) -> String {
     out
 }
 
+/// Walk `plain` alongside the wrapped output of `wrap_styled_spans` and
+/// return one byte range per visible row indicating which slice of
+/// `plain` that row's text occupies. Wrap drops some chars from `plain`
+/// (the joining `\n`s and any leading whitespace on continuation lines)
+/// but never adds new ones — every emitted char is a verbatim copy
+/// from the input — so we can match each row's chars positionally
+/// against `plain` to recover its byte range.
+fn wrap_line_byte_ranges(plain: &str, wrapped: &[Vec<Span<'static>>]) -> Vec<Range<usize>> {
+    let mut out = Vec::with_capacity(wrapped.len());
+    let mut cursor = 0usize;
+    for line in wrapped {
+        // Concatenate the line's visible chars in order.
+        let mut iter = line
+            .iter()
+            .flat_map(|s| s.content.chars())
+            .filter(|c| *c != '\n');
+        let Some(first) = iter.next() else {
+            // Empty visible line: zero-width range at the cursor.
+            out.push(cursor..cursor);
+            continue;
+        };
+        // Advance `cursor` past any plain chars dropped by wrap (`\n` or
+        // discarded leading whitespace) until it sits on the row's first
+        // char. Bail to a zero-width range if the row goes off the end
+        // of plain (shouldn't happen, but keeps the function total).
+        let mut start = None;
+        while cursor < plain.len() {
+            let Some(pc) = plain[cursor..].chars().next() else {
+                break;
+            };
+            if pc == first {
+                start = Some(cursor);
+                cursor += pc.len_utf8();
+                break;
+            }
+            cursor += pc.len_utf8();
+        }
+        let Some(start) = start else {
+            out.push(plain.len()..plain.len());
+            continue;
+        };
+        // Walk the rest of the row's chars in lockstep with plain. If a
+        // plain char doesn't match (unlikely outside the dropped-ws/\n
+        // case above), skip it and try again — this keeps the cursor
+        // honest even if wrap and our model diverge.
+        for ch in iter {
+            while cursor < plain.len() {
+                let Some(pc) = plain[cursor..].chars().next() else {
+                    break;
+                };
+                if pc == ch {
+                    cursor += pc.len_utf8();
+                    break;
+                }
+                cursor += pc.len_utf8();
+            }
+        }
+        out.push(start..cursor);
+    }
+    out
+}
+
+/// Walk `text` from byte 0 and return the byte index whose preceding
+/// chars sum to *strictly more than* `target_cols` columns of terminal
+/// width — i.e. the first byte that lies past column `target_cols`.
+/// Returns `text.len()` when the text never reaches that column.
+/// Combining marks (`UnicodeWidthChar::width == 0`) attach to the
+/// preceding char so a click on a base char's column resolves to the
+/// base char, not a stray combining mark beyond it.
+fn col_to_byte(text: &str, target_cols: usize) -> usize {
+    let mut used = 0usize;
+    for (idx, ch) in text.char_indices() {
+        let w = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if w == 0 {
+            // zero-width: glue to the preceding char's column.
+            continue;
+        }
+        if used >= target_cols {
+            return idx;
+        }
+        used += w;
+    }
+    text.len()
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
@@ -431,7 +536,49 @@ pub struct App {
     scroll_offset: usize,
     list_inner: Rect,
     cached_node_heights: Vec<u16>,
+    /// One entry per visible terminal row in `list_inner`, populated each
+    /// `draw()`. Maps mouse (row, col) → which node + display byte the
+    /// click landed on. Empty rows (spacers between nodes) get a
+    /// zero-width range. `None` for rows that are part of the border or
+    /// outside the list area.
+    visible_rows: Vec<Option<RowMap>>,
+    /// Timestamp + position of the most recent left-click, used to
+    /// bump the click count on rapid same-cell clicks (single → double
+    /// → triple). Reset on cell change or after the timeout window.
+    last_click: Option<LastClick>,
 }
+
+/// Maps a single visible terminal row to a slice of one rendered node's
+/// display plain text. Built each `draw()` from `node_lines` so that
+/// `handle_mouse` can resolve a click coordinate without re-walking the
+/// wrap pipeline. The row's `col` axis is interpreted left-to-right
+/// after skipping `gutter_cols` columns of indicator/gutter prefix.
+#[derive(Debug, Clone)]
+struct RowMap {
+    node_idx: usize,
+    /// Byte range in `rendered_nodes[node_idx].plain` covering the chars
+    /// shown on this row (after the gutter prefix). Zero-width when the
+    /// row is a spacer between nodes — clicks land on the node but
+    /// resolve to no text.
+    byte_range: Range<usize>,
+    /// Number of terminal columns to skip from the left edge of
+    /// `list_inner` before the row's text content starts. Today this is
+    /// always `GUTTER_WIDTH` (indicator + space) but is stored
+    /// per-row so future per-row decorations don't drift.
+    gutter_cols: u16,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LastClick {
+    at: Instant,
+    row: u16,
+    col: u16,
+    /// 1 = single, 2 = double, 3 = triple. Saturates at 3 — a fourth
+    /// rapid click on the same cell drops back to 1.
+    count: u8,
+}
+
+const CLICK_DOUBLE_INTERVAL: Duration = Duration::from_millis(500);
 
 impl App {
     pub fn load(path: PathBuf) -> Result<Self> {
@@ -496,6 +643,8 @@ impl App {
             scroll_offset: 0,
             list_inner: Rect::default(),
             cached_node_heights: Vec::new(),
+            visible_rows: Vec::new(),
+            last_click: None,
         })
     }
 
@@ -1127,35 +1276,174 @@ impl App {
         // scroll.
         self.notification = None;
         self.nav_feedback = None;
+        // Swallow clicks when a popup is up or the user is typing into
+        // an input mode — mouse activity shouldn't yank the selection
+        // out from under their text entry.
+        let popup_or_input_active = self.input_mode != InputMode::Normal
+            || self.show_help
+            || self.ast_view_scroll.is_some()
+            || self.link_popup_urls.is_some()
+            || self.quit_confirm_pending;
         match mouse.kind {
-            MouseEventKind::ScrollUp => self.move_node(-1),
-            MouseEventKind::ScrollDown => self.move_node(1),
-            MouseEventKind::Down(MouseButton::Left) => {
-                if let Some(node_idx) = self.click_to_node(mouse.row) {
-                    self.selection_state.anchor.node_idx = node_idx;
-                    self.clamp_sentence();
-                    self.status = format!("Node {}/{}", node_idx + 1, self.doc.node_count());
-                }
+            MouseEventKind::ScrollUp if !popup_or_input_active => self.move_node(-1),
+            MouseEventKind::ScrollDown if !popup_or_input_active => self.move_node(1),
+            MouseEventKind::Down(MouseButton::Left) if !popup_or_input_active => {
+                self.handle_left_click(mouse.row, mouse.column);
             }
             _ => {}
         }
     }
 
-    fn click_to_node(&self, mouse_row: u16) -> Option<usize> {
+    fn handle_left_click(&mut self, row: u16, col: u16) {
+        let count = self.bump_click_count(row, col);
+        let Some((node_idx, display_byte)) = self.mouse_to_target(row, col) else {
+            // Click outside the list area or on a non-text row: leave
+            // the click count alone (the next click on a real cell will
+            // start fresh anyway via the cell-change reset above).
+            return;
+        };
+        let (unit, unit_idx) = self.click_target_unit(node_idx, display_byte, count);
+        let anchor = SelectionAnchor::new(node_idx, unit, unit_idx);
+        self.selection_state.anchor = anchor;
+        self.refresh_section_highlight(anchor);
+        self.status = format!(
+            "Node {}/{}  {} {}",
+            node_idx + 1,
+            self.doc.node_count(),
+            unit.mode_str(),
+            unit_idx + 1,
+        );
+    }
+
+    /// Increment the click count when the new click is on the same cell
+    /// within `CLICK_DOUBLE_INTERVAL` of the previous one; otherwise
+    /// reset to 1. Saturates at 3 so a fourth rapid click cycles back
+    /// to a single-click selection (matches platform-typical behaviour).
+    fn bump_click_count(&mut self, row: u16, col: u16) -> u8 {
+        let now = Instant::now();
+        let count =
+            match self.last_click {
+                Some(prev)
+                    if prev.row == row
+                        && prev.col == col
+                        && now.duration_since(prev.at) <= CLICK_DOUBLE_INTERVAL =>
+                {
+                    if prev.count >= 3 { 1 } else { prev.count + 1 }
+                }
+                _ => 1,
+            };
+        self.last_click = Some(LastClick {
+            at: now,
+            row,
+            col,
+            count,
+        });
+        count
+    }
+
+    /// Resolve a mouse coordinate to (node_idx, byte offset in display
+    /// plain). Returns None for clicks outside `list_inner`, on spacer
+    /// rows, or on the gutter/indicator prefix to the left of the text.
+    fn mouse_to_target(&self, row: u16, col: u16) -> Option<(usize, usize)> {
         let inner = self.list_inner;
-        if mouse_row < inner.y || mouse_row >= inner.y + inner.height {
+        if row < inner.y
+            || row >= inner.y.saturating_add(inner.height)
+            || col < inner.x
+            || col >= inner.x.saturating_add(inner.width)
+        {
             return None;
         }
-        let visual_row = mouse_row - inner.y;
-        let offset = self.scroll_offset;
-        let mut cumulative = 0u16;
-        for (i, &height) in self.cached_node_heights.iter().skip(offset).enumerate() {
-            if visual_row < cumulative + height {
-                return Some(offset + i);
-            }
-            cumulative += height;
+        let visual_row = (row - inner.y) as usize;
+        let map = self.visible_rows.get(visual_row)?.as_ref()?;
+        let plain = self.rendered_nodes.get(map.node_idx)?.plain.as_str();
+        if map.byte_range.start >= map.byte_range.end {
+            // Spacer or empty row — no text to land on.
+            return None;
         }
-        None
+        // Skip the gutter cols, then walk the row's slice by terminal
+        // width to find the byte the click landed on.
+        let row_text = plain.get(map.byte_range.clone())?;
+        let col_in_text = (col - inner.x).saturating_sub(map.gutter_cols) as usize;
+        let local_byte = col_to_byte(row_text, col_in_text);
+        Some((map.node_idx, map.byte_range.start + local_byte))
+    }
+
+    /// Pick the selection (unit, unit_idx) for a click at the given
+    /// display byte on `node_idx`, dispatched by click count:
+    ///   1 → Word, 2 → Sentence (or Line for nodes without sentence
+    ///       semantics), 3 → Paragraph (whole node).
+    fn click_target_unit(
+        &self,
+        node_idx: usize,
+        display_byte: usize,
+        count: u8,
+    ) -> (SelectionUnit, usize) {
+        match count {
+            1 => {
+                let idx = self.find_word_at(node_idx, display_byte).unwrap_or(0);
+                (SelectionUnit::Word, idx)
+            }
+            2 => {
+                if self.node_has_sentence_semantics(node_idx) {
+                    let idx = self.find_sentence_at(node_idx, display_byte).unwrap_or(0);
+                    (SelectionUnit::Sentence, idx)
+                } else {
+                    let idx = self.find_line_at(node_idx, display_byte).unwrap_or(0);
+                    (SelectionUnit::Line, idx)
+                }
+            }
+            _ => (SelectionUnit::Paragraph, 0),
+        }
+    }
+
+    fn find_word_at(&self, node_idx: usize, display_byte: usize) -> Option<usize> {
+        let rn = self.rendered_nodes.get(node_idx)?;
+        rn.display_word_ranges
+            .iter()
+            .position(|r| r.start <= display_byte && display_byte < r.end)
+            .or_else(|| {
+                // Click landed past the end of words on this row (e.g.
+                // trailing whitespace) — pick the last word as the
+                // user-friendly fallback.
+                rn.display_word_ranges.len().checked_sub(1)
+            })
+    }
+
+    fn find_sentence_at(&self, node_idx: usize, display_byte: usize) -> Option<usize> {
+        let rn = self.rendered_nodes.get(node_idx)?;
+        rn.sentence_ranges
+            .iter()
+            .position(|r| r.start <= display_byte && display_byte < r.end)
+            .or_else(|| rn.sentence_ranges.len().checked_sub(1))
+    }
+
+    fn find_line_at(&self, node_idx: usize, display_byte: usize) -> Option<usize> {
+        let rn = self.rendered_nodes.get(node_idx)?;
+        rn.line_ranges
+            .iter()
+            .position(|r| r.start <= display_byte && display_byte < r.end)
+            .or_else(|| rn.line_ranges.len().checked_sub(1))
+    }
+
+    /// True when the node has real sentence-level structure, i.e. its
+    /// display plain contains terminal punctuation and `sentence_ranges`
+    /// reflects more than a single whole-node fallback. Code blocks
+    /// (which use `single_range`) and short list items / headings
+    /// without a terminator fall through to Line on double-click.
+    fn node_has_sentence_semantics(&self, node_idx: usize) -> bool {
+        let Some(rn) = self.rendered_nodes.get(node_idx) else {
+            return false;
+        };
+        if rn.sentence_ranges.is_empty() {
+            return false;
+        }
+        match self.doc.nodes.get(node_idx) {
+            Some(DocNode::CodeBlock { .. }) => false,
+            Some(DocNode::Heading { .. }) | Some(DocNode::ListItem { .. }) => {
+                rn.plain.chars().any(|c| matches!(c, '.' | '!' | '?'))
+            }
+            _ => true,
+        }
     }
 
     fn has_annotation(&self, node_idx: usize) -> bool {
@@ -1783,6 +2071,11 @@ impl App {
         let mut node_heights: Vec<u16> = Vec::with_capacity(self.doc.node_count());
 
         let node_count = self.doc.node_count();
+        // Parallel to `node_lines`: one byte range per produced row in
+        // the matching `Vec<Line>`, indexed by `(node_idx, row)`. The
+        // trailing spacer (when present) carries an empty range. Used
+        // to populate `visible_rows` after scroll-clipping.
+        let mut node_row_byte_ranges: Vec<Vec<Range<usize>>> = Vec::with_capacity(node_count);
         let node_lines: Vec<Vec<Line<'static>>> = self
             .doc
             .nodes
@@ -1804,6 +2097,17 @@ impl App {
                 {
                     let raw = &self.source_lines[clamp_range(range, self.source_lines.len())];
                     let range_start = range.start;
+                    // Code-block plain is raw.join("\n"); per-source-line
+                    // byte ranges are derivable from cumulative line
+                    // lengths. Fence + content lines are both rendered,
+                    // so every visible row gets an entry.
+                    let mut row_ranges: Vec<Range<usize>> = Vec::with_capacity(raw.len() + 1);
+                    let mut cb_cursor = 0usize;
+                    for line in raw {
+                        let end = cb_cursor + line.len();
+                        row_ranges.push(cb_cursor..end);
+                        cb_cursor = end + 1;
+                    }
                     let mut display_lines: Vec<Line> = raw
                         .iter()
                         .enumerate()
@@ -1840,14 +2144,22 @@ impl App {
                         .collect();
                     if add_spacer_after {
                         display_lines.push(Line::from(""));
+                        row_ranges.push(0..0);
                     }
                     let height = display_lines.len().max(1) as u16;
                     node_heights.push(height);
+                    node_row_byte_ranges.push(row_ranges);
                     return display_lines;
                 }
 
                 let spans = self.render_node_spans(node_idx);
                 let wrapped = wrap_styled_spans(spans, wrapped_text_width);
+                let plain = self
+                    .rendered_nodes
+                    .get(node_idx)
+                    .map(|rn| rn.plain.as_str())
+                    .unwrap_or("");
+                let mut row_ranges = wrap_line_byte_ranges(plain, &wrapped);
 
                 let mut wrapped_lines: Vec<Line> = wrapped
                     .into_iter()
@@ -1866,9 +2178,11 @@ impl App {
 
                 if add_spacer_after {
                     wrapped_lines.push(Line::from(""));
+                    row_ranges.push(0..0);
                 }
                 let height = wrapped_lines.len().max(1) as u16;
                 node_heights.push(height);
+                node_row_byte_ranges.push(row_ranges);
 
                 wrapped_lines
             })
@@ -1882,14 +2196,47 @@ impl App {
         // clipped at the bottom rather than skipped entirely.
         frame.render_widget(list_block, layout[0]);
         let mut visible: Vec<Line<'static>> = Vec::new();
+        // Re-build the per-row map in lockstep so a click at a given
+        // visible row resolves to the correct (node, byte_range).
+        self.visible_rows.clear();
         let mut count = 0u16;
-        'outer: for lines in node_lines.iter().skip(self.scroll_offset) {
-            for line in lines {
+        'outer: for (lines, row_ranges) in node_lines
+            .iter()
+            .zip(node_row_byte_ranges.iter())
+            .skip(self.scroll_offset)
+        {
+            for (line, byte_range) in lines.iter().zip(row_ranges.iter()) {
                 if count >= list_inner.height {
                     break 'outer;
                 }
                 visible.push(line.clone());
+                // Determine which node this row belongs to by walking
+                // from the first un-skipped node forward; cheaper to
+                // resolve via the outer iterator's current position,
+                // which we lost when destructuring. Re-derive it using
+                // a counter on the outer iterator below.
+                self.visible_rows.push(Some(RowMap {
+                    node_idx: 0, // filled in below
+                    byte_range: byte_range.clone(),
+                    gutter_cols: GUTTER_WIDTH as u16,
+                }));
                 count += 1;
+            }
+        }
+        // Fill node_idx on each pushed RowMap by replaying the same skip
+        // walk; cheaper than threading the index through the zip above.
+        {
+            let mut row = 0usize;
+            for (idx, lines) in node_lines.iter().enumerate().skip(self.scroll_offset) {
+                for _ in lines {
+                    if row >= self.visible_rows.len() {
+                        break;
+                    }
+                    if let Some(Some(map)) = self.visible_rows.get_mut(row) {
+                        map.node_idx = idx;
+                    }
+                    row += 1;
+                }
             }
         }
         frame.render_widget(Paragraph::new(Text::from(visible)), list_inner);
@@ -4866,5 +5213,145 @@ mod tests {
         assert!(app.should_quit, "Q must quit immediately");
         assert!(app.silent_quit, "Q must set silent_quit");
         assert!(!app.quit_confirm_pending, "Q must not arm the confirmation");
+    }
+
+    // ── mouse-click selection ───────────────────────────────────────
+
+    fn render_then_click(app: &mut App, row: u16, col: u16) {
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            row,
+            column: col,
+            modifiers: KeyModifiers::NONE,
+        });
+    }
+
+    #[test]
+    fn single_click_selects_word_at_cursor() {
+        // Multi-word paragraph, single click on "fox".
+        // After draw: list block border at row 0, inner row 0 = terminal row 1.
+        // Gutter is 2 cols (indicator + space), so col 2 = first text byte.
+        let mut app = test_app("alpha bravo charlie delta echo.\n");
+        // "alpha bravo " = 12 bytes; "charlie" starts at col 14 (gutter + 12).
+        // Click on the 'h' in "charlie" at col 15.
+        render_then_click(&mut app, 1, 15);
+        let anchor = app.selection_state.anchor;
+        assert_eq!(anchor.unit, SelectionUnit::Word, "single click → Word");
+        // Word index of "charlie" should be 2 (0=alpha, 1=bravo, 2=charlie).
+        let rn = &app.rendered_nodes[anchor.node_idx];
+        let word_text = rn
+            .display_word_ranges
+            .get(anchor.unit_idx)
+            .and_then(|r| rn.plain.get(r.clone()))
+            .unwrap_or("");
+        assert_eq!(
+            word_text, "charlie",
+            "single click should land on the clicked word"
+        );
+    }
+
+    #[test]
+    fn double_click_selects_sentence() {
+        // Two-sentence paragraph. Click twice in the first sentence.
+        let mut app = test_app("Alpha bravo. Charlie delta echo fox.\n");
+        render_then_click(&mut app, 1, 4);
+        render_then_click(&mut app, 1, 4);
+        let anchor = app.selection_state.anchor;
+        assert_eq!(
+            anchor.unit,
+            SelectionUnit::Sentence,
+            "double click → Sentence"
+        );
+        assert_eq!(anchor.unit_idx, 0, "click on first sentence");
+    }
+
+    #[test]
+    fn triple_click_selects_paragraph() {
+        let mut app = test_app("Alpha. Bravo. Charlie.\n");
+        render_then_click(&mut app, 1, 4);
+        render_then_click(&mut app, 1, 4);
+        render_then_click(&mut app, 1, 4);
+        let anchor = app.selection_state.anchor;
+        assert_eq!(anchor.unit, SelectionUnit::Paragraph);
+        assert_eq!(anchor.unit_idx, 0);
+    }
+
+    #[test]
+    fn double_click_in_codeblock_selects_line() {
+        // Fenced code block — sentence semantics don't apply, so double
+        // click should land on the clicked line, not a sentence.
+        let mut app = test_app("```\nfirst line\nsecond line\nthird line\n```\n");
+        // Code block fence starts at row 1; "second line" is on inner row 2.
+        render_then_click(&mut app, 3, 5);
+        render_then_click(&mut app, 3, 5);
+        let anchor = app.selection_state.anchor;
+        assert_eq!(
+            anchor.unit,
+            SelectionUnit::Line,
+            "double click in code → Line"
+        );
+        // Index lines exclude fence lines, so "first" = 0, "second" = 1.
+        assert_eq!(
+            anchor.unit_idx, 1,
+            "should land on the second non-fence line"
+        );
+    }
+
+    #[test]
+    fn click_count_resets_on_position_change() {
+        let mut app = test_app("Alpha. Bravo. Charlie.\n");
+        render_then_click(&mut app, 1, 4);
+        // Different cell — should reset to single click.
+        render_then_click(&mut app, 1, 12);
+        let anchor = app.selection_state.anchor;
+        assert_eq!(
+            anchor.unit,
+            SelectionUnit::Word,
+            "different cell must restart at single-click"
+        );
+    }
+
+    #[test]
+    fn click_outside_list_inner_is_noop() {
+        let mut app = test_app("Body.\n");
+        let before = app.selection_state.anchor;
+        // Click on the footer row (row 23 in an 80x24 backend).
+        render_then_click(&mut app, 23, 10);
+        let after = app.selection_state.anchor;
+        assert_eq!(
+            before, after,
+            "click outside list_inner must not move selection"
+        );
+    }
+
+    #[test]
+    fn click_during_input_mode_is_swallowed() {
+        let mut app = test_app("alpha bravo charlie.\n");
+        // Enter Change input mode.
+        app.handle_key(key_char('c'));
+        let before = app.selection_state.anchor;
+        render_then_click(&mut app, 1, 8);
+        let after = app.selection_state.anchor;
+        assert_eq!(
+            before, after,
+            "click in input mode must not move the underlying selection"
+        );
+    }
+
+    #[test]
+    fn click_count_resets_after_timeout() {
+        // Manually drive bump_click_count to verify the time-based reset
+        // without sleeping for half a second in the test.
+        let mut app = test_app("Body.\n");
+        app.last_click = Some(LastClick {
+            at: Instant::now() - Duration::from_secs(1),
+            row: 5,
+            col: 10,
+            count: 1,
+        });
+        let n = app.bump_click_count(5, 10);
+        assert_eq!(n, 1, "stale prior click must restart the count at 1");
     }
 }
