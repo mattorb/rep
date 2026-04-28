@@ -180,7 +180,13 @@ fn is_internal_continuation(prev: char, sep: char, next: char) -> bool {
         return false;
     }
     match sep {
-        '.' | '\'' => true,
+        // Typographic apostrophes (U+2018 left, U+2019 right) keep
+        // contractions together the same way ASCII `'` does. Without
+        // these, pulldown-cmark's smart-punctuation rewrite of
+        // display plain (`I'm` → `I'm`) would re-segment "I'm" into
+        // two words, throwing off click → word_idx alignment with
+        // selection plain (which keeps straight apostrophes).
+        '.' | '\'' | '\u{2018}' | '\u{2019}' => true,
         '-' => {
             (prev.is_alphabetic() && next.is_alphabetic())
                 || (prev.is_ascii_digit() && next.is_ascii_digit())
@@ -276,6 +282,19 @@ mod tests {
         assert_eq!(
             words_of("don't won't can't"),
             vec!["don't", "won't", "can't"]
+        );
+    }
+
+    #[test]
+    fn word_typographic_apostrophe_keeps_contraction() {
+        // pulldown-cmark applies smart-punctuation to display plain, so
+        // "I'm" / "son's" become "I’m" / "son’s" with U+2019. The
+        // segmenter must keep these together so click→word resolution
+        // on display plain produces the same word count as selection
+        // plain (which still has straight apostrophes).
+        assert_eq!(
+            words_of("I\u{2019}m son\u{2019}s specc\u{2019}d"),
+            vec!["I\u{2019}m", "son\u{2019}s", "specc\u{2019}d"]
         );
     }
 

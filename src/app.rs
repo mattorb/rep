@@ -4669,20 +4669,25 @@ mod tests {
 
     #[test]
     fn word_mode_highlight_tracks_each_word_with_smart_apostrophe() {
+        // segment_words treats typographic apostrophe (U+2019) as
+        // internal-word continuation, the same way it treats ASCII `'`,
+        // so contractions stay whole on display plain too. This keeps
+        // display word indices aligned with selection-plain word
+        // indices (mouse-click resolution depends on that alignment).
         let mut app = test_app("we’re in an early period\n");
         app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
         assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
 
         let spans0 = app.render_node_spans(0);
-        assert_eq!(highlighted_text(&spans0), "we");
+        assert_eq!(highlighted_text(&spans0), "we’re");
 
         app.handle_key(key_char('j'));
         let spans1 = app.render_node_spans(0);
-        assert_eq!(highlighted_text(&spans1), "re");
+        assert_eq!(highlighted_text(&spans1), "in");
 
         app.handle_key(key_char('j'));
         let spans2 = app.render_node_spans(0);
-        assert_eq!(highlighted_text(&spans2), "in");
+        assert_eq!(highlighted_text(&spans2), "an");
     }
 
     #[test]
@@ -5460,6 +5465,66 @@ mod tests {
         assert_eq!(
             selected, target_word,
             "click on {target_word:?} must select it"
+        );
+    }
+
+    #[test]
+    fn click_on_word_with_smart_apostrophe_picks_whole_contraction() {
+        let body = "I'm chilling on a couch during my son's piano lesson.";
+        let mut app = test_app(&format!("{body}\n"));
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        let para_idx = 0;
+        let plain = app.rendered_nodes[para_idx].plain.clone();
+        let display_words: Vec<&str> = app.rendered_nodes[para_idx]
+            .display_word_ranges
+            .iter()
+            .map(|r| &plain[r.clone()])
+            .collect();
+        assert!(
+            display_words.contains(&"I\u{2019}m"),
+            "display words should include I'm (typographic), got {display_words:?}"
+        );
+        assert!(
+            display_words.contains(&"son\u{2019}s"),
+            "display words should include son's (typographic), got {display_words:?}"
+        );
+        // Click on the apostrophe of "son's" — used to land on the "s"
+        // suffix or further off; should now resolve to the whole word.
+        let target_word = "son\u{2019}s";
+        let target_byte = plain.find(target_word).unwrap();
+        let apos_byte = plain[target_byte..].find('\u{2019}').unwrap() + target_byte;
+        let row_idx = app
+            .visible_rows
+            .iter()
+            .position(|rm| {
+                rm.as_ref()
+                    .is_some_and(|m| m.byte_range.contains(&apos_byte))
+            })
+            .unwrap();
+        let map = app.visible_rows[row_idx].clone().unwrap();
+        let row_text = &plain[map.byte_range.clone()];
+        let in_row = apos_byte - map.byte_range.start;
+        let col_in_row: usize = row_text[..in_row]
+            .chars()
+            .map(|c| UnicodeWidthChar::width(c).unwrap_or(0))
+            .sum();
+        let inner = app.list_inner;
+        let click_col = inner.x + map.gutter_cols + (col_in_row as u16);
+        let click_row = inner.y + (row_idx as u16);
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            row: click_row,
+            column: click_col,
+            modifiers: KeyModifiers::NONE,
+        });
+        let anchor = app.selection_state.anchor;
+        assert_eq!(anchor.unit, SelectionUnit::Word);
+        let selected = &app.rendered_nodes[anchor.node_idx].plain
+            [app.rendered_nodes[anchor.node_idx].display_word_ranges[anchor.unit_idx].clone()];
+        assert_eq!(
+            selected, target_word,
+            "click on the smart apostrophe of son's must select the whole contraction"
         );
     }
 
