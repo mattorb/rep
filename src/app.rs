@@ -448,6 +448,28 @@ fn wrap_line_byte_ranges(plain: &str, wrapped: &[Vec<Span<'static>>]) -> Vec<Ran
     out
 }
 
+/// Pick the unit_idx whose range contains `byte`, or — when `byte` falls
+/// in a gap — the closest preceding unit. Falls through to unit 0 if the
+/// click sits before every range, and to the last unit when ranges are
+/// empty (`None` is returned in that case so the caller can no-op).
+///
+/// The naive "find a containing range or fall back to len-1" produces
+/// dramatic miss-by-many-words misclicks: a click on the trailing space
+/// after the second word in a 30-word paragraph would resolve to word
+/// 29. This walker honours the user's spatial intent — a click in
+/// inter-word whitespace selects the word it just left, matching how
+/// most text editors handle word selection.
+fn find_unit_at(ranges: &[Range<usize>], byte: usize) -> Option<usize> {
+    if ranges.is_empty() {
+        return None;
+    }
+    // partition_point returns the count of leading ranges whose start
+    // is ≤ byte. The target is the last such range (count - 1) — that
+    // range either contains the byte or sits immediately to its left.
+    let count = ranges.partition_point(|r| r.start <= byte);
+    Some(count.saturating_sub(1))
+}
+
 /// Walk `text` from byte 0 and return the byte index whose preceding
 /// chars sum to *strictly more than* `target_cols` columns of terminal
 /// width — i.e. the first byte that lies past column `target_cols`.
@@ -786,11 +808,10 @@ impl App {
             KeyCode::Char('j') | KeyCode::Down | KeyCode::Right => self.move_active_unit(true),
             KeyCode::Char('k') | KeyCode::Up | KeyCode::Left => self.move_active_unit(false),
             KeyCode::Backspace => self.mode_cycle(false),
-            // i / o cycle the active selection unit by one step. i =
-            // "in" / finer; o = "out" / coarser. Synonyms for Space
-            // and Backspace.
-            KeyCode::Char('i') => self.mode_cycle(true),
-            KeyCode::Char('o') => self.mode_cycle(false),
+            // i / o adjust the active selection unit by one step
+            // without wrapping. i = "in" / finer; o = "out" / coarser.
+            KeyCode::Char('i') => self.mode_adjust(true),
+            KeyCode::Char('o') => self.mode_adjust(false),
             // Capital variants are the popups: I opens the AST popup,
             // O reveals links from the current sentence.
             KeyCode::Char('I') => {
@@ -1211,6 +1232,30 @@ impl App {
         self.refresh_section_highlight(new_anchor);
     }
 
+    /// i (finer) / o (coarser) — adjust the active selection unit by
+    /// one step, stopping at the ends instead of wrapping around.
+    fn mode_adjust(&mut self, finer: bool) {
+        let order = SelectionUnit::CYCLE_ORDER;
+        let i = order
+            .iter()
+            .position(|u| *u == self.selection_state.anchor.unit)
+            .unwrap_or(0);
+        let target = if finer {
+            order.get(i + 1).copied()
+        } else if i > 0 {
+            order.get(i - 1).copied()
+        } else {
+            None
+        };
+        let Some(target) = target else {
+            return;
+        };
+        let new_anchor =
+            crate::selection::navigator::clamp(&self.index, self.selection_state.anchor, target);
+        self.selection_state.anchor = new_anchor;
+        self.refresh_section_highlight(new_anchor);
+    }
+
     /// Refresh `section_highlight_range` for an anchor: set the span when
     /// the active unit is Section, clear otherwise. Used after every move
     /// or mode-cycle that lands on a new anchor.
@@ -1398,31 +1443,17 @@ impl App {
 
     fn find_word_at(&self, node_idx: usize, display_byte: usize) -> Option<usize> {
         let rn = self.rendered_nodes.get(node_idx)?;
-        rn.display_word_ranges
-            .iter()
-            .position(|r| r.start <= display_byte && display_byte < r.end)
-            .or_else(|| {
-                // Click landed past the end of words on this row (e.g.
-                // trailing whitespace) — pick the last word as the
-                // user-friendly fallback.
-                rn.display_word_ranges.len().checked_sub(1)
-            })
+        find_unit_at(&rn.display_word_ranges, display_byte)
     }
 
     fn find_sentence_at(&self, node_idx: usize, display_byte: usize) -> Option<usize> {
         let rn = self.rendered_nodes.get(node_idx)?;
-        rn.sentence_ranges
-            .iter()
-            .position(|r| r.start <= display_byte && display_byte < r.end)
-            .or_else(|| rn.sentence_ranges.len().checked_sub(1))
+        find_unit_at(&rn.sentence_ranges, display_byte)
     }
 
     fn find_line_at(&self, node_idx: usize, display_byte: usize) -> Option<usize> {
         let rn = self.rendered_nodes.get(node_idx)?;
-        rn.line_ranges
-            .iter()
-            .position(|r| r.start <= display_byte && display_byte < r.end)
-            .or_else(|| rn.line_ranges.len().checked_sub(1))
+        find_unit_at(&rn.line_ranges, display_byte)
     }
 
     /// True when the node has real sentence-level structure, i.e. its
@@ -4656,20 +4687,37 @@ mod tests {
 
     #[test]
     fn i_and_o_keys_cycle_unit_finer_and_coarser() {
-        // i = "in" / finer (synonym for Space). o = "out" / coarser
-        // (synonym for Backspace). One i step from default Sentence
-        // lands on Word; subsequent o step returns to Sentence.
-        let mut app = test_app("Plain prose paragraph here.\n");
+        // i = "in" / finer; o = "out" / coarser. They stop at the
+        // ends instead of wrapping around.
+        let mut app = test_app("# Heading\n\nPlain prose paragraph here.\n");
         assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Sentence);
         app.handle_key(key_char('i'));
         assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+        app.handle_key(key_char('i'));
+        assert_eq!(
+            app.selection_state.anchor.unit,
+            SelectionUnit::Word,
+            "i should not wrap from Word back to Section"
+        );
         app.handle_key(key_char('o'));
         assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Sentence);
-        // Space and Backspace still work as synonyms.
+        app.handle_key(key_char('o'));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Line);
+        app.handle_key(key_char('o'));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Paragraph);
+        app.handle_key(key_char('o'));
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Section);
+        app.handle_key(key_char('o'));
+        assert_eq!(
+            app.selection_state.anchor.unit,
+            SelectionUnit::Section,
+            "o should not wrap from Section back to Word"
+        );
+        // Space and Backspace still wrap.
         app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Paragraph);
         app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
-        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Sentence);
+        assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Section);
     }
 
     #[test]
@@ -5337,6 +5385,231 @@ mod tests {
         assert_eq!(
             before, after,
             "click in input mode must not move the underlying selection"
+        );
+    }
+
+    #[test]
+    fn single_click_on_wrapped_line_picks_clicked_word() {
+        // Reproduce the bug where multi-line wrapped paragraphs misalign
+        // the click → word mapping. Build a paragraph long enough to
+        // wrap onto multiple rows in an 80-col backend and click a
+        // known word on the second wrapped row.
+        let body = "alpha bravo charlie delta echo foxtrot golf hotel india juliet \
+                    kilo lima mike november oscar papa quebec romeo sierra tango \
+                    uniform victor whiskey xray yankee zulu.";
+        let mut app = test_app(&format!("{body}\n"));
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+
+        let para_idx = app
+            .rendered_nodes
+            .iter()
+            .position(|rn| rn.plain.starts_with("alpha bravo"))
+            .unwrap();
+        let plain = app.rendered_nodes[para_idx].plain.clone();
+        // Print every visible row's byte range and rendered text so we
+        // can see if there's drift on later rows.
+        for (i, rm) in app.visible_rows.iter().enumerate() {
+            if let Some(m) = rm.as_ref() {
+                let txt = plain.get(m.byte_range.clone()).unwrap_or("");
+                eprintln!(
+                    "row {i}: node={} range={:?} text={:?}",
+                    m.node_idx, m.byte_range, txt
+                );
+            } else {
+                eprintln!("row {i}: None");
+            }
+        }
+        // Pick a word we expect to land on a later wrapped row; adjust
+        // here based on how the backend wrapped it.
+        let target_word = "victor";
+        let target_byte = plain.find(target_word).unwrap();
+        let (row_idx, row_map) = app
+            .visible_rows
+            .iter()
+            .enumerate()
+            .find_map(|(i, rm)| {
+                rm.as_ref()
+                    .filter(|m| m.byte_range.contains(&target_byte))
+                    .map(|m| (i, m.clone()))
+            })
+            .unwrap_or_else(|| panic!("{target_word} byte {target_byte} not found on any row"));
+        let row_text = &plain[row_map.byte_range.clone()];
+        let target_offset_in_row = target_byte - row_map.byte_range.start;
+        let target_col_in_row: usize = row_text[..target_offset_in_row]
+            .chars()
+            .map(|c| UnicodeWidthChar::width(c).unwrap_or(0))
+            .sum();
+        let inner = app.list_inner;
+        let click_col = inner.x + row_map.gutter_cols + (target_col_in_row as u16) + 1;
+        let click_row = inner.y + (row_idx as u16);
+        eprintln!(
+            "clicking '{target_word}' at row={click_row} col={click_col} (row_idx={row_idx})"
+        );
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            row: click_row,
+            column: click_col,
+            modifiers: KeyModifiers::NONE,
+        });
+        let anchor = app.selection_state.anchor;
+        assert_eq!(anchor.unit, SelectionUnit::Word);
+        let rn = &app.rendered_nodes[anchor.node_idx];
+        let selected = &rn.plain[rn.display_word_ranges[anchor.unit_idx].clone()];
+        assert_eq!(
+            selected, target_word,
+            "click on {target_word:?} must select it"
+        );
+    }
+
+    #[test]
+    fn click_on_trailing_space_does_not_jump_to_last_word() {
+        // Regression: a click on the space between two words used to
+        // fall through `position(...).or_else(|| len-1)` and select the
+        // LAST word in the paragraph — off by however many words came
+        // after the click. The fix walks ranges with
+        // partition_point and returns the closest preceding word.
+        let mut app =
+            test_app("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima.\n");
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        let para_idx = 0;
+        let plain = app.rendered_nodes[para_idx].plain.clone();
+        // Byte just past "charlie" — the space between charlie and delta.
+        let charlie_end = plain.find("charlie").unwrap() + "charlie".len();
+        let row_idx = app
+            .visible_rows
+            .iter()
+            .position(|rm| {
+                rm.as_ref()
+                    .is_some_and(|m| m.byte_range.contains(&charlie_end))
+            })
+            .unwrap();
+        let map = app.visible_rows[row_idx].clone().unwrap();
+        let row_text = &plain[map.byte_range.clone()];
+        let in_row = charlie_end - map.byte_range.start;
+        let col_in_row: usize = row_text[..in_row]
+            .chars()
+            .map(|c| UnicodeWidthChar::width(c).unwrap_or(0))
+            .sum();
+        let inner = app.list_inner;
+        let click_col = inner.x + map.gutter_cols + (col_in_row as u16);
+        let click_row = inner.y + (row_idx as u16);
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            row: click_row,
+            column: click_col,
+            modifiers: KeyModifiers::NONE,
+        });
+        let anchor = app.selection_state.anchor;
+        let selected = &app.rendered_nodes[anchor.node_idx].plain
+            [app.rendered_nodes[anchor.node_idx].display_word_ranges[anchor.unit_idx].clone()];
+        assert_eq!(
+            selected, "charlie",
+            "click in the space after 'charlie' should still pick 'charlie' \
+             (was selecting last word due to len-1 fallback)"
+        );
+    }
+
+    #[test]
+    fn click_words_in_real_markdown_file() {
+        // Walk every visible word in a real wrapped document and assert
+        // that a click on each word's column resolves to that word.
+        let path = std::path::PathBuf::from(
+            "/Users/admin/dev/projects/mattorb.com/src/content/posts/macbook-neo-ai-remote-control.md",
+        );
+        if !path.exists() {
+            eprintln!("skipping: {} not present", path.display());
+            return;
+        }
+        let mut app = App::load(path).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(80, 40)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+
+        let snapshot = app.visible_rows.clone();
+        let mut mismatches: Vec<String> = Vec::new();
+        for (row_idx, rm) in snapshot.iter().enumerate() {
+            let Some(map) = rm else { continue };
+            let node_idx = map.node_idx;
+            let Some(rn) = app.rendered_nodes.get(node_idx) else {
+                continue;
+            };
+            if !matches!(app.doc.nodes.get(node_idx), Some(DocNode::Paragraph { .. })) {
+                continue;
+            }
+            if map.byte_range.is_empty() {
+                continue;
+            }
+            let plain = rn.plain.clone();
+            let row_text = plain[map.byte_range.clone()].to_string();
+            let display_word_ranges = rn.display_word_ranges.clone();
+            for word_range in &display_word_ranges {
+                if word_range.start < map.byte_range.start || word_range.end > map.byte_range.end {
+                    continue;
+                }
+                // Click on the LAST byte of the word and on the byte
+                // just past it (the trailing space). Both should
+                // resolve to this same word — the trailing-space case
+                // is the click pattern that produced "off by N words"
+                // before the find_unit_at fix.
+                let word_end_offset = word_range.end - map.byte_range.start - 1;
+                let after_word_offset = (word_range.end - map.byte_range.start).min(row_text.len());
+                for in_row in [word_end_offset, after_word_offset] {
+                    if in_row > row_text.len() {
+                        continue;
+                    }
+                    let col_in_row: usize = row_text
+                        .get(..in_row)
+                        .unwrap_or("")
+                        .chars()
+                        .map(|c| UnicodeWidthChar::width(c).unwrap_or(0))
+                        .sum();
+                    let inner = app.list_inner;
+                    let click_col = inner.x + map.gutter_cols + (col_in_row as u16);
+                    let click_row = inner.y + (row_idx as u16);
+                    app.last_click = None;
+                    app.handle_mouse(MouseEvent {
+                        kind: MouseEventKind::Down(MouseButton::Left),
+                        row: click_row,
+                        column: click_col,
+                        modifiers: KeyModifiers::NONE,
+                    });
+                    let anchor = app.selection_state.anchor;
+                    let actual = app.rendered_nodes[anchor.node_idx]
+                        .plain
+                        .get(
+                            app.rendered_nodes[anchor.node_idx].display_word_ranges
+                                [anchor.unit_idx]
+                                .clone(),
+                        )
+                        .unwrap_or("")
+                        .to_string();
+                    let expected = &plain[word_range.clone()];
+                    if actual != expected {
+                        mismatches.push(format!(
+                            "row {row_idx} col {click_col} (in_row={in_row}) expected={expected:?} \
+                             got={actual:?} row_byte={:?} row_text={row_text:?}",
+                            map.byte_range
+                        ));
+                        if mismatches.len() >= 12 {
+                            break;
+                        }
+                    }
+                }
+                if mismatches.len() >= 12 {
+                    break;
+                }
+            }
+            if mismatches.len() >= 12 {
+                break;
+            }
+        }
+        assert!(
+            mismatches.is_empty(),
+            "{} mismatches:\n{}",
+            mismatches.len(),
+            mismatches.join("\n")
         );
     }
 
