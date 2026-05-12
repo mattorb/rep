@@ -1,0 +1,9 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 2
+CONTEXT:
+  prev: "```rust"
+  target: "fn main() {"
+  next: "println!(\"hello\");"
+CHANGE: "X"

@@ -1,0 +1,8 @@
+FILE: <INPUT>
+
+ACTION: insert-before
+WHERE: line 1
+CONTEXT:
+  target: "This is a quoted paragraph. It has two source lines."
+  next: "> It has two source lines."
+INSERT: "X"

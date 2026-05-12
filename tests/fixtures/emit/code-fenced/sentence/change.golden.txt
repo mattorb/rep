@@ -1,0 +1,8 @@
+FILE: <INPUT>
+
+ACTION: change
+WHERE: line 1
+CONTEXT:
+  target: "```rust"
+  next: "fn main() {"
+CHANGE: "X"

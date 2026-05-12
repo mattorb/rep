@@ -1,0 +1,7 @@
+FILE: <INPUT>
+
+ACTION: revise-to-incorporate-feedback
+WHERE: line 1
+CONTEXT:
+  target: "This has bold and italic and code and strike inside one sentence."
+FEEDBACK: "X"

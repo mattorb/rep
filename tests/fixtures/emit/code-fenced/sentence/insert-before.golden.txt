@@ -1,0 +1,8 @@
+FILE: <INPUT>
+
+ACTION: insert-before
+WHERE: line 1
+CONTEXT:
+  target: "```rust"
+  next: "fn main() {"
+INSERT: "X"

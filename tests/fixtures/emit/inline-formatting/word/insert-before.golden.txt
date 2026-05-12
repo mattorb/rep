@@ -1,0 +1,7 @@
+FILE: <INPUT>
+
+ACTION: insert-before
+WHERE: line 1
+CONTEXT:
+  target: "This"
+INSERT: "X"

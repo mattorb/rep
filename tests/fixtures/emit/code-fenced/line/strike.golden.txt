@@ -1,0 +1,8 @@
+FILE: <INPUT>
+
+ACTION: delete this
+WHERE: line 2
+CONTEXT:
+  prev: "```rust"
+  target: "fn main() {"
+  next: "println!(\"hello\");"

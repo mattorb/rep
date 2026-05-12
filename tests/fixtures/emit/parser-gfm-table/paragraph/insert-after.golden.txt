@@ -1,0 +1,8 @@
+FILE: <INPUT>
+
+ACTION: insert-after
+WHERE: line 1
+CONTEXT:
+  target: "Col A Col B a1 b1 a2 b2"
+  next: "| ----- | ----- |"
+INSERT: "X"

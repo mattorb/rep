@@ -1,0 +1,6 @@
+FILE: <INPUT>
+
+ACTION: delete this
+WHERE: line 1
+CONTEXT:
+  target: "This has **bold** and *italic* and `code` and ~~strike~~ inside one sentence."

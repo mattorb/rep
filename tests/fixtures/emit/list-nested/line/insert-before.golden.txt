@@ -1,0 +1,8 @@
+FILE: <INPUT>
+
+ACTION: insert-before
+WHERE: line 1
+CONTEXT:
+  target: "Top one - Nested one - Nested two"
+  next: "- Nested one"
+INSERT: "X"

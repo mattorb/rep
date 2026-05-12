@@ -1,0 +1,8 @@
+FILE: <INPUT>
+
+ACTION: revise-to-incorporate-feedback
+WHERE: line 1
+CONTEXT:
+  target: "| Col A | Col B |"
+  next: "| ----- | ----- |"
+FEEDBACK: "X"

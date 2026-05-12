@@ -1,0 +1,8 @@
+FILE: <INPUT>
+
+ACTION: revise-to-incorporate-feedback
+WHERE: line 1
+CONTEXT:
+  target: "> This is a quoted paragraph."
+  next: "> It has two source lines."
+FEEDBACK: "X"

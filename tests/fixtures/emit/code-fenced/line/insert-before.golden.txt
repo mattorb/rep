@@ -1,0 +1,9 @@
+FILE: <INPUT>
+
+ACTION: insert-before
+WHERE: line 2
+CONTEXT:
+  prev: "```rust"
+  target: "fn main() {"
+  next: "println!(\"hello\");"
+INSERT: "X"

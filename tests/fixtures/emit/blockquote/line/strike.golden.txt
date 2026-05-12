@@ -1,0 +1,7 @@
+FILE: <INPUT>
+
+ACTION: delete this
+WHERE: line 1
+CONTEXT:
+  target: "> This is a quoted paragraph."
+  next: "> It has two source lines."

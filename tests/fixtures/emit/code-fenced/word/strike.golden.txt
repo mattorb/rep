@@ -1,0 +1,8 @@
+FILE: <INPUT>
+
+ACTION: delete this
+WHERE: line 3
+CONTEXT:
+  prev: "fn main() {"
+  target: "fn"
+  next: "}"

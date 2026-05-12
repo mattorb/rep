@@ -1,0 +1,7 @@
+FILE: <INPUT>
+
+ACTION: delete this
+WHERE: line 1
+CONTEXT:
+  target: "Top"
+  next: "- Nested one"
