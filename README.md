@@ -74,8 +74,8 @@ Note: rep _can_ also be executed directly against a plan file outside of an agen
 | --- | --- | --- | --- |
 | macOS x86_64 | `x86_64-apple-darwin` | Build and tests on GitHub-hosted macOS | Supported |
 | macOS arm64 | `aarch64-apple-darwin` | Cross-target release build on GitHub-hosted macOS | Supported |
-| Linux x86_64 | `x86_64-unknown-linux-musl` | Build and tests on GitHub-hosted Ubuntu | untested |
-| Linux arm64 | `aarch64-unknown-linux-musl` | Cross-target release build on GitHub-hosted Ubuntu | untested |
+| Linux x86_64 | none | Build and tests on GitHub-hosted Ubuntu | Not currently released |
+| Linux arm64 | none | none | Not currently released |
 | Windows | none | none | Not currently supported |
 
 ## Emitted Annotations Example

@@ -17,12 +17,14 @@ jobs:
     strategy:
       matrix:
         include:
-          - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
-            use_cross: true
-          - target: aarch64-unknown-linux-musl
-            os: ubuntu-latest
-            use_cross: true
+          # Linux release artifacts are paused until release/install smoke tests
+          # cover the published archives.
+          # - target: x86_64-unknown-linux-musl
+          #   os: ubuntu-latest
+          #   use_cross: true
+          # - target: aarch64-unknown-linux-musl
+          #   os: ubuntu-latest
+          #   use_cross: true
           - target: x86_64-apple-darwin
             os: macos-latest
             use_cross: false
