@@ -7,10 +7,9 @@
 //!
 //! The byte ranges live in selection plain text — the renderer's display
 //! plain text may differ for nodes with markers (footnote refs, task
-//! markers). Today the app's `unit_highlight_for` does its own display
-//! plain text lookup; this module is the canonical "what should be
-//! painted" answer for any future renderer that wants to consume it
-//! directly.
+//! markers). `DocumentView` owns the display plain text lookup for the TUI;
+//! this module is the canonical "what should be painted" answer for any future
+//! renderer that wants to consume it directly.
 
 use std::ops::Range;
 

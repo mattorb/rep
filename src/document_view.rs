@@ -224,11 +224,9 @@ impl DocumentView {
 
     pub(crate) fn styled_display_spans(
         &self,
-        node_idx: usize,
-        highlight: Option<Range<usize>>,
-        strike_ranges: &[Range<usize>],
+        request: DisplaySpanStyleRequest<'_>,
     ) -> Option<Vec<Span<'static>>> {
-        let rn = self.rendered_nodes.get(node_idx)?;
+        let rn = self.rendered_nodes.get(request.node_idx)?;
         let plain = rn.plain.as_str();
         let plain_len = plain.len();
 
@@ -256,6 +254,24 @@ impl DocumentView {
             segments.push((0, plain_len, Style::default()));
         }
 
+        let highlight = if request.section_highlight_active {
+            Some(0..plain_len)
+        } else if request.active_anchor.node_idx == request.node_idx {
+            self.display_range_for_unit(
+                request.node_idx,
+                request.active_anchor.unit,
+                request.active_anchor.unit_idx,
+            )
+        } else {
+            None
+        };
+
+        let strike_ranges: Vec<Range<usize>> = request
+            .strike_units
+            .iter()
+            .filter_map(|&(unit, idx)| self.display_range_for_unit(request.node_idx, unit, idx))
+            .collect();
+
         let mut bounds = vec![0, plain_len];
         for &(start, end, _) in &segments {
             bounds.push(start);
@@ -269,7 +285,7 @@ impl DocumentView {
             bounds.push(range.start.min(plain_len));
             bounds.push(range.end.min(plain_len));
         }
-        for range in strike_ranges {
+        for range in &strike_ranges {
             bounds.push(range.start.min(plain_len));
             bounds.push(range.end.min(plain_len));
         }
@@ -838,6 +854,14 @@ pub(crate) struct CodeBlockRenderLine<'a> {
     pub(crate) text: &'a str,
     pub(crate) byte_range: Range<usize>,
     pub(crate) is_fence: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DisplaySpanStyleRequest<'a> {
+    pub(crate) node_idx: usize,
+    pub(crate) active_anchor: SelectionAnchor,
+    pub(crate) section_highlight_active: bool,
+    pub(crate) strike_units: &'a [(SelectionUnit, usize)],
 }
 
 #[derive(Debug, Clone, Copy)]

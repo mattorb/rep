@@ -670,47 +670,24 @@ impl App {
         (" ", Style::default().fg(Color::DarkGray))
     }
 
-    /// Compute the byte range in the rendered display plain text that the active
-    /// selection unit should paint. Section selections paint whole nodes via
-    /// `section_highlight_range` in the caller.
-    fn unit_highlight_for(&self, node_idx: usize) -> Option<Range<usize>> {
-        self.view.display_range_for_unit(
-            node_idx,
-            self.selection_state.anchor.unit,
-            self.selection_state.anchor.unit_idx,
-        )
-    }
-
     pub(super) fn render_node_spans(&self, node_idx: usize) -> Vec<Span<'static>> {
-        // Resolve every strike anchor on this node to a display byte
-        // range. Empty when nothing is struck.
-        let strike_ranges: Vec<Range<usize>> = self
+        let strike_units: Vec<(SelectionUnit, usize)> = self
             .strikes
             .get(&node_idx)
-            .map(|set| {
-                set.iter()
-                    .filter_map(|&(unit, idx)| {
-                        self.view.display_range_for_unit(node_idx, unit, idx)
-                    })
-                    .collect()
-            })
+            .map(|set| set.iter().copied().collect())
             .unwrap_or_default();
-
-        let highlight = if self
+        let section_highlight_active = self
             .section_highlight_range
             .as_ref()
-            .is_some_and(|r| r.contains(&node_idx))
-        {
-            let plain_len = self.view.rendered_plain(node_idx).map_or(0, str::len);
-            Some(0..plain_len)
-        } else if node_idx == self.selection_state.anchor.node_idx {
-            self.unit_highlight_for(node_idx)
-        } else {
-            None
-        };
+            .is_some_and(|range| range.contains(&node_idx));
 
         self.view
-            .styled_display_spans(node_idx, highlight, &strike_ranges)
+            .styled_display_spans(DisplaySpanStyleRequest {
+                node_idx,
+                active_anchor: self.selection_state.anchor,
+                section_highlight_active,
+                strike_units: &strike_units,
+            })
             .unwrap_or_else(|| {
                 vec![Span::styled(
                     " ",
