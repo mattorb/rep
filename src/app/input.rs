@@ -172,12 +172,13 @@ impl App {
                 if trimmed.is_empty() {
                     self.status = "Change ignored because it was empty.".to_string();
                 } else {
-                    let (sentence_index, sentence_text) =
-                        if let Some((idx, text)) = self.current_target_capture() {
-                            (Some(idx), Some(text))
-                        } else {
-                            (None, None)
-                        };
+                    let (sentence_index, sentence_text) = if let Some((idx, text)) =
+                        self.view.target_capture(self.selection_state.anchor)
+                    {
+                        (Some(idx), Some(text))
+                    } else {
+                        (None, None)
+                    };
                     let annotation = ChangeAnnotation {
                         created_at: Utc::now().to_rfc3339(),
                         target_unit: self.selection_state.anchor.unit,
@@ -192,7 +193,9 @@ impl App {
                     self.status = format!(
                         "Change saved on node {} (line {}).",
                         self.selection_state.anchor.node_idx + 1,
-                        self.current_source_line() + 1
+                        self.view
+                            .source_line_for_anchor(self.selection_state.anchor)
+                            + 1
                     );
                 }
                 self.input_mode = InputMode::Normal;
@@ -224,12 +227,13 @@ impl App {
                 if trimmed.is_empty() {
                     self.status = "Insert ignored because it was empty.".to_string();
                 } else {
-                    let (sentence_index, sentence_text) =
-                        if let Some((idx, text)) = self.current_target_capture() {
-                            (Some(idx), Some(text))
-                        } else {
-                            (None, None)
-                        };
+                    let (sentence_index, sentence_text) = if let Some((idx, text)) =
+                        self.view.target_capture(self.selection_state.anchor)
+                    {
+                        (Some(idx), Some(text))
+                    } else {
+                        (None, None)
+                    };
                     let annotation = InsertAnnotation {
                         created_at: Utc::now().to_rfc3339(),
                         target_unit: self.selection_state.anchor.unit,
@@ -250,7 +254,9 @@ impl App {
                     self.status = format!(
                         "Insert {label} saved on node {} (line {}).",
                         self.selection_state.anchor.node_idx + 1,
-                        self.current_source_line() + 1
+                        self.view
+                            .source_line_for_anchor(self.selection_state.anchor)
+                            + 1
                     );
                 }
                 self.input_mode = InputMode::Normal;
@@ -376,12 +382,13 @@ impl App {
                 if trimmed.is_empty() {
                     self.status = "Feedback ignored because it was empty.".to_string();
                 } else {
-                    let (sentence_index, sentence_text) =
-                        if let Some((idx, text)) = self.current_target_capture() {
-                            (Some(idx), Some(text))
-                        } else {
-                            (None, None)
-                        };
+                    let (sentence_index, sentence_text) = if let Some((idx, text)) =
+                        self.view.target_capture(self.selection_state.anchor)
+                    {
+                        (Some(idx), Some(text))
+                    } else {
+                        (None, None)
+                    };
                     let annotation = FeedbackAnnotation {
                         created_at: Utc::now().to_rfc3339(),
                         target_unit: self.selection_state.anchor.unit,
@@ -396,7 +403,9 @@ impl App {
                     self.status = format!(
                         "Feedback saved on node {} (line {}).",
                         self.selection_state.anchor.node_idx + 1,
-                        self.current_source_line() + 1
+                        self.view
+                            .source_line_for_anchor(self.selection_state.anchor)
+                            + 1
                     );
                 }
                 self.input_mode = InputMode::Normal;
@@ -686,30 +695,6 @@ impl App {
         self.refresh_section_highlight(new_anchor);
     }
 
-    fn current_source_line(&self) -> usize {
-        self.view
-            .source_line_for_anchor(self.selection_state.anchor)
-    }
-
-    pub(super) fn current_sentence_context(&self) -> Option<(usize, String)> {
-        self.view.sentence_context(self.selection_state.anchor)
-    }
-
-    /// Capture the `(unit_idx, target_text)` snapshot stored on the
-    /// annotation. Routes by `selection_state.anchor.unit`:
-    ///   - Sentence: rendered-display sentence text via current_sentence_context.
-    ///   - Line: source line verbatim for non-ListItem; full item text
-    ///     (markers stripped, soft-wrapped lines space-joined) for ListItem.
-    ///   - Word: word's selection plain text (punctuation stripped per
-    ///     word-boundary rules).
-    ///   - Paragraph: full node selection plain text, internal newlines
-    ///     collapsed to spaces.
-    ///   - Section: constituent nodes' selection plain text, joined with
-    ///     single spaces, internal newlines collapsed.
-    fn current_target_capture(&self) -> Option<(usize, String)> {
-        self.view.target_capture(self.selection_state.anchor)
-    }
-
     // ── Annotations ───────────────────────────────────────────────────────────
 
     fn existing_change_for_cursor(&self) -> Option<usize> {
@@ -719,7 +704,10 @@ impl App {
         // the most recent change on the node, which keeps `c` -> edit
         // working when the user is on a node that has any existing change.
         if self.selection_state.anchor.unit == SelectionUnit::Sentence
-            && let Some(idx) = self.current_sentence_context().map(|(idx, _)| idx)
+            && let Some(idx) = self
+                .view
+                .sentence_context(self.selection_state.anchor)
+                .map(|(idx, _)| idx)
         {
             changes.iter().rposition(|c| c.sentence_index == Some(idx))
         } else {
@@ -730,7 +718,10 @@ impl App {
     fn existing_feedback_for_cursor(&self) -> Option<usize> {
         let feedbacks = self.feedbacks.get(&self.selection_state.anchor.node_idx)?;
         if self.selection_state.anchor.unit == SelectionUnit::Sentence
-            && let Some(idx) = self.current_sentence_context().map(|(idx, _)| idx)
+            && let Some(idx) = self
+                .view
+                .sentence_context(self.selection_state.anchor)
+                .map(|(idx, _)| idx)
         {
             feedbacks
                 .iter()
@@ -835,7 +826,9 @@ impl App {
         // unit the unit_idx is not a sentence index. Mirrors the same
         // gate applied in existing_change/feedback_for_cursor.
         let sentence_idx = if self.selection_state.anchor.unit == SelectionUnit::Sentence {
-            self.current_sentence_context().map(|(idx, _)| idx)
+            self.view
+                .sentence_context(self.selection_state.anchor)
+                .map(|(idx, _)| idx)
         } else {
             None
         };
@@ -992,7 +985,11 @@ impl App {
         // Verify the active anchor actually points at a real unit on this
         // node — otherwise an empty paragraph or out-of-range word index
         // would create a phantom strike.
-        if self.current_target_capture().is_none() {
+        if self
+            .view
+            .target_capture(self.selection_state.anchor)
+            .is_none()
+        {
             self.status = format!(
                 "Node {} has no {} target to strike.",
                 node_idx + 1,

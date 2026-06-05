@@ -1438,7 +1438,10 @@ mod tests {
         let app = test_app(
             "  - Stabilize commands/flags (future --output,\n    --stdin, --version)\n  - Next item.\n",
         );
-        let (_, context) = app.current_sentence_context().expect("sentence context");
+        let (_, context) = app
+            .view
+            .sentence_context(app.selection_state.anchor)
+            .expect("sentence context");
         assert!(context.contains("Stabilize commands/flags"), "{context}");
         assert!(context.contains("stdin"), "{context}");
         assert!(context.contains("version)"), "{context}");
@@ -1448,7 +1451,10 @@ mod tests {
     #[test]
     fn sentence_context_single_sentence_stops_at_node_boundary() {
         let app = test_app("First sentence ends.\nSecond sentence starts here.\n");
-        let (_, context) = app.current_sentence_context().expect("sentence context");
+        let (_, context) = app
+            .view
+            .sentence_context(app.selection_state.anchor)
+            .expect("sentence context");
         // Paragraph is joined → two sentences; cursor on sentence 0.
         assert!(context.contains("First sentence ends."), "{context}");
         assert!(!context.contains("Second sentence"), "{context}");
