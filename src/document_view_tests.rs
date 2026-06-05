@@ -1,4 +1,4 @@
-use super::*;
+use super::rendered::{count_occurrences_before, newlines_before_byte, nth_occurrence};
 
 #[test]
 fn newlines_before_byte_basic() {
