@@ -38,7 +38,7 @@ Install locations can be changed with `REP_INSTALL_DIR` and `REP_SKILLS_DIR`.
 The BEST way to use this TUI tool is in the agentic loop, with a skill, immediately after you ask AI to help generate a plan (to a file) to accomplish a goal. This allows you to tap a few keys, put some feedback and requests in context quickly.
 
 1. Ensure `rep` is on your PATH
-2. Install the agent skill: `./install-skills.sh`
+2. Install the agent skill from a source checkout: `./install-skills.sh`. The script symlinks bundled skills into supported agent skill directories and asks before each link is created or updated.
 3. Launch tmux, and then launch your Agentic coding tool inside of that tmux session. Wrapping the agent in a tmux session is what allows rep to present modally and automatically feed its results into the agentic loop.
 ```
 $ tmux new-session -t tryrep
