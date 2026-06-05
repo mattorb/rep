@@ -24,7 +24,7 @@ exclude = [
 anyhow = "1.0"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 crossterm = "0.29"
-ratatui = "0.29"
+ratatui = "0.30"
 unicode-width = "0.2"
 pulldown-cmark = "0.12"
 markdown = "1"
