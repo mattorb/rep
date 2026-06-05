@@ -2013,13 +2013,8 @@ mod tests {
         let rn = &app.view.rendered_nodes()[para_idx];
         let plain = rn.plain.as_str();
         let range = app
-            .unit_byte_range_in_display(
-                para_idx,
-                SelectionUnit::Line,
-                0,
-                plain,
-                &rn.sentence_ranges,
-            )
+            .view
+            .display_range_for_unit(para_idx, SelectionUnit::Line, 0)
             .expect("line range");
         assert_eq!(
             range,

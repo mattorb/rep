@@ -6,7 +6,7 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::document::{DocNode, Document};
 use crate::markdown::{MarkdownLinkRange, render_markdown_line};
-use crate::selection::index::{NodeIndex, SelectionIndex};
+use crate::selection::index::SelectionIndex;
 use crate::selection::model::{NavOutcome, SelectionAnchor, SelectionUnit};
 
 /// Owns the parsed source and the derived views used by app input, rendering,
@@ -51,10 +51,6 @@ impl DocumentView {
 
     pub(crate) fn document_nodes(&self) -> &[DocNode] {
         &self.document.nodes
-    }
-
-    pub(crate) fn index_node(&self, node_idx: usize) -> Option<&NodeIndex> {
-        self.selection_index.nodes.get(node_idx)
     }
 
     pub(crate) fn rendered_node(&self, node_idx: usize) -> Option<&RenderedNode> {
@@ -176,6 +172,77 @@ impl DocumentView {
             }
         }
         urls
+    }
+
+    /// Map a selection unit on `node_idx` to bytes in the rendered display
+    /// plain text. Section returns None because section paint covers whole
+    /// nodes in the caller.
+    pub(crate) fn display_range_for_unit(
+        &self,
+        node_idx: usize,
+        unit: SelectionUnit,
+        unit_idx: usize,
+    ) -> Option<Range<usize>> {
+        let rn = self.rendered_nodes.get(node_idx)?;
+        match unit {
+            SelectionUnit::Sentence => rn.sentence_ranges.get(unit_idx).cloned(),
+            SelectionUnit::Paragraph => Some(0..rn.plain.len()),
+            SelectionUnit::Line => rn.line_ranges.get(unit_idx).cloned(),
+            SelectionUnit::Word => {
+                let index_node = self.selection_index.nodes.get(node_idx)?;
+                let word_range = index_node.word_ranges.get(unit_idx)?;
+                let word_text = index_node.selection_plain_text.get(word_range.clone())?;
+                let occurrence = count_occurrences_before(
+                    &index_node.selection_plain_text,
+                    word_text,
+                    word_range.start,
+                );
+                let pos = nth_occurrence(&rn.plain, word_text, occurrence)?;
+                Some(pos..pos + word_text.len())
+            }
+            SelectionUnit::Section => None,
+        }
+    }
+
+    pub(crate) fn selection_range_for_unit(
+        &self,
+        node_idx: usize,
+        unit: SelectionUnit,
+        unit_idx: usize,
+    ) -> Option<Range<usize>> {
+        let node = self.selection_index.nodes.get(node_idx)?;
+        match unit {
+            SelectionUnit::Word => node.word_ranges.get(unit_idx).cloned(),
+            SelectionUnit::Sentence => node.sentence_ranges.get(unit_idx).cloned(),
+            SelectionUnit::Line => node
+                .source_line_ranges
+                .get(unit_idx)
+                .map(|(_, r)| r.clone()),
+            SelectionUnit::Paragraph => Some(0..node.selection_plain_text.len()),
+            SelectionUnit::Section => None,
+        }
+    }
+
+    pub(crate) fn code_line_local_range(
+        &self,
+        node_idx: usize,
+        source_line: usize,
+        range: Range<usize>,
+    ) -> Option<Range<usize>> {
+        let node = self.selection_index.nodes.get(node_idx)?;
+        let (_, line_range) = node
+            .source_line_ranges
+            .iter()
+            .find(|(line, _)| *line == source_line)?;
+        if range.end <= line_range.start || range.start >= line_range.end {
+            return None;
+        }
+        let start = range.start.max(line_range.start) - line_range.start;
+        let end = range.end.min(line_range.end) - line_range.start;
+        if end <= start {
+            return None;
+        }
+        Some(start..end)
     }
 
     pub(crate) fn source_line_for_anchor(&self, anchor: SelectionAnchor) -> usize {

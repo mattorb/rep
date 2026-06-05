@@ -1,5 +1,4 @@
 use super::*;
-use crate::document_view::{count_occurrences_before, nth_occurrence};
 
 impl App {
     // ── Drawing ───────────────────────────────────────────────────────────────
@@ -717,79 +716,15 @@ impl App {
         (" ", Style::default().fg(Color::DarkGray))
     }
 
-    /// Compute the byte range in the rendered display plain text that the
-    /// active selection unit should paint. Returns None when the active
-    /// anchor doesn't resolve to a paintable range on this node (the
-    /// section_highlight_range path covers Section selections).
-    /// Active-anchor variant: maps `selection_state.anchor` to a display
-    /// byte range. Thin wrapper over `unit_byte_range_in_display`.
-    fn unit_highlight_for(
-        &self,
-        node_idx: usize,
-        plain: &str,
-        sentence_ranges: &[Range<usize>],
-    ) -> Option<Range<usize>> {
-        self.unit_byte_range_in_display(
+    /// Compute the byte range in the rendered display plain text that the active
+    /// selection unit should paint. Section selections paint whole nodes via
+    /// `section_highlight_range` in the caller.
+    fn unit_highlight_for(&self, node_idx: usize) -> Option<Range<usize>> {
+        self.view.display_range_for_unit(
             node_idx,
             self.selection_state.anchor.unit,
             self.selection_state.anchor.unit_idx,
-            plain,
-            sentence_ranges,
         )
-    }
-
-    /// Map any `(unit, unit_idx)` on `node_idx` to a byte range inside the
-    /// node's display plain text, so strike rendering and live-anchor
-    /// highlight can share the same mapping logic. Section returns None
-    /// (sections paint whole-node ranges, handled by section_highlight_range
-    /// in the caller).
-    pub(super) fn unit_byte_range_in_display(
-        &self,
-        node_idx: usize,
-        unit: SelectionUnit,
-        unit_idx: usize,
-        plain: &str,
-        sentence_ranges: &[Range<usize>],
-    ) -> Option<Range<usize>> {
-        match unit {
-            SelectionUnit::Sentence => sentence_ranges.get(unit_idx).cloned(),
-            SelectionUnit::Paragraph => Some(0..plain.len()),
-            SelectionUnit::Line => {
-                // The renderer recorded a display-plain byte range per
-                // line in `RenderedNode.line_ranges`, aligned 1:1 with
-                // the index's per-line entries. Searching for the source
-                // line text inside display plain isn't reliable —
-                // pulldown-cmark applies smart-punctuation (straight
-                // quotes → typographic) and strips emphasis markers, so
-                // a source line containing `*emph*` or `'` ends up with
-                // a different byte content in display than in source.
-                self.view
-                    .rendered_node(node_idx)?
-                    .line_ranges
-                    .get(unit_idx)
-                    .cloned()
-            }
-            SelectionUnit::Word => {
-                // Locate the index's word text in the rendered display plain
-                // text. Re-segmenting display text with segment_words can
-                // drift when markers (footnote refs, task markers, etc.)
-                // appear in display but not in selection plain text — the
-                // word index aligns to selection plain text, not display.
-                // Count which occurrence the word is in selection plain
-                // text so repeated words map to the right display position.
-                let index_node = self.view.index_node(node_idx)?;
-                let word_range = index_node.word_ranges.get(unit_idx)?;
-                let word_text = index_node.selection_plain_text.get(word_range.clone())?;
-                let occurrence = count_occurrences_before(
-                    &index_node.selection_plain_text,
-                    word_text,
-                    word_range.start,
-                );
-                let pos = nth_occurrence(plain, word_text, occurrence)?;
-                Some(pos..pos + word_text.len())
-            }
-            SelectionUnit::Section => None,
-        }
     }
 
     /// Push styled span(s) for one source line of a code block, overlaying
@@ -809,27 +744,6 @@ impl App {
         line: &str,
         base_style: Style,
     ) {
-        // Translate a (selection-view) byte range to a (line-local)
-        // byte range when the active node's source_line_ranges has an
-        // entry for this source line.
-        let line_local = |range: Range<usize>| -> Option<Range<usize>> {
-            let node = self.view.index_node(node_idx)?;
-            let (_, line_range) = node
-                .source_line_ranges
-                .iter()
-                .find(|(l, _)| *l == source_line)?;
-            if range.end <= line_range.start || range.start >= line_range.end {
-                return None;
-            }
-            let start = range.start.max(line_range.start) - line_range.start;
-            let end = range.end.min(line_range.end) - line_range.start;
-            // Don't paint a zero-width highlight on an empty intersection.
-            if end <= start {
-                return None;
-            }
-            Some(start..end)
-        };
-
         // Active anchor → highlight range on this line. Section-mode
         // whole-node highlight is handled separately below.
         let highlight_local = if self
@@ -841,18 +755,12 @@ impl App {
         } else if node_idx == self.selection_state.anchor.node_idx {
             let unit = self.selection_state.anchor.unit;
             let unit_idx = self.selection_state.anchor.unit_idx;
-            // Use the index's selection-view byte ranges directly so we
-            // don't double-walk through unit_byte_range_in_display
-            // (which is for paragraph-style display plain text).
-            let node = self.view.index_node(node_idx);
-            let active_range = node.and_then(|n| match unit {
-                SelectionUnit::Word => n.word_ranges.get(unit_idx).cloned(),
-                SelectionUnit::Sentence => n.sentence_ranges.get(unit_idx).cloned(),
-                SelectionUnit::Line => n.source_line_ranges.get(unit_idx).map(|(_, r)| r.clone()),
-                SelectionUnit::Paragraph => Some(0..n.selection_plain_text.len()),
-                SelectionUnit::Section => None,
-            });
-            active_range.and_then(line_local)
+            self.view
+                .selection_range_for_unit(node_idx, unit, unit_idx)
+                .and_then(|range| {
+                    self.view
+                        .code_line_local_range(node_idx, source_line, range)
+                })
         } else {
             None
         };
@@ -864,17 +772,12 @@ impl App {
             .map(|set| {
                 set.iter()
                     .filter_map(|&(unit, idx)| {
-                        let node = self.view.index_node(node_idx)?;
-                        let r = match unit {
-                            SelectionUnit::Word => node.word_ranges.get(idx).cloned()?,
-                            SelectionUnit::Sentence => node.sentence_ranges.get(idx).cloned()?,
-                            SelectionUnit::Line => {
-                                node.source_line_ranges.get(idx).map(|(_, r)| r.clone())?
-                            }
-                            SelectionUnit::Paragraph => 0..node.selection_plain_text.len(),
-                            SelectionUnit::Section => return None,
-                        };
-                        line_local(r)
+                        self.view
+                            .selection_range_for_unit(node_idx, unit, idx)
+                            .and_then(|range| {
+                                self.view
+                                    .code_line_local_range(node_idx, source_line, range)
+                            })
                     })
                     .collect()
             })
@@ -951,17 +854,14 @@ impl App {
         let sentence_ranges = &rn.sentence_ranges;
 
         // Resolve every strike anchor on this node to a display byte
-        // range. Empty when nothing is struck. Sentence-unit strikes use
-        // the existing rn.sentence_ranges; Word/Line/Paragraph strikes
-        // route through unit_byte_range_in_display so the painted span
-        // matches what the user struck.
+        // range. Empty when nothing is struck.
         let strike_ranges: Vec<Range<usize>> = self
             .strikes
             .get(&node_idx)
             .map(|set| {
                 set.iter()
                     .filter_map(|&(unit, idx)| {
-                        self.unit_byte_range_in_display(node_idx, unit, idx, plain, sentence_ranges)
+                        self.view.display_range_for_unit(node_idx, unit, idx)
                     })
                     .collect()
             })
@@ -992,7 +892,7 @@ impl App {
         {
             Some(0..plain_len)
         } else if node_idx == self.selection_state.anchor.node_idx {
-            self.unit_highlight_for(node_idx, plain, sentence_ranges)
+            self.unit_highlight_for(node_idx)
         } else {
             None
         };
