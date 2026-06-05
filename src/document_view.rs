@@ -18,6 +18,7 @@ pub(crate) struct DocumentView {
     source_lines: Vec<String>,
     rendered_nodes: Vec<RenderedNode>,
     selection_index: SelectionIndex,
+    visible_rows: Vec<Option<VisibleRowMap>>,
 }
 
 impl DocumentView {
@@ -32,6 +33,7 @@ impl DocumentView {
             source_lines,
             rendered_nodes,
             selection_index,
+            visible_rows: Vec::new(),
         })
     }
 
@@ -55,6 +57,28 @@ impl DocumentView {
 
     pub(crate) fn rendered_node(&self, node_idx: usize) -> Option<&RenderedNode> {
         self.rendered_nodes.get(node_idx)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn visible_rows(&self) -> &[Option<VisibleRowMap>] {
+        &self.visible_rows
+    }
+
+    pub(crate) fn clear_visible_rows(&mut self) {
+        self.visible_rows.clear();
+    }
+
+    pub(crate) fn push_visible_row(
+        &mut self,
+        node_idx: usize,
+        byte_range: Range<usize>,
+        gutter_cols: u16,
+    ) {
+        self.visible_rows.push(Some(VisibleRowMap {
+            node_idx,
+            byte_range,
+            gutter_cols,
+        }));
     }
 
     pub(crate) fn source_range(&self, range: &Range<usize>) -> &[String] {
@@ -412,6 +436,34 @@ impl DocumentView {
         Some(SelectionAnchor::new(node_idx, unit, unit_idx))
     }
 
+    /// Resolve a terminal mouse coordinate against the current visible row map.
+    /// Returns None for clicks outside `list_inner`, missing rows, spacer rows,
+    /// or non-text cells to the left of the row content.
+    pub(crate) fn hit_test(
+        &self,
+        list_inner: Rect,
+        row: u16,
+        col: u16,
+        click_count: u8,
+    ) -> Option<SelectionAnchor> {
+        if row < list_inner.y
+            || row >= list_inner.y.saturating_add(list_inner.height)
+            || col < list_inner.x
+            || col >= list_inner.x.saturating_add(list_inner.width)
+        {
+            return None;
+        }
+        let visual_row = (row - list_inner.y) as usize;
+        let map = self.visible_rows.get(visual_row)?.as_ref()?;
+        let col_in_text = (col - list_inner.x).saturating_sub(map.gutter_cols) as usize;
+        self.selection_anchor_for_row_click(
+            map.node_idx,
+            map.byte_range.clone(),
+            col_in_text,
+            click_count,
+        )
+    }
+
     fn paragraph_capture(&self, node_idx: usize) -> Option<(usize, String)> {
         let plain = self
             .selection_index
@@ -543,6 +595,19 @@ impl DocumentView {
             _ => true,
         }
     }
+}
+
+/// Maps a single visible terminal row to a slice of one rendered node's display
+/// plain text. Built each `draw()` from node rows so `handle_mouse` can resolve
+/// click coordinates without re-walking the wrap pipeline.
+#[derive(Debug, Clone)]
+pub(crate) struct VisibleRowMap {
+    pub(crate) node_idx: usize,
+    /// Byte range in `rendered_nodes[node_idx].plain` covering the chars shown
+    /// on this row after the gutter prefix. Zero-width for spacer rows.
+    pub(crate) byte_range: Range<usize>,
+    /// Terminal columns to skip from the left edge of `list_inner` before text.
+    pub(crate) gutter_cols: u16,
 }
 
 #[derive(Debug, Clone)]

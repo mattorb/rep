@@ -173,13 +173,14 @@ impl App {
         // clipped at the bottom rather than skipped entirely.
         frame.render_widget(list_block, layout[0]);
         let mut visible: Vec<Line<'static>> = Vec::new();
-        // Re-build the per-row map in lockstep so a click at a given
-        // visible row resolves to the correct (node, byte_range).
-        self.visible_rows.clear();
+        // Re-build the view-owned per-row map in lockstep so a click at a
+        // visible row resolves to the correct node and display byte range.
+        self.view.clear_visible_rows();
         let mut count = 0u16;
-        'outer: for (lines, row_ranges) in node_lines
+        'outer: for (node_idx, (lines, row_ranges)) in node_lines
             .iter()
             .zip(node_row_byte_ranges.iter())
+            .enumerate()
             .skip(self.scroll_offset)
         {
             for (line, byte_range) in lines.iter().zip(row_ranges.iter()) {
@@ -187,33 +188,9 @@ impl App {
                     break 'outer;
                 }
                 visible.push(line.clone());
-                // Determine which node this row belongs to by walking
-                // from the first un-skipped node forward; cheaper to
-                // resolve via the outer iterator's current position,
-                // which we lost when destructuring. Re-derive it using
-                // a counter on the outer iterator below.
-                self.visible_rows.push(Some(RowMap {
-                    node_idx: 0, // filled in below
-                    byte_range: byte_range.clone(),
-                    gutter_cols: GUTTER_WIDTH as u16,
-                }));
+                self.view
+                    .push_visible_row(node_idx, byte_range.clone(), GUTTER_WIDTH as u16);
                 count += 1;
-            }
-        }
-        // Fill node_idx on each pushed RowMap by replaying the same skip
-        // walk; cheaper than threading the index through the zip above.
-        {
-            let mut row = 0usize;
-            for (idx, lines) in node_lines.iter().enumerate().skip(self.scroll_offset) {
-                for _ in lines {
-                    if row >= self.visible_rows.len() {
-                        break;
-                    }
-                    if let Some(Some(map)) = self.visible_rows.get_mut(row) {
-                        map.node_idx = idx;
-                    }
-                    row += 1;
-                }
             }
         }
         frame.render_widget(Paragraph::new(Text::from(visible)), list_inner);

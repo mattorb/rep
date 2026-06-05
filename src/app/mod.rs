@@ -241,36 +241,10 @@ pub struct App {
     scroll_offset: usize,
     list_inner: Rect,
     cached_node_heights: Vec<u16>,
-    /// One entry per visible terminal row in `list_inner`, populated each
-    /// `draw()`. Maps mouse (row, col) → which node + display byte the
-    /// click landed on. Empty rows (spacers between nodes) get a
-    /// zero-width range. `None` for rows that are part of the border or
-    /// outside the list area.
-    visible_rows: Vec<Option<RowMap>>,
     /// Timestamp + position of the most recent left-click, used to
     /// bump the click count on rapid same-cell clicks (single → double
     /// → triple). Reset on cell change or after the timeout window.
     last_click: Option<LastClick>,
-}
-
-/// Maps a single visible terminal row to a slice of one rendered node's
-/// display plain text. Built each `draw()` from `node_lines` so that
-/// `handle_mouse` can resolve a click coordinate without re-walking the
-/// wrap pipeline. The row's `col` axis is interpreted left-to-right
-/// after skipping `gutter_cols` columns of indicator/gutter prefix.
-#[derive(Debug, Clone)]
-struct RowMap {
-    node_idx: usize,
-    /// Byte range in `rendered_nodes[node_idx].plain` covering the chars
-    /// shown on this row (after the gutter prefix). Zero-width when the
-    /// row is a spacer between nodes — clicks land on the node but
-    /// resolve to no text.
-    byte_range: Range<usize>,
-    /// Number of terminal columns to skip from the left edge of
-    /// `list_inner` before the row's text content starts. Today this is
-    /// always `GUTTER_WIDTH` (indicator + space) but is stored
-    /// per-row so future per-row decorations don't drift.
-    gutter_cols: u16,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -342,7 +316,6 @@ impl App {
             scroll_offset: 0,
             list_inner: Rect::default(),
             cached_node_heights: Vec::new(),
-            visible_rows: Vec::new(),
             last_click: None,
         })
     }
@@ -2242,7 +2215,7 @@ mod tests {
         let plain = app.view.rendered_nodes()[para_idx].plain.clone();
         // Print every visible row's byte range and rendered text so we
         // can see if there's drift on later rows.
-        for (i, rm) in app.visible_rows.iter().enumerate() {
+        for (i, rm) in app.view.visible_rows().iter().enumerate() {
             if let Some(m) = rm.as_ref() {
                 let txt = plain.get(m.byte_range.clone()).unwrap_or("");
                 eprintln!(
@@ -2258,7 +2231,8 @@ mod tests {
         let target_word = "victor";
         let target_byte = plain.find(target_word).unwrap();
         let (row_idx, row_map) = app
-            .visible_rows
+            .view
+            .visible_rows()
             .iter()
             .enumerate()
             .find_map(|(i, rm)| {
@@ -2323,14 +2297,15 @@ mod tests {
         let target_byte = plain.find(target_word).unwrap();
         let apos_byte = plain[target_byte..].find('\u{2019}').unwrap() + target_byte;
         let row_idx = app
-            .visible_rows
+            .view
+            .visible_rows()
             .iter()
             .position(|rm| {
                 rm.as_ref()
                     .is_some_and(|m| m.byte_range.contains(&apos_byte))
             })
             .unwrap();
-        let map = app.visible_rows[row_idx].clone().unwrap();
+        let map = app.view.visible_rows()[row_idx].clone().unwrap();
         let row_text = &plain[map.byte_range.clone()];
         let in_row = apos_byte - map.byte_range.start;
         let col_in_row: usize = row_text[..in_row]
@@ -2374,14 +2349,15 @@ mod tests {
         // Byte just past "charlie" — the space between charlie and delta.
         let charlie_end = plain.find("charlie").unwrap() + "charlie".len();
         let row_idx = app
-            .visible_rows
+            .view
+            .visible_rows()
             .iter()
             .position(|rm| {
                 rm.as_ref()
                     .is_some_and(|m| m.byte_range.contains(&charlie_end))
             })
             .unwrap();
-        let map = app.visible_rows[row_idx].clone().unwrap();
+        let map = app.view.visible_rows()[row_idx].clone().unwrap();
         let row_text = &plain[map.byte_range.clone()];
         let in_row = charlie_end - map.byte_range.start;
         let col_in_row: usize = row_text[..in_row]
@@ -2424,7 +2400,7 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(80, 40)).unwrap();
         terminal.draw(|f| app.draw(f)).unwrap();
 
-        let snapshot = app.visible_rows.clone();
+        let snapshot = app.view.visible_rows().to_vec();
         let mut mismatches: Vec<String> = Vec::new();
         for (row_idx, rm) in snapshot.iter().enumerate() {
             let Some(map) = rm else { continue };

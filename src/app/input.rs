@@ -645,23 +645,7 @@ impl App {
     /// clicks outside `list_inner`, on spacer rows, or on the
     /// gutter/indicator prefix to the left of the text.
     fn mouse_to_anchor(&self, row: u16, col: u16, click_count: u8) -> Option<SelectionAnchor> {
-        let inner = self.list_inner;
-        if row < inner.y
-            || row >= inner.y.saturating_add(inner.height)
-            || col < inner.x
-            || col >= inner.x.saturating_add(inner.width)
-        {
-            return None;
-        }
-        let visual_row = (row - inner.y) as usize;
-        let map = self.visible_rows.get(visual_row)?.as_ref()?;
-        let col_in_text = (col - inner.x).saturating_sub(map.gutter_cols) as usize;
-        self.view.selection_anchor_for_row_click(
-            map.node_idx,
-            map.byte_range.clone(),
-            col_in_text,
-            click_count,
-        )
+        self.view.hit_test(self.list_inner, row, col, click_count)
     }
 
     fn has_annotation(&self, node_idx: usize) -> bool {
