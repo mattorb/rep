@@ -56,8 +56,7 @@ impl App {
         let mut node_row_byte_ranges: Vec<Vec<Range<usize>>> = Vec::with_capacity(node_count);
         let node_lines: Vec<Vec<Line<'static>>> = self
             .view
-            .document()
-            .nodes
+            .document_nodes()
             .iter()
             .enumerate()
             .map(|(node_idx, node)| {
@@ -66,7 +65,7 @@ impl App {
                 // This keeps the spacer at the END of the preceding item so that
                 // navigating to any node always shows content as the first line.
                 let add_spacer_after =
-                    node_idx + 1 < node_count && self.view.document().is_block_start(node_idx + 1);
+                    node_idx + 1 < node_count && self.view.is_block_start(node_idx + 1);
 
                 // Code blocks render line-by-line without sentence wrap logic.
                 if let DocNode::CodeBlock {
@@ -74,8 +73,7 @@ impl App {
                     ..
                 } = node
                 {
-                    let raw = &self.view.source_lines()
-                        [clamp_range(range, self.view.source_lines().len())];
+                    let raw = self.view.source_range(range);
                     let range_start = range.start;
                     // Code-block plain is raw.join("\n"); per-source-line
                     // byte ranges are derivable from cumulative line
@@ -136,8 +134,7 @@ impl App {
                 let wrapped = wrap_styled_spans(spans, wrapped_text_width);
                 let plain = self
                     .view
-                    .rendered_nodes()
-                    .get(node_idx)
+                    .rendered_node(node_idx)
                     .map(|rn| rn.plain.as_str())
                     .unwrap_or("");
                 let mut row_ranges = wrap_line_byte_ranges(plain, &wrapped);
@@ -767,8 +764,7 @@ impl App {
                 // a source line containing `*emph*` or `'` ends up with
                 // a different byte content in display than in source.
                 self.view
-                    .rendered_nodes()
-                    .get(node_idx)?
+                    .rendered_node(node_idx)?
                     .line_ranges
                     .get(unit_idx)
                     .cloned()
@@ -781,7 +777,7 @@ impl App {
                 // word index aligns to selection plain text, not display.
                 // Count which occurrence the word is in selection plain
                 // text so repeated words map to the right display position.
-                let index_node = self.view.index().nodes.get(node_idx)?;
+                let index_node = self.view.index_node(node_idx)?;
                 let word_range = index_node.word_ranges.get(unit_idx)?;
                 let word_text = index_node.selection_plain_text.get(word_range.clone())?;
                 let occurrence = count_occurrences_before(
@@ -817,7 +813,7 @@ impl App {
         // byte range when the active node's source_line_ranges has an
         // entry for this source line.
         let line_local = |range: Range<usize>| -> Option<Range<usize>> {
-            let node = self.view.index().nodes.get(node_idx)?;
+            let node = self.view.index_node(node_idx)?;
             let (_, line_range) = node
                 .source_line_ranges
                 .iter()
@@ -848,7 +844,7 @@ impl App {
             // Use the index's selection-view byte ranges directly so we
             // don't double-walk through unit_byte_range_in_display
             // (which is for paragraph-style display plain text).
-            let node = self.view.index().nodes.get(node_idx);
+            let node = self.view.index_node(node_idx);
             let active_range = node.and_then(|n| match unit {
                 SelectionUnit::Word => n.word_ranges.get(unit_idx).cloned(),
                 SelectionUnit::Sentence => n.sentence_ranges.get(unit_idx).cloned(),
@@ -868,7 +864,7 @@ impl App {
             .map(|set| {
                 set.iter()
                     .filter_map(|&(unit, idx)| {
-                        let node = self.view.index().nodes.get(node_idx)?;
+                        let node = self.view.index_node(node_idx)?;
                         let r = match unit {
                             SelectionUnit::Word => node.word_ranges.get(idx).cloned()?,
                             SelectionUnit::Sentence => node.sentence_ranges.get(idx).cloned()?,
@@ -936,7 +932,7 @@ impl App {
     }
 
     pub(super) fn render_node_spans(&self, node_idx: usize) -> Vec<Span<'static>> {
-        let Some(rn) = self.view.rendered_nodes().get(node_idx) else {
+        let Some(rn) = self.view.rendered_node(node_idx) else {
             return vec![Span::styled(
                 " ",
                 Style::default().add_modifier(Modifier::DIM),

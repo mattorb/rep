@@ -13,7 +13,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::document::DocNode;
-use crate::document_view::{DocumentView, clamp_range};
+use crate::document_view::DocumentView;
 use crate::output::clean_context;
 use crate::output::{
     AgentOutput, ChangeOutput, FeedbackOutput, InsertOutput, KeymapOutput, LineAnnotationOutput,

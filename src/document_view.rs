@@ -6,8 +6,8 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::document::{DocNode, Document};
 use crate::markdown::{MarkdownLinkRange, render_markdown_line};
-use crate::selection::index::SelectionIndex;
-use crate::selection::model::{SelectionAnchor, SelectionUnit};
+use crate::selection::index::{NodeIndex, SelectionIndex};
+use crate::selection::model::{NavOutcome, SelectionAnchor, SelectionUnit};
 
 /// Owns the parsed source and the derived views used by app input, rendering,
 /// and output. Initial migration keeps most coordinate logic at call sites;
@@ -35,28 +35,147 @@ impl DocumentView {
         })
     }
 
+    #[cfg(test)]
     pub(crate) const fn document(&self) -> &Document {
         &self.document
     }
 
-    pub(crate) fn source_lines(&self) -> &[String] {
-        &self.source_lines
-    }
-
+    #[cfg(test)]
     pub(crate) fn rendered_nodes(&self) -> &[RenderedNode] {
         &self.rendered_nodes
-    }
-
-    pub(crate) const fn index(&self) -> &SelectionIndex {
-        &self.selection_index
     }
 
     pub(crate) fn node_count(&self) -> usize {
         self.document.node_count()
     }
 
+    pub(crate) fn document_nodes(&self) -> &[DocNode] {
+        &self.document.nodes
+    }
+
+    pub(crate) fn index_node(&self, node_idx: usize) -> Option<&NodeIndex> {
+        self.selection_index.nodes.get(node_idx)
+    }
+
+    pub(crate) fn rendered_node(&self, node_idx: usize) -> Option<&RenderedNode> {
+        self.rendered_nodes.get(node_idx)
+    }
+
+    pub(crate) fn source_range(&self, range: &Range<usize>) -> &[String] {
+        &self.source_lines[clamp_range(range, self.source_lines.len())]
+    }
+
+    pub(crate) fn is_block_start(&self, node_idx: usize) -> bool {
+        self.document.is_block_start(node_idx)
+    }
+
     pub(crate) fn next_content_node(&self, from: usize) -> Option<usize> {
         self.document.next_content_node(from)
+    }
+
+    pub(crate) fn prev_content_node(&self, before: usize) -> Option<usize> {
+        self.document.prev_content_node(before)
+    }
+
+    pub(crate) fn navigate(&self, anchor: SelectionAnchor, forward: bool) -> NavOutcome {
+        if forward {
+            crate::selection::navigator::next(&self.selection_index, anchor)
+        } else {
+            crate::selection::navigator::prev(&self.selection_index, anchor)
+        }
+    }
+
+    pub(crate) fn clamp_anchor(
+        &self,
+        anchor: SelectionAnchor,
+        target: SelectionUnit,
+    ) -> SelectionAnchor {
+        crate::selection::navigator::clamp(&self.selection_index, anchor, target)
+    }
+
+    pub(crate) fn has_any_anchor(&self, unit: SelectionUnit) -> bool {
+        match unit {
+            SelectionUnit::Section => !self.selection_index.sections.is_empty(),
+            SelectionUnit::Paragraph => !self.selection_index.paragraphs.is_empty(),
+            SelectionUnit::Line => !self.selection_index.lines.is_empty(),
+            SelectionUnit::Sentence => !self.selection_index.sentences.is_empty(),
+            SelectionUnit::Word => !self.selection_index.words.is_empty(),
+        }
+    }
+
+    pub(crate) fn section_span_for_start(&self, node_idx: usize) -> Range<usize> {
+        let end = self
+            .selection_index
+            .sections
+            .iter()
+            .find(|s| s.start_node_idx == node_idx)
+            .map_or_else(|| self.node_count(), |s| s.end_node_idx + 1);
+        node_idx..end
+    }
+
+    pub(crate) fn sentence_count_for_node(&self, node_idx: usize) -> usize {
+        self.rendered_nodes
+            .get(node_idx)
+            .map_or(0, |rn| rn.sentence_ranges.len())
+    }
+
+    /// Find every search hit across rendered nodes as `(node, sentence)` pairs.
+    /// Smart-case: case-sensitive iff the query contains an ASCII uppercase letter.
+    pub(crate) fn search_matches(&self, query: &str) -> Vec<(usize, usize)> {
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let case_sensitive = query.chars().any(|c| c.is_ascii_uppercase());
+        let needle = if case_sensitive {
+            query.to_owned()
+        } else {
+            let mut s = query.to_owned();
+            s.make_ascii_lowercase();
+            s
+        };
+        let mut matches: Vec<(usize, usize)> = Vec::new();
+        for (ni, rn) in self.rendered_nodes.iter().enumerate() {
+            let mut hay = rn.plain.clone();
+            if !case_sensitive {
+                hay.make_ascii_lowercase();
+            }
+            let mut cursor = 0usize;
+            while cursor <= hay.len() {
+                let Some(offset) = hay[cursor..].find(&needle) else {
+                    break;
+                };
+                let abs = cursor + offset;
+                let sentence_idx = rn
+                    .sentence_ranges
+                    .iter()
+                    .position(|r| abs >= r.start && abs < r.end)
+                    .unwrap_or(0);
+                matches.push((ni, sentence_idx));
+                cursor = abs + needle.len();
+            }
+        }
+        matches
+    }
+
+    pub(crate) fn links_for_anchor(&self, anchor: SelectionAnchor) -> Vec<String> {
+        let Some(rn) = self.rendered_nodes.get(anchor.node_idx) else {
+            return Vec::new();
+        };
+        let scope: Option<Range<usize>> = if anchor.unit == SelectionUnit::Sentence {
+            rn.sentence_ranges.get(anchor.unit_idx).cloned()
+        } else {
+            None
+        };
+        let mut urls = Vec::new();
+        for link in &rn.links {
+            let overlaps = scope
+                .as_ref()
+                .is_none_or(|r| link.end > r.start && link.start < r.end);
+            if overlaps && !urls.iter().any(|u: &String| u == &link.url) {
+                urls.push(link.url.clone());
+            }
+        }
+        urls
     }
 
     pub(crate) fn source_line_for_anchor(&self, anchor: SelectionAnchor) -> usize {

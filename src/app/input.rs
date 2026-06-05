@@ -294,46 +294,8 @@ impl App {
         }
     }
 
-    /// Find every search hit across rendered nodes as (node, sentence) pairs.
-    /// Smart-case: case-sensitive iff the query contains an ASCII uppercase letter.
-    fn find_search_matches(&self, query: &str) -> Vec<(usize, usize)> {
-        if query.is_empty() {
-            return Vec::new();
-        }
-        let case_sensitive = query.chars().any(|c| c.is_ascii_uppercase());
-        let needle = if case_sensitive {
-            query.to_owned()
-        } else {
-            let mut s = query.to_owned();
-            s.make_ascii_lowercase();
-            s
-        };
-        let mut matches: Vec<(usize, usize)> = Vec::new();
-        for (ni, rn) in self.view.rendered_nodes().iter().enumerate() {
-            let mut hay = rn.plain.clone();
-            if !case_sensitive {
-                hay.make_ascii_lowercase();
-            }
-            let mut cursor = 0usize;
-            while cursor <= hay.len() {
-                let Some(offset) = hay[cursor..].find(&needle) else {
-                    break;
-                };
-                let abs = cursor + offset;
-                let sidx = rn
-                    .sentence_ranges
-                    .iter()
-                    .position(|r| abs >= r.start && abs < r.end)
-                    .unwrap_or(0);
-                matches.push((ni, sidx));
-                cursor = abs + needle.len();
-            }
-        }
-        matches
-    }
-
     fn run_search(&mut self, query: &str, forward: bool) {
-        let matches = self.find_search_matches(query);
+        let matches = self.view.search_matches(query);
         if matches.is_empty() {
             self.status = format!("No matches for \"{query}\".");
             return;
@@ -355,7 +317,7 @@ impl App {
             self.status = "No previous search. Press / to search.".to_string();
             return;
         };
-        let matches = self.find_search_matches(&query);
+        let matches = self.view.search_matches(&query);
         if matches.is_empty() {
             self.status = format!("No matches for \"{query}\".");
             return;
@@ -389,7 +351,7 @@ impl App {
 
     fn apply_search_target(&mut self, query: &str, matches: &[(usize, usize)], target_idx: usize) {
         let (ni, si) = matches[target_idx];
-        // find_search_matches returns sentence-keyed positions, so the
+        // search_matches returns sentence-keyed positions, so the
         // search jump always anchors at sentence granularity regardless of
         // the active unit at search time.
         self.selection_state.anchor = SelectionAnchor::new(ni, SelectionUnit::Sentence, si);
@@ -467,11 +429,9 @@ impl App {
 
         for _ in 0..steps {
             let next = if forward {
-                self.view
-                    .document()
-                    .next_content_node(target.saturating_add(1))
+                self.view.next_content_node(target.saturating_add(1))
             } else {
-                self.view.document().prev_content_node(target)
+                self.view.prev_content_node(target)
             };
             let Some(idx) = next else { break };
             target = idx;
@@ -503,11 +463,7 @@ impl App {
         if self.view.node_count() == 0 {
             return;
         }
-        let outcome = if forward {
-            crate::selection::navigator::next(self.view.index(), self.selection_state.anchor)
-        } else {
-            crate::selection::navigator::prev(self.view.index(), self.selection_state.anchor)
-        };
+        let outcome = self.view.navigate(self.selection_state.anchor, forward);
         match outcome {
             crate::selection::model::NavOutcome::Moved(a) => {
                 self.selection_state.anchor = a;
@@ -520,21 +476,11 @@ impl App {
                 // start" feedback in the right zone. Selection state
                 // (including section_highlight_range) stays put — the
                 // user is still on the boundary section.
-                if !self.unit_has_any_anchor(self.selection_state.anchor.unit) {
+                if !self.view.has_any_anchor(self.selection_state.anchor.unit) {
                     return;
                 }
                 self.nav_feedback = Some(if forward { "at end" } else { "at start" }.to_string());
             }
-        }
-    }
-
-    fn unit_has_any_anchor(&self, unit: SelectionUnit) -> bool {
-        match unit {
-            SelectionUnit::Section => !self.view.index().sections.is_empty(),
-            SelectionUnit::Paragraph => !self.view.index().paragraphs.is_empty(),
-            SelectionUnit::Line => !self.view.index().lines.is_empty(),
-            SelectionUnit::Sentence => !self.view.index().sentences.is_empty(),
-            SelectionUnit::Word => !self.view.index().words.is_empty(),
         }
     }
 
@@ -552,11 +498,7 @@ impl App {
             (i + order.len() - 1) % order.len()
         };
         let target = order[next_i];
-        let new_anchor = crate::selection::navigator::clamp(
-            self.view.index(),
-            self.selection_state.anchor,
-            target,
-        );
+        let new_anchor = self.view.clamp_anchor(self.selection_state.anchor, target);
         self.selection_state.anchor = new_anchor;
         self.refresh_section_highlight(new_anchor);
     }
@@ -579,11 +521,7 @@ impl App {
         let Some(target) = target else {
             return;
         };
-        let new_anchor = crate::selection::navigator::clamp(
-            self.view.index(),
-            self.selection_state.anchor,
-            target,
-        );
+        let new_anchor = self.view.clamp_anchor(self.selection_state.anchor, target);
         self.selection_state.anchor = new_anchor;
         self.refresh_section_highlight(new_anchor);
     }
@@ -593,24 +531,10 @@ impl App {
     /// or mode-cycle that lands on a new anchor.
     fn refresh_section_highlight(&mut self, anchor: SelectionAnchor) {
         if anchor.unit == SelectionUnit::Section {
-            self.section_highlight_range = Some(self.section_span_for(anchor.node_idx));
+            self.section_highlight_range = Some(self.view.section_span_for_start(anchor.node_idx));
         } else {
             self.section_highlight_range = None;
         }
-    }
-
-    /// Compute the inclusive-start, exclusive-end node range for the section
-    /// starting at `node_idx`. Falls back to the rest of the document if the
-    /// section table doesn't carry an entry for this node.
-    fn section_span_for(&self, node_idx: usize) -> Range<usize> {
-        let end = self
-            .view
-            .index()
-            .sections
-            .iter()
-            .find(|s| s.start_node_idx == node_idx)
-            .map_or_else(|| self.view.node_count(), |s| s.end_node_idx + 1);
-        node_idx..end
     }
 
     /// Stable string for the mode indicator in the left zone of the footer.
@@ -759,9 +683,7 @@ impl App {
     fn clamp_sentence(&mut self) {
         let total = self
             .view
-            .rendered_nodes()
-            .get(self.selection_state.anchor.node_idx)
-            .map_or(0, |rn| rn.sentence_ranges.len());
+            .sentence_count_for_node(self.selection_state.anchor.node_idx);
         let unit_idx = if total == 0 {
             0
         } else {
@@ -1130,35 +1052,7 @@ impl App {
     }
 
     pub(super) fn current_sentence_links(&self) -> Vec<String> {
-        let Some(rn) = self
-            .view
-            .rendered_nodes()
-            .get(self.selection_state.anchor.node_idx)
-        else {
-            return Vec::new();
-        };
-        // In Sentence mode, scope to the current sentence's byte range.
-        // In any other mode, fall back to "all links in the current node"
-        // — the unit_idx is a Word/Line/Paragraph/Section index that
-        // doesn't translate cleanly to sentence_ranges.
-        let scope: Option<Range<usize>> =
-            if self.selection_state.anchor.unit == SelectionUnit::Sentence {
-                rn.sentence_ranges
-                    .get(self.selection_state.anchor.unit_idx)
-                    .cloned()
-            } else {
-                None
-            };
-        let mut urls = Vec::new();
-        for link in &rn.links {
-            let overlaps = scope
-                .as_ref()
-                .is_none_or(|r| link.end > r.start && link.start < r.end);
-            if overlaps && !urls.iter().any(|u: &String| u == &link.url) {
-                urls.push(link.url.clone());
-            }
-        }
-        urls
+        self.view.links_for_anchor(self.selection_state.anchor)
     }
 
     pub(super) fn annotation_counts(&self) -> (usize, usize, usize, usize) {
