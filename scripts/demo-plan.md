@@ -1,13 +1,14 @@
-# Open Source Release Plan
+# Checkout Cleanup Plan
 
-Ship `rep` as a small, reliable tool for reviewing Markdown plans with an agent.
+Make the Acme Commerce checkout flow easier to understand.
 
-## Blockers
+## Improvements
 
-- Bundle the agent skill in release archives so binary installers can hand off actions.
-- Keep platform support honest by publishing only artifacts covered by CI.
-- Check that release tags match the Cargo package version before packaging.
+- Move checkout state into one shared model.
+- Keep inventory checks in one service.
+- Send confirmation emails only after payment succeeds.
 
-## Follow-up
+## Follow-up Questions
 
-Add focused snapshot tests for the main TUI states.
+- Which checkout states should support agents see?
+- What should happen when payment succeeds but inventory fails?
