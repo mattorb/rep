@@ -51,10 +51,6 @@ impl DocumentView {
         self.document.node_count()
     }
 
-    pub(crate) fn rendered_node(&self, node_idx: usize) -> Option<&RenderedNode> {
-        self.rendered_nodes.get(node_idx)
-    }
-
     #[cfg(test)]
     pub(crate) fn visible_rows(&self) -> &[Option<VisibleRowMap>] {
         &self.visible_rows
@@ -218,6 +214,119 @@ impl DocumentView {
             }
             SelectionUnit::Section => None,
         }
+    }
+
+    pub(crate) fn rendered_plain(&self, node_idx: usize) -> Option<&str> {
+        self.rendered_nodes
+            .get(node_idx)
+            .map(|rn| rn.plain.as_str())
+    }
+
+    pub(crate) fn styled_display_spans(
+        &self,
+        node_idx: usize,
+        highlight: Option<Range<usize>>,
+        strike_ranges: &[Range<usize>],
+    ) -> Option<Vec<Span<'static>>> {
+        let rn = self.rendered_nodes.get(node_idx)?;
+        let plain = rn.plain.as_str();
+        let plain_len = plain.len();
+
+        if plain.is_empty() {
+            return Some(vec![Span::styled(
+                " ",
+                Style::default().add_modifier(Modifier::DIM),
+            )]);
+        }
+
+        let mut segments: Vec<(usize, usize, Style)> = Vec::new();
+        let mut offset = 0usize;
+        for span in &rn.spans {
+            let len = span.content.len();
+            if len == 0 {
+                continue;
+            }
+            let end = (offset + len).min(plain_len);
+            if offset < end {
+                segments.push((offset, end, span.style));
+            }
+            offset = end;
+        }
+        if segments.is_empty() {
+            segments.push((0, plain_len, Style::default()));
+        }
+
+        let mut bounds = vec![0, plain_len];
+        for &(start, end, _) in &segments {
+            bounds.push(start);
+            bounds.push(end);
+        }
+        for range in &rn.sentence_ranges {
+            bounds.push(range.start.min(plain_len));
+            bounds.push(range.end.min(plain_len));
+        }
+        if let Some(range) = &highlight {
+            bounds.push(range.start.min(plain_len));
+            bounds.push(range.end.min(plain_len));
+        }
+        for range in strike_ranges {
+            bounds.push(range.start.min(plain_len));
+            bounds.push(range.end.min(plain_len));
+        }
+        bounds.sort_unstable();
+        bounds.dedup();
+
+        let mut spans = Vec::new();
+        for pair in bounds.windows(2) {
+            let (start, end) = (pair[0], pair[1]);
+            if start >= end {
+                continue;
+            }
+            let Some(text) = plain.get(start..end) else {
+                continue;
+            };
+            if text.is_empty() {
+                continue;
+            }
+
+            let mut style = segments
+                .iter()
+                .find(|&&(segment_start, segment_end, _)| {
+                    start >= segment_start && start < segment_end
+                })
+                .map(|&(_, _, style)| style)
+                .unwrap_or_default();
+
+            if highlight
+                .as_ref()
+                .is_some_and(|range| start < range.end && end > range.start)
+            {
+                style = style.patch(
+                    Style::default()
+                        .bg(Color::Blue)
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD),
+                );
+            }
+
+            if strike_ranges
+                .iter()
+                .any(|range| start < range.end && end > range.start)
+            {
+                style = style.patch(
+                    Style::default()
+                        .fg(Color::Red)
+                        .add_modifier(Modifier::CROSSED_OUT | Modifier::DIM),
+                );
+            }
+
+            spans.push(Span::styled(text.to_string(), style));
+        }
+
+        if spans.is_empty() {
+            spans.push(Span::raw(plain.to_string()));
+        }
+        Some(spans)
     }
 
     pub(crate) fn selection_range_for_unit(
@@ -622,7 +731,7 @@ impl DocumentView {
 #[derive(Debug, Clone)]
 pub(crate) struct VisibleRowMap {
     pub(crate) node_idx: usize,
-    /// Byte range in `rendered_nodes[node_idx].plain` covering the chars shown
+    /// Byte range in the node's rendered display text covering the chars shown
     /// on this row after the gutter prefix. Zero-width for spacer rows.
     pub(crate) byte_range: Range<usize>,
     /// Terminal columns to skip from the left edge of `list_inner` before text.

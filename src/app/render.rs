@@ -109,11 +109,7 @@ impl App {
 
                 let spans = self.render_node_spans(node_idx);
                 let wrapped = wrap_styled_spans(spans, wrapped_text_width);
-                let plain = self
-                    .view
-                    .rendered_node(node_idx)
-                    .map(|rn| rn.plain.as_str())
-                    .unwrap_or("");
+                let plain = self.view.rendered_plain(node_idx).unwrap_or("");
                 let mut row_ranges = wrap_line_byte_ranges(plain, &wrapped);
 
                 let mut wrapped_lines: Vec<Line> = wrapped
@@ -685,7 +681,7 @@ impl App {
     /// Push styled span(s) for one source line of a code block, overlaying
     /// the active highlight and any strike ranges that intersect this line.
     /// `node_idx` identifies the code block; `source_line` is the absolute
-    /// line index in `self.view.source_lines()`; `line` is its raw text;
+    /// source line index; `line` is its raw text;
     /// `base_style` is the code-block paint (DarkGray fence vs
     /// White-on-DarkGray content). The active anchor and strike entries
     /// store byte ranges in selection_plain_text — we map each into bytes
@@ -790,24 +786,6 @@ impl App {
     }
 
     pub(super) fn render_node_spans(&self, node_idx: usize) -> Vec<Span<'static>> {
-        let Some(rn) = self.view.rendered_node(node_idx) else {
-            return vec![Span::styled(
-                " ",
-                Style::default().add_modifier(Modifier::DIM),
-            )];
-        };
-        let plain = rn.plain.as_str();
-        let plain_len = plain.len();
-
-        if plain.is_empty() {
-            return vec![Span::styled(
-                " ",
-                Style::default().add_modifier(Modifier::DIM),
-            )];
-        }
-
-        let sentence_ranges = &rn.sentence_ranges;
-
         // Resolve every strike anchor on this node to a display byte
         // range. Empty when nothing is struck.
         let strike_ranges: Vec<Range<usize>> = self
@@ -822,29 +800,12 @@ impl App {
             })
             .unwrap_or_default();
 
-        // Map span style → byte range segments.
-        let mut seg: Vec<(usize, usize, Style)> = Vec::new();
-        let mut offset = 0usize;
-        for span in &rn.spans {
-            let len = span.content.len();
-            if len == 0 {
-                continue;
-            }
-            let end = (offset + len).min(plain_len);
-            if offset < end {
-                seg.push((offset, end, span.style));
-            }
-            offset = end;
-        }
-        if seg.is_empty() {
-            seg.push((0, plain_len, Style::default()));
-        }
-
         let highlight = if self
             .section_highlight_range
             .as_ref()
             .is_some_and(|r| r.contains(&node_idx))
         {
+            let plain_len = self.view.rendered_plain(node_idx).map_or(0, str::len);
             Some(0..plain_len)
         } else if node_idx == self.selection_state.anchor.node_idx {
             self.unit_highlight_for(node_idx)
@@ -852,75 +813,13 @@ impl App {
             None
         };
 
-        // Collect all split points. Include the active highlight boundaries so
-        // sub-node units (Word/Line) can paint precisely rather than tinting an
-        // entire pre-existing span chunk. Same for each strike range so
-        // word-unit strikes paint just the word.
-        let mut bounds = vec![0, plain_len];
-        for &(s, e, _) in &seg {
-            bounds.push(s);
-            bounds.push(e);
-        }
-        for r in sentence_ranges {
-            bounds.push(r.start.min(plain_len));
-            bounds.push(r.end.min(plain_len));
-        }
-        if let Some(r) = &highlight {
-            bounds.push(r.start.min(plain_len));
-            bounds.push(r.end.min(plain_len));
-        }
-        for r in &strike_ranges {
-            bounds.push(r.start.min(plain_len));
-            bounds.push(r.end.min(plain_len));
-        }
-        bounds.sort_unstable();
-        bounds.dedup();
-
-        let mut spans = Vec::new();
-        for pair in bounds.windows(2) {
-            let (start, end) = (pair[0], pair[1]);
-            if start >= end {
-                continue;
-            }
-            let Some(text) = plain.get(start..end) else {
-                continue;
-            };
-            if text.is_empty() {
-                continue;
-            }
-
-            let mut style = seg
-                .iter()
-                .find(|&&(s, e, _)| start >= s && start < e)
-                .map(|&(_, _, sty)| sty)
-                .unwrap_or_default();
-
-            if highlight
-                .as_ref()
-                .is_some_and(|r| start < r.end && end > r.start)
-            {
-                style = style.patch(
-                    Style::default()
-                        .bg(Color::Blue)
-                        .fg(Color::Black)
-                        .add_modifier(Modifier::BOLD),
-                );
-            }
-
-            if strike_ranges.iter().any(|r| start < r.end && end > r.start) {
-                style = style.patch(
-                    Style::default()
-                        .fg(Color::Red)
-                        .add_modifier(Modifier::CROSSED_OUT | Modifier::DIM),
-                );
-            }
-
-            spans.push(Span::styled(text.to_string(), style));
-        }
-
-        if spans.is_empty() {
-            spans.push(Span::raw(plain.to_string()));
-        }
-        spans
+        self.view
+            .styled_display_spans(node_idx, highlight, &strike_ranges)
+            .unwrap_or_else(|| {
+                vec![Span::styled(
+                    " ",
+                    Style::default().add_modifier(Modifier::DIM),
+                )]
+            })
     }
 }
