@@ -1,6 +1,7 @@
 use super::*;
 use ratatui::{Terminal, backend::TestBackend};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 static FILE_SEQ: AtomicUsize = AtomicUsize::new(0);
 

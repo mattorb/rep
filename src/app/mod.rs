@@ -4,7 +4,6 @@ use std::fmt::Write;
 use std::fs;
 use std::ops::Range;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -31,6 +30,11 @@ mod output;
 mod render;
 mod state;
 
+use self::state::{
+    CLICK_DOUBLE_INTERVAL, ChangeAnnotation, EditableAnnotation, FeedbackAnnotation, InputMode,
+    InsertAnnotation, LastClick,
+};
+
 const FOOTER_HEIGHT: u16 = 1;
 const GUTTER_WIDTH: usize = 2;
 
@@ -47,58 +51,6 @@ const EMIT_CONTEXT_MAX_CHARS: usize = 140;
 /// `INSERT:`). Wider than the target/context — the user types these
 /// so they tend to be longer.
 const EMIT_PAYLOAD_MAX_CHARS: usize = 220;
-
-// ── Annotation types ──────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum InputMode {
-    Normal,
-    Change,
-    Feedback,
-    InsertBefore,
-    InsertAfter,
-    Search,
-    /// Editing the change at (node_idx, change_idx).
-    EditChange(usize, usize),
-    /// Editing the feedback at (node_idx, feedback_idx).
-    EditFeedback(usize, usize),
-}
-
-#[derive(Debug, Clone)]
-struct ChangeAnnotation {
-    created_at: String,
-    /// Selection unit at the moment of capture (Sentence / Line / Paragraph
-    /// / Section / Word). Drives WHERE: format and target: source per
-    /// modular_plan §"target".
-    target_unit: SelectionUnit,
-    sentence_index: Option<usize>,
-    sentence_text: Option<String>,
-    change: String,
-}
-
-#[derive(Debug, Clone)]
-struct FeedbackAnnotation {
-    created_at: String,
-    target_unit: SelectionUnit,
-    sentence_index: Option<usize>,
-    sentence_text: Option<String>,
-    feedback: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EditableAnnotation {
-    Change(usize),
-    Feedback(usize),
-}
-
-#[derive(Debug, Clone)]
-struct InsertAnnotation {
-    created_at: String,
-    target_unit: SelectionUnit,
-    sentence_index: Option<usize>,
-    sentence_text: Option<String>,
-    text: String,
-}
 
 /// Truncate `s` to fit within `max_cols` terminal columns, accounting for
 /// wide-width characters (CJK, emoji). Wraps zero-width chars (combining
@@ -188,18 +140,6 @@ pub struct App {
     /// → triple). Reset on cell change or after the timeout window.
     last_click: Option<LastClick>,
 }
-
-#[derive(Debug, Clone, Copy)]
-struct LastClick {
-    at: Instant,
-    row: u16,
-    col: u16,
-    /// 1 = single, 2 = double, 3 = triple. Saturates at 3 — a fourth
-    /// rapid click on the same cell drops back to 1.
-    count: u8,
-}
-
-const CLICK_DOUBLE_INTERVAL: Duration = Duration::from_millis(500);
 
 impl App {
     pub fn load(path: PathBuf) -> Result<Self> {
