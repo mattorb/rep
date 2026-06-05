@@ -12,14 +12,13 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::document::{DocNode, Document};
-use crate::markdown::{MarkdownLinkRange, render_markdown_line};
+use crate::document::DocNode;
+use crate::document_view::{DocumentView, clamp_range};
 use crate::output::clean_context;
 use crate::output::{
     AgentOutput, ChangeOutput, FeedbackOutput, InsertOutput, KeymapOutput, LineAnnotationOutput,
     LineContext, ReactionOutput,
 };
-use crate::selection::index::SelectionIndex;
 use crate::selection::model::{SelectionAnchor, SelectionState, SelectionUnit};
 use crate::ui::wrap_styled_spans;
 
@@ -95,271 +94,6 @@ struct InsertAnnotation {
     sentence_index: Option<usize>,
     sentence_text: Option<String>,
     text: String,
-}
-
-// ── Rendered document node ────────────────────────────────────────────────────
-
-/// Per-node rendering cache: styled spans for the joined source text plus
-/// sentence byte-range boundaries within `plain`.
-struct RenderedNode {
-    plain: String,
-    spans: Vec<Span<'static>>,
-    sentence_ranges: Vec<Range<usize>>,
-    /// Byte ranges in `plain` for each line as the Line projection sees
-    /// it. Aligned 1:1 with `SelectionIndex.nodes[i].source_line_ranges`.
-    /// Empty when the node has no per-line breakdown (e.g. ThematicBreak).
-    /// Populated at render time because pulldown-cmark applies
-    /// smart-punctuation and emphasis-marker stripping, so a source line
-    /// can't be searched verbatim inside display plain.
-    line_ranges: Vec<Range<usize>>,
-    /// Word byte ranges in display `plain` (re-segmented from display).
-    /// Used by mouse-click resolution to map a clicked display byte to a
-    /// word_idx; the existing `index.nodes[i].word_ranges` is in
-    /// selection plain (markers stripped, smart-punctuation NOT applied),
-    /// so its byte values don't index into display plain. Word counts
-    /// should match between the two views in practice; if they ever
-    /// diverge, the click path falls back to whichever index it
-    /// resolves and the rest of the pipeline remains valid (paint/emit
-    /// re-uses selection plain via `unit_byte_range_in_display`).
-    display_word_ranges: Vec<Range<usize>>,
-    links: Vec<MarkdownLinkRange>,
-}
-
-impl std::fmt::Debug for RenderedNode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RenderedNode")
-            .field("plain", &self.plain)
-            .field("sentence_ranges", &self.sentence_ranges)
-            .field("line_ranges", &self.line_ranges)
-            .field("display_word_ranges", &self.display_word_ranges)
-            .finish_non_exhaustive()
-    }
-}
-
-fn build_rendered_nodes(doc: &Document, source_lines: &[String]) -> Vec<RenderedNode> {
-    doc.nodes
-        .iter()
-        .map(|n| build_rendered_node(n, source_lines))
-        .collect()
-}
-
-fn build_rendered_node(node: &DocNode, source_lines: &[String]) -> RenderedNode {
-    let mut rn = match node {
-        DocNode::Heading { source_line, .. } => {
-            let text = source_lines.get(*source_line).cloned().unwrap_or_default();
-            let r = render_markdown_line(&text);
-            let ranges = single_range(&r.plain);
-            let line_ranges = ranges.clone();
-            RenderedNode {
-                plain: r.plain,
-                spans: r.spans,
-                sentence_ranges: ranges,
-                line_ranges,
-                display_word_ranges: Vec::new(),
-                links: r.links,
-            }
-        }
-        DocNode::Paragraph {
-            source_lines: range,
-            ..
-        } => {
-            let src = &source_lines[clamp_range(range, source_lines.len())];
-            let (plain, spans, links, line_ranges) = render_source_lines_with_breaks(src);
-            if plain.is_empty() {
-                let joined = join_node_source_lines(src);
-                let r = render_markdown_line(&joined);
-                let sentence_ranges = single_range(&r.plain);
-                let line_ranges = sentence_ranges.clone();
-                RenderedNode {
-                    plain: r.plain,
-                    spans: r.spans,
-                    sentence_ranges,
-                    line_ranges,
-                    display_word_ranges: Vec::new(),
-                    links: r.links,
-                }
-            } else {
-                let sentence_ranges = crate::selection::segment::segment_sentences(&plain);
-                RenderedNode {
-                    plain,
-                    spans,
-                    sentence_ranges,
-                    line_ranges,
-                    display_word_ranges: Vec::new(),
-                    links,
-                }
-            }
-        }
-        DocNode::ListItem {
-            source_lines: range,
-            ordered,
-            depth,
-            ..
-        } => {
-            let joined =
-                join_node_source_lines(&source_lines[clamp_range(range, source_lines.len())]);
-            let r = render_markdown_line(&joined);
-            let ranges = single_range(&r.plain);
-            let line_ranges = ranges.clone();
-            // Top-level ordered items act as section headings — style them like one.
-            let spans = if *ordered && *depth == 0 {
-                let style = Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD);
-                vec![Span::styled(r.plain.clone(), style)]
-            } else {
-                r.spans
-            };
-            RenderedNode {
-                plain: r.plain,
-                spans,
-                sentence_ranges: ranges,
-                line_ranges,
-                display_word_ranges: Vec::new(),
-                links: r.links,
-            }
-        }
-        DocNode::CodeBlock {
-            source_lines: range,
-            ..
-        } => {
-            let raw = &source_lines[clamp_range(range, source_lines.len())];
-            let plain = raw.join("\n");
-            let ranges = single_range(&plain);
-            // Per-non-fence-line ranges within `plain`, matching the
-            // index's CodeBlock entries (which skip ```fence``` lines).
-            let mut line_ranges = Vec::new();
-            let mut cursor = 0usize;
-            for line in raw {
-                let is_fence = line.trim_start().starts_with("```");
-                let end = cursor + line.len();
-                if !is_fence {
-                    line_ranges.push(cursor..end);
-                }
-                cursor = end + 1; // step past the joining `\n`
-            }
-            let spans = raw
-                .iter()
-                .flat_map(|line| {
-                    let style = if line.trim_start().starts_with("```") {
-                        Style::default().fg(Color::DarkGray)
-                    } else {
-                        Style::default().fg(Color::White).bg(Color::DarkGray)
-                    };
-                    [
-                        Span::styled(line.clone(), style),
-                        Span::raw("\n".to_owned()),
-                    ]
-                })
-                .collect();
-            RenderedNode {
-                plain,
-                spans,
-                sentence_ranges: ranges,
-                line_ranges,
-                display_word_ranges: Vec::new(),
-                links: vec![],
-            }
-        }
-        DocNode::ThematicBreak { .. } => {
-            let r = render_markdown_line("---");
-            RenderedNode {
-                plain: r.plain,
-                spans: r.spans,
-                sentence_ranges: vec![],
-                line_ranges: vec![],
-                display_word_ranges: Vec::new(),
-                links: r.links,
-            }
-        }
-    };
-    rn.display_word_ranges = crate::selection::segment::segment_words(&rn.plain);
-    rn
-}
-
-/// Return a single byte-range covering the entire string, or empty if empty.
-#[allow(clippy::single_range_in_vec_init)]
-fn single_range(s: &str) -> Vec<std::ops::Range<usize>> {
-    if s.is_empty() {
-        vec![]
-    } else {
-        vec![0..s.len()]
-    }
-}
-
-/// Join soft-wrapped source lines into one string for paragraph
-/// rendering. The first line keeps its leading whitespace (so list
-/// item markers stay aligned); continuation lines are trimmed before
-/// joining. Empty lines are dropped.
-fn join_node_source_lines(lines: &[String]) -> String {
-    lines
-        .iter()
-        .enumerate()
-        .map(|(i, l)| if i == 0 { l.as_str() } else { l.trim() })
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// Render multi-line paragraph source into per-line spans joined by '\n'.
-///
-/// Relative indentation is preserved: each line is shown indented by its source
-/// indentation minus the first line's indentation, so sub-items appear visually
-/// nested without any content-altering markdown indentation interpretation.
-fn render_source_lines_with_breaks(
-    src_lines: &[String],
-) -> (
-    String,
-    Vec<Span<'static>>,
-    Vec<MarkdownLinkRange>,
-    Vec<Range<usize>>,
-) {
-    let mut plain = String::new();
-    let mut spans: Vec<Span<'static>> = Vec::new();
-    let mut links: Vec<MarkdownLinkRange> = Vec::new();
-    let mut line_ranges: Vec<Range<usize>> = Vec::new();
-    let first_indent = src_lines
-        .first()
-        .map_or(0, |l| l.len() - l.trim_start().len());
-    for (i, line) in src_lines.iter().enumerate() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if !plain.is_empty() {
-            plain.push('\n');
-            spans.push(Span::raw("\n".to_owned()));
-        }
-        let relative_indent = if i == 0 {
-            0
-        } else {
-            let line_indent = line.len() - line.trim_start().len();
-            line_indent.saturating_sub(first_indent)
-        };
-        if relative_indent > 0 {
-            let prefix = " ".repeat(relative_indent);
-            plain.push_str(&prefix);
-            spans.push(Span::raw(prefix));
-        }
-        let line_start = plain.len() - relative_indent;
-        let offset = plain.len();
-        let r = render_markdown_line(trimmed);
-        for link in r.links {
-            links.push(MarkdownLinkRange {
-                start: link.start + offset,
-                end: link.end + offset,
-                url: link.url,
-            });
-        }
-        plain.push_str(&r.plain);
-        spans.extend(r.spans);
-        line_ranges.push(line_start..plain.len());
-    }
-    (plain, spans, links, line_ranges)
-}
-
-fn clamp_range(r: &Range<usize>, len: usize) -> Range<usize> {
-    r.start.min(len)..r.end.min(len)
 }
 
 /// Truncate `s` to fit within `max_cols` terminal columns, accounting for
@@ -497,13 +231,8 @@ fn col_to_byte(text: &str, target_cols: usize) -> usize {
 #[derive(Debug)]
 pub struct App {
     source_path: PathBuf,
-    /// Original source lines — used only for output context (prev/next line).
-    source_lines: Vec<String>,
-    doc: Document,
-    rendered_nodes: Vec<RenderedNode>,
-    /// Owned eager selection index built once at load time per Req 11.
-    /// Drives navigation, per-unit emit, and unit-aware highlight lookup.
-    index: SelectionIndex,
+    /// Parsed source and derived document views.
+    view: DocumentView,
     /// Canonical selection state — `(node_idx, unit, unit_idx)` per
     /// modular_plan §"Selection state".
     selection_state: SelectionState,
@@ -606,7 +335,6 @@ impl App {
         let raw = fs::read_to_string(&path)
             .with_context(|| format!("failed to read markdown file: {}", path.display()))?;
 
-        let source_lines: Vec<String> = raw.lines().map(ToOwned::to_owned).collect();
         // Match Document::parse's options so the AST popup shows the same
         // tree the selection layer reads — otherwise tables, strikethrough,
         // and footnote refs would render in the popup with one shape and
@@ -621,11 +349,9 @@ impl App {
             |node| format!("{node:#?}"),
         );
         let ast_lines: Vec<String> = ast_text.lines().map(ToOwned::to_owned).collect();
-        let doc = Document::parse(&raw).context("failed to parse markdown document")?;
-        let rendered_nodes = build_rendered_nodes(&doc, &source_lines);
-        let index = SelectionIndex::build(&doc, &source_lines);
+        let view = DocumentView::parse(&raw)?;
 
-        let initial_node = doc.next_content_node(0).unwrap_or(0);
+        let initial_node = view.next_content_node(0).unwrap_or(0);
         let selection_state = SelectionState::new(SelectionAnchor::new(
             initial_node,
             SelectionUnit::Sentence,
@@ -634,10 +360,7 @@ impl App {
 
         Ok(Self {
             source_path: path,
-            source_lines,
-            doc,
-            rendered_nodes,
-            index,
+            view,
             selection_state,
             section_highlight_range: None,
             changes: BTreeMap::new(),
@@ -1971,7 +1694,7 @@ mod tests {
     Tradeoff: No MSRV, no audit. Fast (~30-60s).
 ";
         let app = test_app(content);
-        let rn = &app.rendered_nodes[0];
+        let rn = &app.view.rendered_nodes()[0];
         assert!(
             !rn.sentence_ranges.is_empty(),
             "should have at least one sentence range"
@@ -1998,8 +1721,8 @@ mod tests {
     Tradeoff: No MSRV, no audit. Fast (~30-60s).
 ";
         let app = test_app(content);
-        assert_eq!(app.doc.node_count(), 1);
-        let rn = &app.rendered_nodes[0];
+        assert_eq!(app.view.document().node_count(), 1);
+        let rn = &app.view.rendered_nodes()[0];
         // The plain text must start with the first source line, not a joined blob.
         assert!(
             rn.plain.starts_with("Option 1"),
@@ -2340,7 +2063,8 @@ mod tests {
         let body = "I'm chilling on a couch during my son's piano lesson — *heavy* (a higher specc'd mac) is doing the actual work and is working the plan.";
         let mut app = test_app(&format!("# t\n\n{body}\n"));
         let para_idx = app
-            .rendered_nodes
+            .view
+            .rendered_nodes()
             .iter()
             .position(|rn| rn.plain.contains("working the plan."))
             .expect("paragraph node");
@@ -2349,7 +2073,7 @@ mod tests {
             unit: SelectionUnit::Line,
             unit_idx: 0,
         };
-        let rn = &app.rendered_nodes[para_idx];
+        let rn = &app.view.rendered_nodes()[para_idx];
         let plain = rn.plain.as_str();
         let range = app
             .unit_byte_range_in_display(
@@ -2464,7 +2188,7 @@ mod tests {
         let anchor = app.selection_state.anchor;
         assert_eq!(anchor.unit, SelectionUnit::Word, "single click → Word");
         // Word index of "charlie" should be 2 (0=alpha, 1=bravo, 2=charlie).
-        let rn = &app.rendered_nodes[anchor.node_idx];
+        let rn = &app.view.rendered_nodes()[anchor.node_idx];
         let word_text = rn
             .display_word_ranges
             .get(anchor.unit_idx)
@@ -2578,11 +2302,12 @@ mod tests {
         terminal.draw(|f| app.draw(f)).unwrap();
 
         let para_idx = app
-            .rendered_nodes
+            .view
+            .rendered_nodes()
             .iter()
             .position(|rn| rn.plain.starts_with("alpha bravo"))
             .unwrap();
-        let plain = app.rendered_nodes[para_idx].plain.clone();
+        let plain = app.view.rendered_nodes()[para_idx].plain.clone();
         // Print every visible row's byte range and rendered text so we
         // can see if there's drift on later rows.
         for (i, rm) in app.visible_rows.iter().enumerate() {
@@ -2631,7 +2356,7 @@ mod tests {
         });
         let anchor = app.selection_state.anchor;
         assert_eq!(anchor.unit, SelectionUnit::Word);
-        let rn = &app.rendered_nodes[anchor.node_idx];
+        let rn = &app.view.rendered_nodes()[anchor.node_idx];
         let selected = &rn.plain[rn.display_word_ranges[anchor.unit_idx].clone()];
         assert_eq!(
             selected, target_word,
@@ -2646,8 +2371,8 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         terminal.draw(|f| app.draw(f)).unwrap();
         let para_idx = 0;
-        let plain = app.rendered_nodes[para_idx].plain.clone();
-        let display_words: Vec<&str> = app.rendered_nodes[para_idx]
+        let plain = app.view.rendered_nodes()[para_idx].plain.clone();
+        let display_words: Vec<&str> = app.view.rendered_nodes()[para_idx]
             .display_word_ranges
             .iter()
             .map(|r| &plain[r.clone()])
@@ -2691,8 +2416,10 @@ mod tests {
         });
         let anchor = app.selection_state.anchor;
         assert_eq!(anchor.unit, SelectionUnit::Word);
-        let selected = &app.rendered_nodes[anchor.node_idx].plain
-            [app.rendered_nodes[anchor.node_idx].display_word_ranges[anchor.unit_idx].clone()];
+        let selected = &app.view.rendered_nodes()[anchor.node_idx].plain[app.view.rendered_nodes()
+            [anchor.node_idx]
+            .display_word_ranges[anchor.unit_idx]
+            .clone()];
         assert_eq!(
             selected, target_word,
             "click on the smart apostrophe of son's must select the whole contraction"
@@ -2711,7 +2438,7 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         terminal.draw(|f| app.draw(f)).unwrap();
         let para_idx = 0;
-        let plain = app.rendered_nodes[para_idx].plain.clone();
+        let plain = app.view.rendered_nodes()[para_idx].plain.clone();
         // Byte just past "charlie" — the space between charlie and delta.
         let charlie_end = plain.find("charlie").unwrap() + "charlie".len();
         let row_idx = app
@@ -2739,8 +2466,10 @@ mod tests {
             modifiers: KeyModifiers::NONE,
         });
         let anchor = app.selection_state.anchor;
-        let selected = &app.rendered_nodes[anchor.node_idx].plain
-            [app.rendered_nodes[anchor.node_idx].display_word_ranges[anchor.unit_idx].clone()];
+        let selected = &app.view.rendered_nodes()[anchor.node_idx].plain[app.view.rendered_nodes()
+            [anchor.node_idx]
+            .display_word_ranges[anchor.unit_idx]
+            .clone()];
         assert_eq!(
             selected, "charlie",
             "click in the space after 'charlie' should still pick 'charlie' \
@@ -2768,10 +2497,13 @@ mod tests {
         for (row_idx, rm) in snapshot.iter().enumerate() {
             let Some(map) = rm else { continue };
             let node_idx = map.node_idx;
-            let Some(rn) = app.rendered_nodes.get(node_idx) else {
+            let Some(rn) = app.view.rendered_nodes().get(node_idx) else {
                 continue;
             };
-            if !matches!(app.doc.nodes.get(node_idx), Some(DocNode::Paragraph { .. })) {
+            if !matches!(
+                app.view.document().nodes.get(node_idx),
+                Some(DocNode::Paragraph { .. })
+            ) {
                 continue;
             }
             if map.byte_range.is_empty() {
@@ -2812,10 +2544,10 @@ mod tests {
                         modifiers: KeyModifiers::NONE,
                     });
                     let anchor = app.selection_state.anchor;
-                    let actual = app.rendered_nodes[anchor.node_idx]
+                    let actual = app.view.rendered_nodes()[anchor.node_idx]
                         .plain
                         .get(
-                            app.rendered_nodes[anchor.node_idx].display_word_ranges
+                            app.view.rendered_nodes()[anchor.node_idx].display_word_ranges
                                 [anchor.unit_idx]
                                 .clone(),
                         )

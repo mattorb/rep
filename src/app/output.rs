@@ -7,7 +7,7 @@ impl App {
         unit: SelectionUnit,
         unit_idx: usize,
     ) -> Option<String> {
-        let node = self.index.nodes.get(node_idx)?;
+        let node = self.view.index().nodes.get(node_idx)?;
         match unit {
             SelectionUnit::Sentence => {
                 let r = node.sentence_ranges.get(unit_idx)?;
@@ -18,23 +18,24 @@ impl App {
                 Some(node.selection_plain_text.get(r.clone())?.to_string())
             }
             SelectionUnit::Line => {
-                if let DocNode::ListItem { .. } = self.doc.nodes.get(node_idx)? {
+                if let DocNode::ListItem { .. } = self.view.document().nodes.get(node_idx)? {
                     Some(node.selection_plain_text.clone())
                 } else {
                     let (line, _) = node.source_line_ranges.get(unit_idx)?.clone();
-                    Some(self.source_lines.get(line)?.clone())
+                    Some(self.view.source_lines().get(line)?.clone())
                 }
             }
             SelectionUnit::Paragraph => Some(node.selection_plain_text.replace('\n', " ")),
             SelectionUnit::Section => {
                 let section = self
-                    .index
+                    .view
+                    .index()
                     .sections
                     .iter()
                     .find(|s| s.start_node_idx == node_idx)?;
                 let mut parts: Vec<String> = Vec::new();
                 for i in section.start_node_idx..=section.end_node_idx {
-                    if let Some(n) = self.index.nodes.get(i)
+                    if let Some(n) = self.view.index().nodes.get(i)
                         && !n.selection_plain_text.is_empty()
                     {
                         parts.push(n.selection_plain_text.replace('\n', " "));
@@ -60,9 +61,9 @@ impl App {
 
             let previous_line = source_line
                 .checked_sub(1)
-                .and_then(|i| self.source_lines.get(i))
+                .and_then(|i| self.view.source_lines().get(i))
                 .cloned();
-            let next_line = self.source_lines.get(source_line + 1).cloned();
+            let next_line = self.view.source_lines().get(source_line + 1).cloned();
 
             let changes = self
                 .changes
@@ -321,12 +322,14 @@ impl App {
 
     fn node_line_context(&self, node_idx: usize) -> (usize, String) {
         let source_line = self
-            .doc
+            .view
+            .document()
             .nodes
             .get(node_idx)
             .map_or(0, |n| n.source_start_line());
         let line_text = self
-            .source_lines
+            .view
+            .source_lines()
             .get(source_line)
             .cloned()
             .unwrap_or_default();
@@ -348,7 +351,8 @@ impl App {
         match target_unit {
             SelectionUnit::Line => {
                 let unit_idx = sentence_index.unwrap_or(0);
-                self.index
+                self.view
+                    .index()
                     .nodes
                     .get(node_idx)
                     .and_then(|n| n.source_line_ranges.get(unit_idx).map(|p| p.0))
@@ -368,7 +372,7 @@ impl App {
                 // start (mirrors the strike-emit logic above).
                 sentence_index
                     .and_then(|si| {
-                        let rn = self.rendered_nodes.get(node_idx)?;
+                        let rn = self.view.rendered_nodes().get(node_idx)?;
                         let r = rn.sentence_ranges.get(si)?;
                         Some(node_first_line + newlines_before_byte(&rn.plain, r.start))
                     })
@@ -381,12 +385,13 @@ impl App {
     /// Source line where a word's bytes begin within its node's selection
     /// plain text. Maps via the index's `source_line_ranges` table.
     fn word_source_line(&self, node_idx: usize, word_idx: usize) -> Option<usize> {
-        let index_node = self.index.nodes.get(node_idx)?;
+        let index_node = self.view.index().nodes.get(node_idx)?;
         let word_range = index_node.word_ranges.get(word_idx)?;
         let word_text = index_node.selection_plain_text.get(word_range.clone())?;
         let first_line = index_node.source_line_ranges.first().map_or_else(
             || {
-                self.doc
+                self.view
+                    .document()
                     .nodes
                     .get(node_idx)
                     .map_or(0, |n| n.source_start_line())
@@ -398,7 +403,7 @@ impl App {
         // not just the first match. Count occurrences in selection plain
         // text up to word_range.start, then locate the Nth occurrence in
         // display.
-        let rn = self.rendered_nodes.get(node_idx)?;
+        let rn = self.view.rendered_nodes().get(node_idx)?;
         let occurrence = count_occurrences_before(
             &index_node.selection_plain_text,
             word_text,
@@ -411,10 +416,11 @@ impl App {
     fn context_lines(&self, source_line: usize) -> (String, String) {
         let prev = source_line
             .checked_sub(1)
-            .and_then(|i| self.source_lines.get(i))
+            .and_then(|i| self.view.source_lines().get(i))
             .map_or("", String::as_str);
         let next = self
-            .source_lines
+            .view
+            .source_lines()
             .get(source_line + 1)
             .map_or("", String::as_str);
         (

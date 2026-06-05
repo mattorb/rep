@@ -309,7 +309,7 @@ impl App {
             s
         };
         let mut matches: Vec<(usize, usize)> = Vec::new();
-        for (ni, rn) in self.rendered_nodes.iter().enumerate() {
+        for (ni, rn) in self.view.rendered_nodes().iter().enumerate() {
             let mut hay = rn.plain.clone();
             if !case_sensitive {
                 hay.make_ascii_lowercase();
@@ -457,7 +457,7 @@ impl App {
     /// `move_active_unit` per the mode-switch keymap; this helper
     /// only serves the mouse wheel handler now.
     pub(super) fn move_node(&mut self, delta: isize) {
-        if self.doc.node_count() == 0 || delta == 0 {
+        if self.view.node_count() == 0 || delta == 0 {
             return;
         }
         let steps = delta.unsigned_abs();
@@ -467,9 +467,11 @@ impl App {
 
         for _ in 0..steps {
             let next = if forward {
-                self.doc.next_content_node(target.saturating_add(1))
+                self.view
+                    .document()
+                    .next_content_node(target.saturating_add(1))
             } else {
-                self.doc.prev_content_node(target)
+                self.view.document().prev_content_node(target)
             };
             let Some(idx) = next else { break };
             target = idx;
@@ -489,7 +491,7 @@ impl App {
         self.status = format!(
             "Node {}/{}",
             self.selection_state.anchor.node_idx + 1,
-            self.doc.node_count()
+            self.view.node_count()
         );
     }
 
@@ -498,13 +500,13 @@ impl App {
     /// On `Boundary`, set `nav_feedback` ("at end" / "at start") for one
     /// keypress in the right zone of the footer.
     fn move_active_unit(&mut self, forward: bool) {
-        if self.doc.node_count() == 0 {
+        if self.view.node_count() == 0 {
             return;
         }
         let outcome = if forward {
-            crate::selection::navigator::next(&self.index, self.selection_state.anchor)
+            crate::selection::navigator::next(self.view.index(), self.selection_state.anchor)
         } else {
-            crate::selection::navigator::prev(&self.index, self.selection_state.anchor)
+            crate::selection::navigator::prev(self.view.index(), self.selection_state.anchor)
         };
         match outcome {
             crate::selection::model::NavOutcome::Moved(a) => {
@@ -528,11 +530,11 @@ impl App {
 
     fn unit_has_any_anchor(&self, unit: SelectionUnit) -> bool {
         match unit {
-            SelectionUnit::Section => !self.index.sections.is_empty(),
-            SelectionUnit::Paragraph => !self.index.paragraphs.is_empty(),
-            SelectionUnit::Line => !self.index.lines.is_empty(),
-            SelectionUnit::Sentence => !self.index.sentences.is_empty(),
-            SelectionUnit::Word => !self.index.words.is_empty(),
+            SelectionUnit::Section => !self.view.index().sections.is_empty(),
+            SelectionUnit::Paragraph => !self.view.index().paragraphs.is_empty(),
+            SelectionUnit::Line => !self.view.index().lines.is_empty(),
+            SelectionUnit::Sentence => !self.view.index().sentences.is_empty(),
+            SelectionUnit::Word => !self.view.index().words.is_empty(),
         }
     }
 
@@ -550,8 +552,11 @@ impl App {
             (i + order.len() - 1) % order.len()
         };
         let target = order[next_i];
-        let new_anchor =
-            crate::selection::navigator::clamp(&self.index, self.selection_state.anchor, target);
+        let new_anchor = crate::selection::navigator::clamp(
+            self.view.index(),
+            self.selection_state.anchor,
+            target,
+        );
         self.selection_state.anchor = new_anchor;
         self.refresh_section_highlight(new_anchor);
     }
@@ -574,8 +579,11 @@ impl App {
         let Some(target) = target else {
             return;
         };
-        let new_anchor =
-            crate::selection::navigator::clamp(&self.index, self.selection_state.anchor, target);
+        let new_anchor = crate::selection::navigator::clamp(
+            self.view.index(),
+            self.selection_state.anchor,
+            target,
+        );
         self.selection_state.anchor = new_anchor;
         self.refresh_section_highlight(new_anchor);
     }
@@ -596,11 +604,12 @@ impl App {
     /// section table doesn't carry an entry for this node.
     fn section_span_for(&self, node_idx: usize) -> Range<usize> {
         let end = self
-            .index
+            .view
+            .index()
             .sections
             .iter()
             .find(|s| s.start_node_idx == node_idx)
-            .map_or_else(|| self.doc.node_count(), |s| s.end_node_idx + 1);
+            .map_or_else(|| self.view.node_count(), |s| s.end_node_idx + 1);
         node_idx..end
     }
 
@@ -615,7 +624,7 @@ impl App {
         } else {
             self.selection_state.anchor.node_idx
         };
-        let n = self.doc.node_count();
+        let n = self.view.node_count();
         let target = if forward {
             (from..n).find(|&i| self.has_annotation(i))
         } else {
@@ -678,7 +687,7 @@ impl App {
         self.status = format!(
             "Node {}/{}  {} {}",
             node_idx + 1,
-            self.doc.node_count(),
+            self.view.node_count(),
             unit.mode_str(),
             unit_idx + 1,
         );
@@ -724,7 +733,7 @@ impl App {
         }
         let visual_row = (row - inner.y) as usize;
         let map = self.visible_rows.get(visual_row)?.as_ref()?;
-        let plain = self.rendered_nodes.get(map.node_idx)?.plain.as_str();
+        let plain = self.view.rendered_nodes().get(map.node_idx)?.plain.as_str();
         if map.byte_range.start >= map.byte_range.end {
             // Spacer or empty row — no text to land on.
             return None;
@@ -766,17 +775,17 @@ impl App {
     }
 
     fn find_word_at(&self, node_idx: usize, display_byte: usize) -> Option<usize> {
-        let rn = self.rendered_nodes.get(node_idx)?;
+        let rn = self.view.rendered_nodes().get(node_idx)?;
         find_unit_at(&rn.display_word_ranges, display_byte)
     }
 
     fn find_sentence_at(&self, node_idx: usize, display_byte: usize) -> Option<usize> {
-        let rn = self.rendered_nodes.get(node_idx)?;
+        let rn = self.view.rendered_nodes().get(node_idx)?;
         find_unit_at(&rn.sentence_ranges, display_byte)
     }
 
     fn find_line_at(&self, node_idx: usize, display_byte: usize) -> Option<usize> {
-        let rn = self.rendered_nodes.get(node_idx)?;
+        let rn = self.view.rendered_nodes().get(node_idx)?;
         find_unit_at(&rn.line_ranges, display_byte)
     }
 
@@ -786,13 +795,13 @@ impl App {
     /// (which use `single_range`) and short list items / headings
     /// without a terminator fall through to Line on double-click.
     fn node_has_sentence_semantics(&self, node_idx: usize) -> bool {
-        let Some(rn) = self.rendered_nodes.get(node_idx) else {
+        let Some(rn) = self.view.rendered_nodes().get(node_idx) else {
             return false;
         };
         if rn.sentence_ranges.is_empty() {
             return false;
         }
-        match self.doc.nodes.get(node_idx) {
+        match self.view.document().nodes.get(node_idx) {
             Some(DocNode::CodeBlock { .. }) => false,
             Some(DocNode::Heading { .. }) | Some(DocNode::ListItem { .. }) => {
                 rn.plain.chars().any(|c| matches!(c, '.' | '!' | '?'))
@@ -819,7 +828,8 @@ impl App {
     /// a word/line/paragraph index.
     fn clamp_sentence(&mut self) {
         let total = self
-            .rendered_nodes
+            .view
+            .rendered_nodes()
             .get(self.selection_state.anchor.node_idx)
             .map_or(0, |rn| rn.sentence_ranges.len());
         let unit_idx = if total == 0 {
@@ -846,7 +856,8 @@ impl App {
         // number shown matches the captured annotation's WHERE: line.
         let node_idx = self.selection_state.anchor.node_idx;
         let node_first_line = self
-            .doc
+            .view
+            .document()
             .nodes
             .get(node_idx)
             .map_or(0, |n| n.source_start_line());
@@ -864,7 +875,11 @@ impl App {
         // view. Reading from rendered_nodes here used to leak `[ ]` task
         // markers, `[^N]` footnote refs, etc., into the captured target.
         let unit_idx = self.selection_state.anchor.unit_idx;
-        let node = self.index.nodes.get(self.selection_state.anchor.node_idx)?;
+        let node = self
+            .view
+            .index()
+            .nodes
+            .get(self.selection_state.anchor.node_idx)?;
         let range = node.sentence_ranges.get(unit_idx)?;
         let text = node
             .selection_plain_text
@@ -898,7 +913,8 @@ impl App {
     fn current_paragraph_capture(&self) -> Option<(usize, String)> {
         let node_idx = self.selection_state.anchor.node_idx;
         let plain = self
-            .index
+            .view
+            .index()
             .nodes
             .get(node_idx)
             .map(|n| n.selection_plain_text.clone())?;
@@ -912,13 +928,14 @@ impl App {
     fn current_section_capture(&self) -> Option<(usize, String)> {
         let node_idx = self.selection_state.anchor.node_idx;
         let section = self
-            .index
+            .view
+            .index()
             .sections
             .iter()
             .find(|s| s.start_node_idx == node_idx)?;
         let mut parts: Vec<String> = Vec::new();
         for i in section.start_node_idx..=section.end_node_idx {
-            if let Some(n) = self.index.nodes.get(i)
+            if let Some(n) = self.view.index().nodes.get(i)
                 && !n.selection_plain_text.is_empty()
             {
                 // Constituent node text may contain `\n` (multi-line
@@ -934,7 +951,7 @@ impl App {
     fn current_word_capture(&self) -> Option<(usize, String)> {
         let node_idx = self.selection_state.anchor.node_idx;
         let unit_idx = self.selection_state.anchor.unit_idx;
-        let node = self.index.nodes.get(node_idx)?;
+        let node = self.view.index().nodes.get(node_idx)?;
         let range = node.word_ranges.get(unit_idx)?;
         let text = node.selection_plain_text.get(range.clone())?.to_string();
         Some((unit_idx, text))
@@ -943,11 +960,12 @@ impl App {
     fn current_line_capture(&self) -> Option<(usize, String)> {
         let node_idx = self.selection_state.anchor.node_idx;
         let unit_idx = self.selection_state.anchor.unit_idx;
-        if let DocNode::ListItem { .. } = self.doc.nodes.get(node_idx)? {
+        if let DocNode::ListItem { .. } = self.view.document().nodes.get(node_idx)? {
             // ListItem at line unit: full item text, markers already
             // stripped by the index's selection_plain_text.
             let plain = self
-                .index
+                .view
+                .index()
                 .nodes
                 .get(node_idx)
                 .map(|n| n.selection_plain_text.clone())?;
@@ -955,13 +973,14 @@ impl App {
         } else {
             // Non-ListItem: source line verbatim.
             let (line, _) = self
-                .index
+                .view
+                .index()
                 .nodes
                 .get(node_idx)?
                 .source_line_ranges
                 .get(unit_idx)?
                 .clone();
-            let line_text = self.source_lines.get(line)?.clone();
+            let line_text = self.view.source_lines().get(line)?.clone();
             Some((unit_idx, line_text))
         }
     }
@@ -1293,7 +1312,8 @@ impl App {
 
     pub(super) fn current_sentence_links(&self) -> Vec<String> {
         let Some(rn) = self
-            .rendered_nodes
+            .view
+            .rendered_nodes()
             .get(self.selection_state.anchor.node_idx)
         else {
             return Vec::new();

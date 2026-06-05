@@ -45,16 +45,17 @@ impl App {
         let list_inner = list_block.inner(layout[0]);
         self.list_inner = list_inner;
 
-        let mut node_heights: Vec<u16> = Vec::with_capacity(self.doc.node_count());
+        let mut node_heights: Vec<u16> = Vec::with_capacity(self.view.node_count());
 
-        let node_count = self.doc.node_count();
+        let node_count = self.view.node_count();
         // Parallel to `node_lines`: one byte range per produced row in
         // the matching `Vec<Line>`, indexed by `(node_idx, row)`. The
         // trailing spacer (when present) carries an empty range. Used
         // to populate `visible_rows` after scroll-clipping.
         let mut node_row_byte_ranges: Vec<Vec<Range<usize>>> = Vec::with_capacity(node_count);
         let node_lines: Vec<Vec<Line<'static>>> = self
-            .doc
+            .view
+            .document()
             .nodes
             .iter()
             .enumerate()
@@ -64,7 +65,7 @@ impl App {
                 // This keeps the spacer at the END of the preceding item so that
                 // navigating to any node always shows content as the first line.
                 let add_spacer_after =
-                    node_idx + 1 < node_count && self.doc.is_block_start(node_idx + 1);
+                    node_idx + 1 < node_count && self.view.document().is_block_start(node_idx + 1);
 
                 // Code blocks render line-by-line without sentence wrap logic.
                 if let DocNode::CodeBlock {
@@ -72,7 +73,8 @@ impl App {
                     ..
                 } = node
                 {
-                    let raw = &self.source_lines[clamp_range(range, self.source_lines.len())];
+                    let raw = &self.view.source_lines()
+                        [clamp_range(range, self.view.source_lines().len())];
                     let range_start = range.start;
                     // Code-block plain is raw.join("\n"); per-source-line
                     // byte ranges are derivable from cumulative line
@@ -132,7 +134,8 @@ impl App {
                 let spans = self.render_node_spans(node_idx);
                 let wrapped = wrap_styled_spans(spans, wrapped_text_width);
                 let plain = self
-                    .rendered_nodes
+                    .view
+                    .rendered_nodes()
                     .get(node_idx)
                     .map(|rn| rn.plain.as_str())
                     .unwrap_or("");
@@ -762,7 +765,8 @@ impl App {
                 // quotes → typographic) and strips emphasis markers, so
                 // a source line containing `*emph*` or `'` ends up with
                 // a different byte content in display than in source.
-                self.rendered_nodes
+                self.view
+                    .rendered_nodes()
                     .get(node_idx)?
                     .line_ranges
                     .get(unit_idx)
@@ -776,7 +780,7 @@ impl App {
                 // word index aligns to selection plain text, not display.
                 // Count which occurrence the word is in selection plain
                 // text so repeated words map to the right display position.
-                let index_node = self.index.nodes.get(node_idx)?;
+                let index_node = self.view.index().nodes.get(node_idx)?;
                 let word_range = index_node.word_ranges.get(unit_idx)?;
                 let word_text = index_node.selection_plain_text.get(word_range.clone())?;
                 let occurrence = count_occurrences_before(
@@ -794,7 +798,7 @@ impl App {
     /// Push styled span(s) for one source line of a code block, overlaying
     /// the active highlight and any strike ranges that intersect this line.
     /// `node_idx` identifies the code block; `source_line` is the absolute
-    /// line index in `self.source_lines`; `line` is its raw text;
+    /// line index in `self.view.source_lines()`; `line` is its raw text;
     /// `base_style` is the code-block paint (DarkGray fence vs
     /// White-on-DarkGray content). The active anchor and strike entries
     /// store byte ranges in selection_plain_text — we map each into bytes
@@ -812,7 +816,7 @@ impl App {
         // byte range when the active node's source_line_ranges has an
         // entry for this source line.
         let line_local = |range: Range<usize>| -> Option<Range<usize>> {
-            let node = self.index.nodes.get(node_idx)?;
+            let node = self.view.index().nodes.get(node_idx)?;
             let (_, line_range) = node
                 .source_line_ranges
                 .iter()
@@ -843,7 +847,7 @@ impl App {
             // Use the index's selection-view byte ranges directly so we
             // don't double-walk through unit_byte_range_in_display
             // (which is for paragraph-style display plain text).
-            let node = self.index.nodes.get(node_idx);
+            let node = self.view.index().nodes.get(node_idx);
             let active_range = node.and_then(|n| match unit {
                 SelectionUnit::Word => n.word_ranges.get(unit_idx).cloned(),
                 SelectionUnit::Sentence => n.sentence_ranges.get(unit_idx).cloned(),
@@ -863,7 +867,7 @@ impl App {
             .map(|set| {
                 set.iter()
                     .filter_map(|&(unit, idx)| {
-                        let node = self.index.nodes.get(node_idx)?;
+                        let node = self.view.index().nodes.get(node_idx)?;
                         let r = match unit {
                             SelectionUnit::Word => node.word_ranges.get(idx).cloned()?,
                             SelectionUnit::Sentence => node.sentence_ranges.get(idx).cloned()?,
@@ -931,7 +935,7 @@ impl App {
     }
 
     pub(super) fn render_node_spans(&self, node_idx: usize) -> Vec<Span<'static>> {
-        let Some(rn) = self.rendered_nodes.get(node_idx) else {
+        let Some(rn) = self.view.rendered_nodes().get(node_idx) else {
             return vec![Span::styled(
                 " ",
                 Style::default().add_modifier(Modifier::DIM),

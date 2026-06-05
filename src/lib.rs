@@ -6,6 +6,7 @@
 pub mod app;
 pub mod cli;
 pub mod document;
+pub(crate) mod document_view;
 pub(crate) mod markdown;
 pub(crate) mod output;
 pub mod selection;
