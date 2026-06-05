@@ -15,7 +15,7 @@ Validation:
   - cargo clippy --all-targets -- -D warnings
   - cargo test --locked
   - cargo llvm-cov with an 80% line coverage threshold when installed,
-    otherwise a coverage skip notice
+    otherwise a coverage skip notice; CI=true requires cargo-llvm-cov
 
 Examples:
   ./build.sh
@@ -64,6 +64,9 @@ run_cmd cargo test --locked
 
 if run_cmd cargo llvm-cov --version >/dev/null 2>&1; then
   run_cmd cargo llvm-cov --locked --workspace --all-targets --fail-under-lines 80
+elif [[ "${CI:-}" == "true" ]]; then
+  printf 'Coverage required: cargo-llvm-cov is not installed.\n' >&2
+  exit 1
 else
   printf 'Coverage skipped: cargo-llvm-cov is not installed.\n'
 fi
