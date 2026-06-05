@@ -15,8 +15,6 @@ impl App {
         let mut actions = Vec::new();
         for node_idx in touched {
             let line_context = self.view.node_line_context(node_idx);
-            let source_line = line_context.source_line;
-            let line_clean = clean_context(&line_context.line_text, EMIT_TARGET_MAX_CHARS);
 
             let changes = self
                 .changes
@@ -25,17 +23,13 @@ impl App {
                 .unwrap_or_default()
                 .into_iter()
                 .map(|a| {
-                    actions.push(self.annotation_action(
+                    let context = self.view.annotation_action_context(
                         node_idx,
-                        source_line,
-                        &line_clean,
-                        "change",
-                        "CHANGE",
                         a.target_unit,
                         a.sentence_index,
                         a.sentence_text.as_deref(),
-                        &a.change,
-                    ));
+                    );
+                    actions.push(self.annotation_action(context, "change", "CHANGE", &a.change));
                     EmitChange {
                         created_at: a.created_at,
                         target_unit: a.target_unit.mode_str().to_string(),
@@ -53,15 +47,16 @@ impl App {
                 .unwrap_or_default()
                 .into_iter()
                 .map(|a| {
-                    actions.push(self.annotation_action(
+                    let context = self.view.annotation_action_context(
                         node_idx,
-                        source_line,
-                        &line_clean,
-                        "revise-to-incorporate-feedback",
-                        "FEEDBACK",
                         a.target_unit,
                         a.sentence_index,
                         a.sentence_text.as_deref(),
+                    );
+                    actions.push(self.annotation_action(
+                        context,
+                        "revise-to-incorporate-feedback",
+                        "FEEDBACK",
                         &a.feedback,
                     ));
                     EmitFeedback {
@@ -74,34 +69,31 @@ impl App {
                 })
                 .collect();
 
-            let mut map_inserts =
-                |action: &str, bucket: Option<&Vec<InsertAnnotation>>| -> Vec<EmitInsert> {
-                    bucket
-                        .cloned()
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|a| {
-                            actions.push(self.annotation_action(
-                                node_idx,
-                                source_line,
-                                &line_clean,
-                                action,
-                                "INSERT",
-                                a.target_unit,
-                                a.sentence_index,
-                                a.sentence_text.as_deref(),
-                                &a.text,
-                            ));
-                            EmitInsert {
-                                created_at: a.created_at,
-                                target_unit: a.target_unit.mode_str().to_string(),
-                                sentence_index: a.sentence_index.map(|i| i + 1),
-                                sentence_text: a.sentence_text,
-                                text: a.text,
-                            }
-                        })
-                        .collect()
-                };
+            let mut map_inserts = |action: &str,
+                                   bucket: Option<&Vec<InsertAnnotation>>|
+             -> Vec<EmitInsert> {
+                bucket
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|a| {
+                        let context = self.view.annotation_action_context(
+                            node_idx,
+                            a.target_unit,
+                            a.sentence_index,
+                            a.sentence_text.as_deref(),
+                        );
+                        actions.push(self.annotation_action(context, action, "INSERT", &a.text));
+                        EmitInsert {
+                            created_at: a.created_at,
+                            target_unit: a.target_unit.mode_str().to_string(),
+                            sentence_index: a.sentence_index.map(|i| i + 1),
+                            sentence_text: a.sentence_text,
+                            text: a.text,
+                        }
+                    })
+                    .collect()
+            };
             let inserts_before = map_inserts("insert-before", self.inserts_before.get(&node_idx));
             let inserts_after = map_inserts("insert-after", self.inserts_after.get(&node_idx));
 
@@ -111,18 +103,9 @@ impl App {
                 .map(|set| {
                     set.iter()
                         .map(|&(unit, idx)| {
-                            let target_text = self
-                                .view
-                                .target_text_for_unit(node_idx, unit, idx)
-                                .unwrap_or_default();
-                            actions.push(self.strike_action(
-                                node_idx,
-                                source_line,
-                                &line_clean,
-                                unit,
-                                idx,
-                                &target_text,
-                            ));
+                            let (target_text, context) =
+                                self.view.strike_action_context(node_idx, unit, idx);
+                            actions.push(self.strike_action(context));
                             EmitReaction {
                                 kind: "strike".to_string(),
                                 target_unit: unit.mode_str().to_string(),
@@ -163,30 +146,16 @@ impl App {
         render_human_output(&self.to_output())
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn annotation_action(
         &self,
-        node_idx: usize,
-        node_first_line: usize,
-        line_clean: &str,
+        context: SourceActionContext,
         action: &str,
         payload_key: &str,
-        target_unit: SelectionUnit,
-        sentence_index: Option<usize>,
-        sentence_text: Option<&str>,
         payload_text: &str,
     ) -> EmitAction {
-        let where_line =
-            self.view
-                .where_for_annotation(target_unit, node_idx, sentence_index, node_first_line);
-        let target = sentence_text.map_or_else(
-            || line_clean.to_owned(),
-            |s| clean_context(s, EMIT_TARGET_MAX_CHARS),
-        );
         self.action_model(
             action,
-            where_line,
-            target,
+            context,
             Some(EmitPayload {
                 key: payload_key.to_string(),
                 text: clean_context(payload_text, EMIT_PAYLOAD_MAX_CHARS),
@@ -194,40 +163,22 @@ impl App {
         )
     }
 
-    fn strike_action(
-        &self,
-        node_idx: usize,
-        node_first_line: usize,
-        line_clean: &str,
-        unit: SelectionUnit,
-        unit_idx: usize,
-        target_text: &str,
-    ) -> EmitAction {
-        let raw_target = if target_text.is_empty() {
-            line_clean
-        } else {
-            target_text
-        };
-        let target = clean_context(raw_target, EMIT_TARGET_MAX_CHARS);
-        let where_line =
-            self.view
-                .where_for_annotation(unit, node_idx, Some(unit_idx), node_first_line);
-        self.action_model("delete this", where_line, target, None)
+    fn strike_action(&self, context: SourceActionContext) -> EmitAction {
+        self.action_model("delete this", context, None)
     }
 
     fn action_model(
         &self,
         action: &str,
-        where_line: usize,
-        target: String,
+        context: SourceActionContext,
         payload: Option<EmitPayload>,
     ) -> EmitAction {
-        let (previous_line, next_line) = self.view.neighboring_source_lines(where_line);
-        let prev_clean_line = clean_context(previous_line, EMIT_CONTEXT_MAX_CHARS);
-        let next_clean_line = clean_context(next_line, EMIT_CONTEXT_MAX_CHARS);
+        let prev_clean_line = clean_context(&context.previous_line, EMIT_CONTEXT_MAX_CHARS);
+        let target = clean_context(&context.target, EMIT_TARGET_MAX_CHARS);
+        let next_clean_line = clean_context(&context.next_line, EMIT_CONTEXT_MAX_CHARS);
         EmitAction {
             action: action.to_string(),
-            where_line: where_line + 1,
+            where_line: context.where_line + 1,
             context: EmitActionContext {
                 previous_line: (!prev_clean_line.is_empty()).then_some(prev_clean_line),
                 target,

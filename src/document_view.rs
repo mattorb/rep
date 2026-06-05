@@ -508,7 +508,31 @@ impl DocumentView {
         }
     }
 
-    pub(crate) fn target_text_for_unit(
+    pub(crate) fn annotation_action_context(
+        &self,
+        node_idx: usize,
+        target_unit: SelectionUnit,
+        unit_idx: Option<usize>,
+        target_text: Option<&str>,
+    ) -> SourceActionContext {
+        self.action_context_for(node_idx, target_unit, unit_idx, target_text)
+    }
+
+    pub(crate) fn strike_action_context(
+        &self,
+        node_idx: usize,
+        unit: SelectionUnit,
+        unit_idx: usize,
+    ) -> (String, SourceActionContext) {
+        let target_text = self
+            .target_text_for_unit(node_idx, unit, unit_idx)
+            .unwrap_or_default();
+        let context_target = (!target_text.is_empty()).then_some(target_text.as_str());
+        let context = self.action_context_for(node_idx, unit, Some(unit_idx), context_target);
+        (target_text, context)
+    }
+
+    fn target_text_for_unit(
         &self,
         node_idx: usize,
         unit: SelectionUnit,
@@ -577,7 +601,35 @@ impl DocumentView {
         }
     }
 
-    pub(crate) fn where_for_annotation(
+    fn action_context_for(
+        &self,
+        node_idx: usize,
+        target_unit: SelectionUnit,
+        unit_idx: Option<usize>,
+        target_text: Option<&str>,
+    ) -> SourceActionContext {
+        let node_first_line = self
+            .document
+            .nodes
+            .get(node_idx)
+            .map_or(0, |n| n.source_start_line());
+        let line_text = self
+            .source_lines
+            .get(node_first_line)
+            .map_or("", String::as_str);
+        let where_line =
+            self.where_for_annotation(target_unit, node_idx, unit_idx, node_first_line);
+        let (previous_line, next_line) = self.neighboring_source_lines(where_line);
+
+        SourceActionContext {
+            where_line,
+            target: target_text.unwrap_or(line_text).to_string(),
+            previous_line: previous_line.to_string(),
+            next_line: next_line.to_string(),
+        }
+    }
+
+    fn where_for_annotation(
         &self,
         target_unit: SelectionUnit,
         node_idx: usize,
@@ -609,7 +661,7 @@ impl DocumentView {
         }
     }
 
-    pub(crate) fn neighboring_source_lines(&self, source_line: usize) -> (&str, &str) {
+    fn neighboring_source_lines(&self, source_line: usize) -> (&str, &str) {
         let prev = source_line
             .checked_sub(1)
             .and_then(|i| self.source_lines.get(i))
@@ -846,6 +898,14 @@ pub(crate) struct SourceLineContext {
     pub(crate) line_text: String,
     pub(crate) previous_line: Option<String>,
     pub(crate) next_line: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SourceActionContext {
+    pub(crate) where_line: usize,
+    pub(crate) target: String,
+    pub(crate) previous_line: String,
+    pub(crate) next_line: String,
 }
 
 #[derive(Debug, Clone)]
