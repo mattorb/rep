@@ -16,6 +16,7 @@ pub enum SelectionUnit {
 
 impl SelectionUnit {
     /// Stable capitalized identifier used in golden artifacts.
+    #[cfg(test)]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Section => "Section",

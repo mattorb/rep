@@ -1,4 +1,4 @@
-#![cfg_attr(test, allow(dead_code))]
+#![allow(dead_code)]
 
 #[derive(Debug)]
 pub struct EmitModel {

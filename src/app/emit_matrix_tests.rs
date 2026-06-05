@@ -7,7 +7,7 @@
 //! The runner is presence-driven: a cell exists iff its golden file
 //! exists. Missing cells are silently skipped (e.g. `delete this` on a
 //! word in a fixture with no words). Use `UPDATE_GOLDENS=1 cargo test
-//! --test emit_matrix` to regenerate mismatching goldens.
+//! emit_matrix` to regenerate mismatching goldens.
 //!
 //! Coverage scope today is the **first anchor** of each unit on each
 //! fixture; the synthetic action text is `X` for change / feedback /
@@ -16,12 +16,10 @@
 //! five actions are change, feedback, insert-before, insert-after, and
 //! strike (renders as `delete this`).
 
-mod common;
-
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::{Path, PathBuf};
 
-use common::{assert_golden, replay};
+use crate::test_support::{assert_golden, replay};
 
 #[derive(Debug, Clone, Copy)]
 struct Unit {

@@ -1,5 +1,4 @@
 use anyhow::{Context, Result, bail};
-use crossterm::event::{self, Event, KeyEventKind, MouseEventKind};
 use std::env;
 use std::ffi::OsString;
 use std::fs;
@@ -9,10 +8,8 @@ use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use rep::app::App;
-use rep::cli::{CliCommand, parse_cli_args};
+use rep::cli::{CliCommand, parse_cli_args, run_interactive};
 use rep::ui;
-use rep::ui::Tui;
 
 const TMUX_FALLBACK_ENV: &str = "REP_TMUX_FALLBACK";
 const TERMINAL_WINDOW_FALLBACK_ENV: &str = "REP_TERMINAL_WINDOW_FALLBACK";
@@ -45,30 +42,8 @@ fn real_main() -> Result<()> {
         }
     }
 
-    let mut app = App::load(cli.source_path)?;
-    run_tui(&mut app)?;
-    if !app.silent_quit {
-        println!("{}", app.to_human_output());
-    }
-    Ok(())
-}
-
-fn run_tui(app: &mut App) -> Result<()> {
-    let mut tui = Tui::new()?;
-    while !app.should_quit {
-        tui.terminal.draw(|frame| app.draw(frame))?;
-        if event::poll(Duration::from_millis(100))? {
-            match event::read()? {
-                Event::Key(key) if key.kind == KeyEventKind::Press => {
-                    app.handle_key(key);
-                }
-                // Ignore mouse moves; only act on scroll and clicks.
-                Event::Mouse(mouse) if !matches!(mouse.kind, MouseEventKind::Moved) => {
-                    app.handle_mouse(mouse);
-                }
-                _ => {}
-            }
-        }
+    if let Some(output) = run_interactive(cli.source_path)? {
+        println!("{output}");
     }
     Ok(())
 }

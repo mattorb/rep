@@ -1,8 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-mod common;
 
-use common::{render_app_to_string, snapshot_app};
-use rep::app::App;
+use super::App;
+use crate::test_support::{render_app_to_string, snapshot_app};
 use std::path::PathBuf;
 
 fn test_app(name: &str, content: &str) -> App {
@@ -30,7 +29,12 @@ fn type_chars(app: &mut App, text: &str) {
 fn snapshot_settings() -> insta::Settings {
     let mut settings = insta::Settings::clone_current();
     settings.set_prepend_module_to_snapshot(false);
-    settings.set_snapshot_path(PathBuf::from("fixtures/tui_snapshots"));
+    settings.set_snapshot_path(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("tui_snapshots"),
+    );
     settings
 }
 

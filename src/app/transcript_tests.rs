@@ -6,11 +6,9 @@
 //!   emit.golden.txt  -- byte-exact `to_human_output` after replay
 //!   anchor.golden.txt -- final `(node_idx, unit, unit_idx)` of selection
 //!
-//! Run with `UPDATE_GOLDENS=1 cargo test --test transcripts` to regenerate.
+//! Run with `UPDATE_GOLDENS=1 cargo test all_transcripts` to regenerate.
 
-mod common;
-
-use common::{
+use crate::test_support::{
     TranscriptFixture, assert_golden, discover_transcripts, parse_keys, replay, transcripts_root,
 };
 

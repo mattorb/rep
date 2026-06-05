@@ -323,6 +323,7 @@ impl App {
 
     /// Returns the current selection in the canonical
     /// `(node_idx, unit, unit_idx)` shape, used by the transcript harness.
+    #[cfg(test)]
     pub const fn current_anchor(&self) -> (usize, &'static str, usize) {
         let a = &self.selection_state.anchor;
         (a.node_idx, a.unit.as_str(), a.unit_idx)
@@ -2528,3 +2529,15 @@ mod tests {
         assert_eq!(n, 1, "stale prior click must restart the count at 1");
     }
 }
+
+#[cfg(test)]
+#[path = "emit_matrix_tests.rs"]
+mod emit_matrix_tests;
+
+#[cfg(test)]
+#[path = "transcript_tests.rs"]
+mod transcript_tests;
+
+#[cfg(test)]
+#[path = "tui_snapshot_tests.rs"]
+mod tui_snapshot_tests;

@@ -1,17 +1,16 @@
-//! Shared transcript driver for integration tests.
+//! Shared transcript driver for crate-local tests.
 //!
 //! See `implementation.md` § "Scaffolding" and `modular_plan.md` §
 //! "Fixture tooling and goldens" for the specification.
 
-// Each tests/* file compiled as its own crate sees a separate copy of
-// this module and uses different subsets of the helpers — silence the
-// per-crate "unused" warnings that result.
+// The crate-local test modules use different subsets of the helpers.
 #![allow(dead_code)]
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
-use rep::app::App;
 use std::path::{Path, PathBuf};
+
+use crate::app::App;
 
 /// Parse one canonical key name (per `keys.txt` line) into a `KeyEvent`.
 ///
