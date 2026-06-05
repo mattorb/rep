@@ -37,6 +37,28 @@ pub struct EmitKeymap {
     pub quit_silent: String,
 }
 
+impl EmitKeymap {
+    pub(crate) fn rep_defaults() -> Self {
+        Self {
+            mode_cycle_forward: "i".to_string(),
+            mode_cycle_backward: "o".to_string(),
+            unit_next: "j".to_string(),
+            unit_prev: "k".to_string(),
+            reveal_link: "O".to_string(),
+            annotation_prev: "[".to_string(),
+            annotation_next: "]".to_string(),
+            help: "?".to_string(),
+            change: "c".to_string(),
+            feedback: "f".to_string(),
+            insert_before: "b".to_string(),
+            insert_after: "a".to_string(),
+            strike: "x".to_string(),
+            quit: "q".to_string(),
+            quit_silent: "Q".to_string(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct EmitLineAnnotation {
     pub line_number: usize,
@@ -169,7 +191,10 @@ pub fn clean_context(value: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::clean_context;
+    use super::{
+        EmitAction, EmitActionContext, EmitKeymap, EmitModel, EmitPayload, clean_context,
+        render_human_output,
+    };
 
     #[test]
     fn context_cleaning_collapses_whitespace_and_truncates() {
@@ -197,6 +222,60 @@ mod tests {
         assert_eq!(
             clean_context("line one\nline two", 100),
             "line one line two"
+        );
+    }
+
+    #[test]
+    fn render_human_output_reports_no_actions() {
+        let model = EmitModel {
+            source_file: "input.md".to_string(),
+            generated_at: "2026-01-01T00:00:00Z".to_string(),
+            keymap: EmitKeymap::rep_defaults(),
+            annotations: Vec::new(),
+            actions: Vec::new(),
+        };
+
+        assert_eq!(
+            render_human_output(&model),
+            "FILE: input.md\n\nNo actions.\n"
+        );
+    }
+
+    #[test]
+    fn render_human_output_formats_action_blocks_from_model() {
+        let model = EmitModel {
+            source_file: "input.md".to_string(),
+            generated_at: "2026-01-01T00:00:00Z".to_string(),
+            keymap: EmitKeymap::rep_defaults(),
+            annotations: Vec::new(),
+            actions: vec![EmitAction {
+                action: "change".to_string(),
+                where_line: 12,
+                context: EmitActionContext {
+                    previous_line: Some("Before.".to_string()),
+                    target: "Target.".to_string(),
+                    next_line: Some("After.".to_string()),
+                },
+                payload: Some(EmitPayload {
+                    key: "CHANGE".to_string(),
+                    text: "Rewrite it.".to_string(),
+                }),
+            }],
+        };
+
+        assert_eq!(
+            render_human_output(&model),
+            concat!(
+                "FILE: input.md\n",
+                "\n",
+                "ACTION: change\n",
+                "WHERE: line 12\n",
+                "CONTEXT:\n",
+                "  prev: \"Before.\"\n",
+                "  target: \"Target.\"\n",
+                "  next: \"After.\"\n",
+                "CHANGE: \"Rewrite it.\"\n",
+            )
         );
     }
 }
