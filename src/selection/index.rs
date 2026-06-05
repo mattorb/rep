@@ -8,6 +8,8 @@
 
 use std::ops::Range;
 
+use anyhow::{Context, Result};
+
 use crate::document::{DocNode, Document};
 
 /// What kind of node started a section: a `#`-level heading, a top-level
@@ -58,8 +60,16 @@ pub struct SelectionIndex {
 }
 
 impl SelectionIndex {
+    /// Parse markdown source and build the public selection index without
+    /// exposing the lower-level document parser as crate API.
+    pub fn from_markdown(source: &str) -> Result<Self> {
+        let source_lines: Vec<String> = source.lines().map(ToOwned::to_owned).collect();
+        let document = Document::parse(source).context("failed to parse markdown document")?;
+        Ok(Self::build(&document, &source_lines))
+    }
+
     /// Eager build at load time per Req 11.
-    pub fn build(doc: &Document, source_lines: &[String]) -> Self {
+    pub(crate) fn build(doc: &Document, source_lines: &[String]) -> Self {
         let mut nodes: Vec<NodeIndex> = Vec::with_capacity(doc.nodes.len());
         let mut paragraphs: Vec<(usize, usize)> = Vec::new();
         let mut lines: Vec<(usize, usize)> = Vec::new();

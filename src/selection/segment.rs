@@ -1,13 +1,4 @@
-//! Canonical home for `plain_text_for_node` and the sentence/word segmenters
-//! per Req 11.
-//!
-//! `plain_text_for_node` is the single visible entrypoint that returns a
-//! node's selection plain text — markers stripped per the pinned visibility
-//! rules (footnote refs, task markers, image wrappers, code-block fences).
-//! The actual implementation lives in `selection::index` because the index
-//! computes it once at build time and stores it on each `NodeIndex`; this
-//! re-exposes the same lookup as the spec-named function for any caller
-//! outside the index layer.
+//! Canonical home for the sentence/word segmenters.
 //!
 //! `segment_sentences` is the canonical sentence segmenter. It operates on
 //! whatever string it is given (selection plain text or display plain text);
@@ -19,19 +10,6 @@
 //! canonical word segmenter.
 
 use std::ops::Range;
-
-use crate::document::DocNode;
-
-/// Selection plain text for a single `DocNode`, with markdown markers
-/// stripped per the pinned visibility rules (footnote refs, task markers,
-/// image wrappers, code-block fences). Per modular_plan §"Internal
-/// representation" Req 11, this is the single visible entrypoint the
-/// selection layer reads; the actual implementation lives in
-/// `selection::index::node_selection_plain_text` and is also pre-computed
-/// once per node at index-build time.
-pub fn plain_text_for_node(node: &DocNode, source_lines: &[String]) -> String {
-    crate::selection::index::node_selection_plain_text(node, source_lines)
-}
 
 /// Sentence byte ranges within a plain-text input.
 ///

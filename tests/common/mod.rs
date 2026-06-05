@@ -211,7 +211,5 @@ pub fn transcripts_root() -> PathBuf {
 /// `selection_projection` integration tests to avoid each carrying
 /// its own copy.
 pub fn build_index(src: &str) -> rep::selection::index::SelectionIndex {
-    let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
-    let doc = rep::document::Document::parse(src).unwrap();
-    rep::selection::index::SelectionIndex::build(&doc, &lines)
+    rep::selection::index::SelectionIndex::from_markdown(src).unwrap()
 }
