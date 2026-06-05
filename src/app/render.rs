@@ -1,4 +1,5 @@
 use super::*;
+use crate::document_view::{count_occurrences_before, nth_occurrence};
 
 impl App {
     // ── Drawing ───────────────────────────────────────────────────────────────

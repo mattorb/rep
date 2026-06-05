@@ -851,42 +851,12 @@ impl App {
     }
 
     fn current_source_line(&self) -> usize {
-        // Return the source line where the active selection's text begins,
-        // routed per the active unit. Used by status messages so the line
-        // number shown matches the captured annotation's WHERE: line.
-        let node_idx = self.selection_state.anchor.node_idx;
-        let node_first_line = self
-            .view
-            .document()
-            .nodes
-            .get(node_idx)
-            .map_or(0, |n| n.source_start_line());
-        self.where_for_annotation(
-            self.selection_state.anchor.unit,
-            node_idx,
-            Some(self.selection_state.anchor.unit_idx),
-            node_first_line,
-        )
+        self.view
+            .source_line_for_anchor(self.selection_state.anchor)
     }
 
     pub(super) fn current_sentence_context(&self) -> Option<(usize, String)> {
-        // Per modular_plan §"Internal representation" Req 11: emit consumes
-        // the selection-plain-text view (markers stripped), not the display
-        // view. Reading from rendered_nodes here used to leak `[ ]` task
-        // markers, `[^N]` footnote refs, etc., into the captured target.
-        let unit_idx = self.selection_state.anchor.unit_idx;
-        let node = self
-            .view
-            .index()
-            .nodes
-            .get(self.selection_state.anchor.node_idx)?;
-        let range = node.sentence_ranges.get(unit_idx)?;
-        let text = node
-            .selection_plain_text
-            .get(range.clone())?
-            .trim()
-            .to_string();
-        Some((unit_idx, text))
+        self.view.sentence_context(self.selection_state.anchor)
     }
 
     /// Capture the `(unit_idx, target_text)` snapshot stored on the
@@ -901,88 +871,7 @@ impl App {
     ///   - Section: constituent nodes' selection plain text, joined with
     ///     single spaces, internal newlines collapsed.
     fn current_target_capture(&self) -> Option<(usize, String)> {
-        match self.selection_state.anchor.unit {
-            SelectionUnit::Line => self.current_line_capture(),
-            SelectionUnit::Word => self.current_word_capture(),
-            SelectionUnit::Paragraph => self.current_paragraph_capture(),
-            SelectionUnit::Section => self.current_section_capture(),
-            SelectionUnit::Sentence => self.current_sentence_context(),
-        }
-    }
-
-    fn current_paragraph_capture(&self) -> Option<(usize, String)> {
-        let node_idx = self.selection_state.anchor.node_idx;
-        let plain = self
-            .view
-            .index()
-            .nodes
-            .get(node_idx)
-            .map(|n| n.selection_plain_text.clone())?;
-        // Per modular_plan §"target": Paragraph emit is single-line. The
-        // index stores tables and other multi-line paragraph plain text
-        // joined by `\n` for line-unit navigation; the emit collapses that
-        // back to single space.
-        Some((0, plain.replace('\n', " ")))
-    }
-
-    fn current_section_capture(&self) -> Option<(usize, String)> {
-        let node_idx = self.selection_state.anchor.node_idx;
-        let section = self
-            .view
-            .index()
-            .sections
-            .iter()
-            .find(|s| s.start_node_idx == node_idx)?;
-        let mut parts: Vec<String> = Vec::new();
-        for i in section.start_node_idx..=section.end_node_idx {
-            if let Some(n) = self.view.index().nodes.get(i)
-                && !n.selection_plain_text.is_empty()
-            {
-                // Constituent node text may contain `\n` (multi-line
-                // paragraph or table) — collapse to single space per
-                // modular_plan §"Section": no embedded newlines in
-                // target:.
-                parts.push(n.selection_plain_text.replace('\n', " "));
-            }
-        }
-        Some((0, parts.join(" ")))
-    }
-
-    fn current_word_capture(&self) -> Option<(usize, String)> {
-        let node_idx = self.selection_state.anchor.node_idx;
-        let unit_idx = self.selection_state.anchor.unit_idx;
-        let node = self.view.index().nodes.get(node_idx)?;
-        let range = node.word_ranges.get(unit_idx)?;
-        let text = node.selection_plain_text.get(range.clone())?.to_string();
-        Some((unit_idx, text))
-    }
-
-    fn current_line_capture(&self) -> Option<(usize, String)> {
-        let node_idx = self.selection_state.anchor.node_idx;
-        let unit_idx = self.selection_state.anchor.unit_idx;
-        if let DocNode::ListItem { .. } = self.view.document().nodes.get(node_idx)? {
-            // ListItem at line unit: full item text, markers already
-            // stripped by the index's selection_plain_text.
-            let plain = self
-                .view
-                .index()
-                .nodes
-                .get(node_idx)
-                .map(|n| n.selection_plain_text.clone())?;
-            Some((unit_idx, plain))
-        } else {
-            // Non-ListItem: source line verbatim.
-            let (line, _) = self
-                .view
-                .index()
-                .nodes
-                .get(node_idx)?
-                .source_line_ranges
-                .get(unit_idx)?
-                .clone();
-            let line_text = self.view.source_lines().get(line)?.clone();
-            Some((unit_idx, line_text))
-        }
+        self.view.target_capture(self.selection_state.anchor)
     }
 
     // ── Annotations ───────────────────────────────────────────────────────────

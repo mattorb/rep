@@ -408,54 +408,6 @@ enum ClipboardOutcome {
     Failed,
 }
 
-/// Count `\n` bytes in `plain[..byte]` — the number of source lines the
-/// byte position is past inside the rendered display plain text.
-fn newlines_before_byte(plain: &str, byte: usize) -> usize {
-    plain
-        .get(..byte)
-        .map_or(0, |p| p.bytes().filter(|&b| b == b'\n').count())
-}
-
-/// Count occurrences of `needle` in `haystack[..before_byte]` (i.e. the
-/// number of complete `needle` matches whose start position is strictly
-/// before `before_byte`).
-fn count_occurrences_before(haystack: &str, needle: &str, before_byte: usize) -> usize {
-    if needle.is_empty() {
-        return 0;
-    }
-    let stop = before_byte.min(haystack.len());
-    let mut count = 0usize;
-    let mut cursor = 0usize;
-    while cursor < stop {
-        match haystack[cursor..stop].find(needle) {
-            Some(off) => {
-                count += 1;
-                cursor += off + needle.len();
-            }
-            None => break,
-        }
-    }
-    count
-}
-
-/// Return the byte offset of the `n`th occurrence (0-indexed) of `needle`
-/// in `haystack`, if any.
-fn nth_occurrence(haystack: &str, needle: &str, n: usize) -> Option<usize> {
-    if needle.is_empty() {
-        return None;
-    }
-    let mut cursor = 0usize;
-    for i in 0..=n {
-        let off = haystack[cursor..].find(needle)?;
-        let abs = cursor + off;
-        if i == n {
-            return Some(abs);
-        }
-        cursor = abs + needle.len();
-    }
-    None
-}
-
 fn copy_to_clipboard(text: &str) -> ClipboardOutcome {
     if try_osc52(text) {
         return ClipboardOutcome::Osc52;
@@ -1285,40 +1237,70 @@ mod tests {
 
     #[test]
     fn newlines_before_byte_basic() {
-        assert_eq!(super::newlines_before_byte("a\nb\nc", 0), 0);
-        assert_eq!(super::newlines_before_byte("a\nb\nc", 1), 0);
-        assert_eq!(super::newlines_before_byte("a\nb\nc", 2), 1);
-        assert_eq!(super::newlines_before_byte("a\nb\nc", 4), 2);
-        assert_eq!(super::newlines_before_byte("a\nb\nc", 5), 2);
+        assert_eq!(crate::document_view::newlines_before_byte("a\nb\nc", 0), 0);
+        assert_eq!(crate::document_view::newlines_before_byte("a\nb\nc", 1), 0);
+        assert_eq!(crate::document_view::newlines_before_byte("a\nb\nc", 2), 1);
+        assert_eq!(crate::document_view::newlines_before_byte("a\nb\nc", 4), 2);
+        assert_eq!(crate::document_view::newlines_before_byte("a\nb\nc", 5), 2);
         // out-of-range byte is clamped silently — falls back to zero.
-        assert_eq!(super::newlines_before_byte("abc", 999), 0);
+        assert_eq!(crate::document_view::newlines_before_byte("abc", 999), 0);
     }
 
     #[test]
     fn count_occurrences_before_empty_needle_returns_zero() {
-        assert_eq!(super::count_occurrences_before("a b c", "", 5), 0);
+        assert_eq!(
+            crate::document_view::count_occurrences_before("a b c", "", 5),
+            0
+        );
     }
 
     #[test]
     fn nth_occurrence_empty_needle_returns_none() {
-        assert_eq!(super::nth_occurrence("a b c", "", 0), None);
+        assert_eq!(crate::document_view::nth_occurrence("a b c", "", 0), None);
     }
 
     #[test]
     fn count_occurrences_before_basic() {
-        assert_eq!(super::count_occurrences_before("a b a c a", "a", 0), 0);
-        assert_eq!(super::count_occurrences_before("a b a c a", "a", 1), 1);
-        assert_eq!(super::count_occurrences_before("a b a c a", "a", 4), 1);
-        assert_eq!(super::count_occurrences_before("a b a c a", "a", 5), 2);
-        assert_eq!(super::count_occurrences_before("a b a c a", "a", 9), 3);
+        assert_eq!(
+            crate::document_view::count_occurrences_before("a b a c a", "a", 0),
+            0
+        );
+        assert_eq!(
+            crate::document_view::count_occurrences_before("a b a c a", "a", 1),
+            1
+        );
+        assert_eq!(
+            crate::document_view::count_occurrences_before("a b a c a", "a", 4),
+            1
+        );
+        assert_eq!(
+            crate::document_view::count_occurrences_before("a b a c a", "a", 5),
+            2
+        );
+        assert_eq!(
+            crate::document_view::count_occurrences_before("a b a c a", "a", 9),
+            3
+        );
     }
 
     #[test]
     fn nth_occurrence_basic() {
-        assert_eq!(super::nth_occurrence("a b a c a", "a", 0), Some(0));
-        assert_eq!(super::nth_occurrence("a b a c a", "a", 1), Some(4));
-        assert_eq!(super::nth_occurrence("a b a c a", "a", 2), Some(8));
-        assert_eq!(super::nth_occurrence("a b a c a", "a", 3), None);
+        assert_eq!(
+            crate::document_view::nth_occurrence("a b a c a", "a", 0),
+            Some(0)
+        );
+        assert_eq!(
+            crate::document_view::nth_occurrence("a b a c a", "a", 1),
+            Some(4)
+        );
+        assert_eq!(
+            crate::document_view::nth_occurrence("a b a c a", "a", 2),
+            Some(8)
+        );
+        assert_eq!(
+            crate::document_view::nth_occurrence("a b a c a", "a", 3),
+            None
+        );
     }
 
     #[test]
