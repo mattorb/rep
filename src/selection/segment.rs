@@ -133,11 +133,11 @@ pub fn segment_words(plain: &str) -> Vec<Range<usize>> {
             // char per the per-punct rules.
             let prev = chars[j - 1].1;
             let next = chars.get(j + 1).map(|(_, c)| *c);
-            if let Some(nc) = next {
-                if is_internal_continuation(prev, ch, nc) {
-                    j += 1;
-                    continue;
-                }
+            if let Some(nc) = next
+                && is_internal_continuation(prev, ch, nc)
+            {
+                j += 1;
+                continue;
             }
             break;
         }

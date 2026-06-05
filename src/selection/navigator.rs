@@ -306,11 +306,11 @@ mod tests {
         let idx = build("A.\n\nB.\n\nC.");
         let mut a = SelectionAnchor::new(0, SelectionUnit::Sentence, 0);
         for _ in 0..3 {
-            if let NavOutcome::Moved(b) = next(&idx, a) {
-                if let NavOutcome::Moved(c) = prev(&idx, b) {
-                    assert_eq!(a, c);
-                    a = b;
-                }
+            if let NavOutcome::Moved(b) = next(&idx, a)
+                && let NavOutcome::Moved(c) = prev(&idx, b)
+            {
+                assert_eq!(a, c);
+                a = b;
             }
         }
     }

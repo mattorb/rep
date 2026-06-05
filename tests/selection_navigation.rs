@@ -28,10 +28,10 @@ fn roundtrip_invariant_holds_for_every_sentence_anchor() {
     let idx = build(src);
     for (n, u) in &idx.sentences {
         let a = SelectionAnchor::new(*n, SelectionUnit::Sentence, *u);
-        if let NavOutcome::Moved(b) = navigator::next(&idx, a) {
-            if let NavOutcome::Moved(c) = navigator::prev(&idx, b) {
-                assert_eq!(a, c, "prev(next({a:?})) must roundtrip");
-            }
+        if let NavOutcome::Moved(b) = navigator::next(&idx, a)
+            && let NavOutcome::Moved(c) = navigator::prev(&idx, b)
+        {
+            assert_eq!(a, c, "prev(next({a:?})) must roundtrip");
         }
     }
 }

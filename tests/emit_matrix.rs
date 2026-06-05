@@ -193,10 +193,11 @@ fn emit_matrix() {
                 keys.extend(action_keys(*action));
                 let (emit, _anchor) = replay(&fixture.input, &keys);
 
-                if update && !golden.exists() {
-                    if let Some(parent) = golden.parent() {
-                        std::fs::create_dir_all(parent).ok();
-                    }
+                if update
+                    && !golden.exists()
+                    && let Some(parent) = golden.parent()
+                {
+                    std::fs::create_dir_all(parent).ok();
                 }
 
                 if let Err(msg) = compare_or_update(&emit, &golden, update) {
