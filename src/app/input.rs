@@ -172,18 +172,14 @@ impl App {
                 if trimmed.is_empty() {
                     self.status = "Change ignored because it was empty.".to_string();
                 } else {
-                    let (sentence_index, sentence_text) = if let Some((idx, text)) =
-                        self.view.target_capture(self.selection_state.anchor)
-                    {
-                        (Some(idx), Some(text))
-                    } else {
-                        (None, None)
-                    };
+                    let target = self
+                        .view
+                        .annotation_target_capture(self.selection_state.anchor);
                     let annotation = ChangeAnnotation {
                         created_at: Utc::now().to_rfc3339(),
                         target_unit: self.selection_state.anchor.unit,
-                        sentence_index,
-                        sentence_text,
+                        sentence_index: target.sentence_index,
+                        sentence_text: target.sentence_text,
                         change: trimmed,
                     };
                     self.changes
@@ -193,9 +189,7 @@ impl App {
                     self.status = format!(
                         "Change saved on node {} (line {}).",
                         self.selection_state.anchor.node_idx + 1,
-                        self.view
-                            .source_line_for_anchor(self.selection_state.anchor)
-                            + 1
+                        target.source_line + 1
                     );
                 }
                 self.input_mode = InputMode::Normal;
@@ -227,18 +221,14 @@ impl App {
                 if trimmed.is_empty() {
                     self.status = "Insert ignored because it was empty.".to_string();
                 } else {
-                    let (sentence_index, sentence_text) = if let Some((idx, text)) =
-                        self.view.target_capture(self.selection_state.anchor)
-                    {
-                        (Some(idx), Some(text))
-                    } else {
-                        (None, None)
-                    };
+                    let target = self
+                        .view
+                        .annotation_target_capture(self.selection_state.anchor);
                     let annotation = InsertAnnotation {
                         created_at: Utc::now().to_rfc3339(),
                         target_unit: self.selection_state.anchor.unit,
-                        sentence_index,
-                        sentence_text,
+                        sentence_index: target.sentence_index,
+                        sentence_text: target.sentence_text,
                         text: trimmed,
                     };
                     let bucket = if before {
@@ -254,9 +244,7 @@ impl App {
                     self.status = format!(
                         "Insert {label} saved on node {} (line {}).",
                         self.selection_state.anchor.node_idx + 1,
-                        self.view
-                            .source_line_for_anchor(self.selection_state.anchor)
-                            + 1
+                        target.source_line + 1
                     );
                 }
                 self.input_mode = InputMode::Normal;
@@ -382,18 +370,14 @@ impl App {
                 if trimmed.is_empty() {
                     self.status = "Feedback ignored because it was empty.".to_string();
                 } else {
-                    let (sentence_index, sentence_text) = if let Some((idx, text)) =
-                        self.view.target_capture(self.selection_state.anchor)
-                    {
-                        (Some(idx), Some(text))
-                    } else {
-                        (None, None)
-                    };
+                    let target = self
+                        .view
+                        .annotation_target_capture(self.selection_state.anchor);
                     let annotation = FeedbackAnnotation {
                         created_at: Utc::now().to_rfc3339(),
                         target_unit: self.selection_state.anchor.unit,
-                        sentence_index,
-                        sentence_text,
+                        sentence_index: target.sentence_index,
+                        sentence_text: target.sentence_text,
                         feedback: trimmed,
                     };
                     self.feedbacks
@@ -403,9 +387,7 @@ impl App {
                     self.status = format!(
                         "Feedback saved on node {} (line {}).",
                         self.selection_state.anchor.node_idx + 1,
-                        self.view
-                            .source_line_for_anchor(self.selection_state.anchor)
-                            + 1
+                        target.source_line + 1
                     );
                 }
                 self.input_mode = InputMode::Normal;

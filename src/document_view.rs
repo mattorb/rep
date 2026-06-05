@@ -478,7 +478,7 @@ impl DocumentView {
         Some(start..end)
     }
 
-    pub(crate) fn source_line_for_anchor(&self, anchor: SelectionAnchor) -> usize {
+    fn source_line_for_anchor(&self, anchor: SelectionAnchor) -> usize {
         let node_first_line = self
             .document
             .nodes
@@ -511,6 +511,18 @@ impl DocumentView {
             SelectionUnit::Paragraph => self.paragraph_capture(anchor.node_idx),
             SelectionUnit::Section => self.section_capture(anchor.node_idx),
             SelectionUnit::Sentence => self.sentence_context(anchor),
+        }
+    }
+
+    pub(crate) fn annotation_target_capture(
+        &self,
+        anchor: SelectionAnchor,
+    ) -> AnnotationTargetCapture {
+        let target = self.target_capture(anchor);
+        AnnotationTargetCapture {
+            sentence_index: target.as_ref().map(|(idx, _)| *idx),
+            sentence_text: target.map(|(_, text)| text),
+            source_line: self.source_line_for_anchor(anchor),
         }
     }
 
@@ -904,6 +916,13 @@ pub(crate) struct SourceLineContext {
     pub(crate) line_text: String,
     pub(crate) previous_line: Option<String>,
     pub(crate) next_line: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AnnotationTargetCapture {
+    pub(crate) sentence_index: Option<usize>,
+    pub(crate) sentence_text: Option<String>,
+    pub(crate) source_line: usize,
 }
 
 #[derive(Debug, Clone)]
