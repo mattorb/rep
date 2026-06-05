@@ -64,6 +64,15 @@ impl App {
 
                 // Code blocks render line-by-line without sentence wrap logic.
                 if let Some(code_rows) = self.view.code_block_render_lines(node_idx) {
+                    let section_highlight_active = self
+                        .section_highlight_range
+                        .as_ref()
+                        .is_some_and(|range| range.contains(&node_idx));
+                    let strike_units: Vec<(SelectionUnit, usize)> = self
+                        .strikes
+                        .get(&node_idx)
+                        .map(|set| set.iter().copied().collect())
+                        .unwrap_or_default();
                     let mut row_ranges: Vec<Range<usize>> = Vec::with_capacity(code_rows.len() + 1);
                     let mut display_lines: Vec<Line> = Vec::with_capacity(code_rows.len() + 1);
                     for (i, row) in code_rows.iter().enumerate() {
@@ -77,23 +86,17 @@ impl App {
                         } else {
                             Span::raw("  ")
                         }];
-                        // Overlay highlight + strikes on this source
-                        // line by mapping the active anchor's
-                        // selection-view byte range (and each strike
-                        // range) into bytes within `line`. Without
-                        // this, code blocks rendered with no visible
-                        // cursor — the special draw path used to
-                        // bypass render_node_spans entirely so
-                        // word-mode highlight on a fenced code block
-                        // (e.g. YAML frontmatter folded as a
-                        // CodeBlock) showed nothing.
-                        self.push_codeblock_line_spans(
-                            &mut spans,
-                            node_idx,
-                            row.source_line,
-                            row.text,
-                            base_style,
-                        );
+                        spans.extend(self.view.styled_code_block_line_spans(
+                            CodeBlockLineStyleRequest {
+                                node_idx,
+                                source_line: row.source_line,
+                                line: row.text,
+                                base_style,
+                                active_anchor: self.selection_state.anchor,
+                                section_highlight_active,
+                                strike_units: &strike_units,
+                            },
+                        ));
                         row_ranges.push(row.byte_range.clone());
                         display_lines.push(Line::from(spans));
                     }
@@ -676,113 +679,6 @@ impl App {
             self.selection_state.anchor.unit,
             self.selection_state.anchor.unit_idx,
         )
-    }
-
-    /// Push styled span(s) for one source line of a code block, overlaying
-    /// the active highlight and any strike ranges that intersect this line.
-    /// `node_idx` identifies the code block; `source_line` is the absolute
-    /// source line index; `line` is its raw text;
-    /// `base_style` is the code-block paint (DarkGray fence vs
-    /// White-on-DarkGray content). The active anchor and strike entries
-    /// store byte ranges in selection_plain_text — we map each into bytes
-    /// within `line` via the index's source_line_ranges table, then split
-    /// the span at the overlap so the highlight paints precisely.
-    fn push_codeblock_line_spans(
-        &self,
-        spans: &mut Vec<Span<'static>>,
-        node_idx: usize,
-        source_line: usize,
-        line: &str,
-        base_style: Style,
-    ) {
-        // Active anchor → highlight range on this line. Section-mode
-        // whole-node highlight is handled separately below.
-        let highlight_local = if self
-            .section_highlight_range
-            .as_ref()
-            .is_some_and(|r| r.contains(&node_idx))
-        {
-            Some(0..line.len())
-        } else if node_idx == self.selection_state.anchor.node_idx {
-            let unit = self.selection_state.anchor.unit;
-            let unit_idx = self.selection_state.anchor.unit_idx;
-            self.view
-                .selection_range_for_unit(node_idx, unit, unit_idx)
-                .and_then(|range| {
-                    self.view
-                        .code_line_local_range(node_idx, source_line, range)
-                })
-        } else {
-            None
-        };
-
-        // Strike ranges on this line.
-        let strike_local: Vec<Range<usize>> = self
-            .strikes
-            .get(&node_idx)
-            .map(|set| {
-                set.iter()
-                    .filter_map(|&(unit, idx)| {
-                        self.view
-                            .selection_range_for_unit(node_idx, unit, idx)
-                            .and_then(|range| {
-                                self.view
-                                    .code_line_local_range(node_idx, source_line, range)
-                            })
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        // Build segment boundaries.
-        let mut bounds = vec![0, line.len()];
-        if let Some(r) = &highlight_local {
-            bounds.push(r.start);
-            bounds.push(r.end);
-        }
-        for r in &strike_local {
-            bounds.push(r.start);
-            bounds.push(r.end);
-        }
-        bounds.sort_unstable();
-        bounds.dedup();
-
-        for pair in bounds.windows(2) {
-            let (start, end) = (pair[0], pair[1]);
-            if start >= end {
-                continue;
-            }
-            let Some(text) = line.get(start..end) else {
-                continue;
-            };
-            if text.is_empty() {
-                continue;
-            }
-            let mut style = base_style;
-            if highlight_local
-                .as_ref()
-                .is_some_and(|r| start < r.end && end > r.start)
-            {
-                style = style.patch(
-                    Style::default()
-                        .bg(Color::Blue)
-                        .fg(Color::Black)
-                        .add_modifier(Modifier::BOLD),
-                );
-            }
-            if strike_local.iter().any(|r| start < r.end && end > r.start) {
-                style = style.patch(
-                    Style::default()
-                        .fg(Color::Red)
-                        .add_modifier(Modifier::CROSSED_OUT | Modifier::DIM),
-                );
-            }
-            spans.push(Span::styled(text.to_string(), style));
-        }
-
-        if spans.is_empty() {
-            spans.push(Span::styled(line.to_string(), base_style));
-        }
     }
 
     pub(super) fn render_node_spans(&self, node_idx: usize) -> Vec<Span<'static>> {
