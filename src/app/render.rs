@@ -45,15 +45,9 @@ impl App {
         let list_inner = list_block.inner(layout[0]);
         self.list_inner = list_inner;
 
-        let mut node_heights: Vec<u16> = Vec::with_capacity(self.view.node_count());
-
         let node_count = self.view.node_count();
-        // Parallel to `node_lines`: one byte range per produced row in
-        // the matching `Vec<Line>`, indexed by `(node_idx, row)`. The
-        // trailing spacer (when present) carries an empty range. Used
-        // to populate `visible_rows` after scroll-clipping.
-        let mut node_row_byte_ranges: Vec<Vec<Range<usize>>> = Vec::with_capacity(node_count);
-        let node_lines: Vec<Vec<Line<'static>>> = (0..node_count)
+        let mut node_heights: Vec<u16> = Vec::with_capacity(node_count);
+        let node_rows: Vec<Vec<RenderedDisplayRow>> = (0..node_count)
             .map(|node_idx| {
                 let (indicator, indicator_style) = self.node_indicator(node_idx);
                 // Add a blank trailing line when the NEXT node is a block start.
@@ -73,8 +67,8 @@ impl App {
                         .get(&node_idx)
                         .map(|set| set.iter().copied().collect())
                         .unwrap_or_default();
-                    let mut row_ranges: Vec<Range<usize>> = Vec::with_capacity(code_rows.len() + 1);
-                    let mut display_lines: Vec<Line> = Vec::with_capacity(code_rows.len() + 1);
+                    let mut display_rows: Vec<RenderedDisplayRow> =
+                        Vec::with_capacity(code_rows.len() + 1);
                     for (i, row) in code_rows.iter().enumerate() {
                         let base_style = if row.is_fence {
                             Style::default().fg(Color::DarkGray)
@@ -97,17 +91,17 @@ impl App {
                                 strike_units: &strike_units,
                             },
                         ));
-                        row_ranges.push(row.byte_range.clone());
-                        display_lines.push(Line::from(spans));
+                        display_rows.push(RenderedDisplayRow {
+                            line: Line::from(spans),
+                            byte_range: row.byte_range.clone(),
+                        });
                     }
                     if add_spacer_after {
-                        display_lines.push(Line::from(""));
-                        row_ranges.push(0..0);
+                        display_rows.push(RenderedDisplayRow::spacer());
                     }
-                    let height = display_lines.len().max(1) as u16;
+                    let height = display_rows.len().max(1) as u16;
                     node_heights.push(height);
-                    node_row_byte_ranges.push(row_ranges);
-                    return display_lines;
+                    return display_rows;
                 }
 
                 let spans = self.render_node_spans(node_idx);
@@ -133,11 +127,14 @@ impl App {
                     wrapped_lines.push(Line::from(""));
                     row_ranges.push(0..0);
                 }
-                let height = wrapped_lines.len().max(1) as u16;
+                let display_rows: Vec<RenderedDisplayRow> = wrapped_lines
+                    .into_iter()
+                    .zip(row_ranges)
+                    .map(|(line, byte_range)| RenderedDisplayRow { line, byte_range })
+                    .collect();
+                let height = display_rows.len().max(1) as u16;
                 node_heights.push(height);
-                node_row_byte_ranges.push(row_ranges);
-
-                wrapped_lines
+                display_rows
             })
             .collect();
 
@@ -151,18 +148,13 @@ impl App {
         let mut visible: Vec<Line<'static>> = Vec::new();
         let mut visible_row_ranges: Vec<(usize, Range<usize>)> = Vec::new();
         let mut count = 0u16;
-        'outer: for (node_idx, (lines, row_ranges)) in node_lines
-            .iter()
-            .zip(node_row_byte_ranges.iter())
-            .enumerate()
-            .skip(self.scroll_offset)
-        {
-            for (line, byte_range) in lines.iter().zip(row_ranges.iter()) {
+        'outer: for (node_idx, rows) in node_rows.iter().enumerate().skip(self.scroll_offset) {
+            for row in rows {
                 if count >= list_inner.height {
                     break 'outer;
                 }
-                visible.push(line.clone());
-                visible_row_ranges.push((node_idx, byte_range.clone()));
+                visible.push(row.line.clone());
+                visible_row_ranges.push((node_idx, row.byte_range.clone()));
                 count += 1;
             }
         }
@@ -692,5 +684,19 @@ impl App {
                     Style::default().add_modifier(Modifier::DIM),
                 )]
             })
+    }
+}
+
+struct RenderedDisplayRow {
+    line: Line<'static>,
+    byte_range: Range<usize>,
+}
+
+impl RenderedDisplayRow {
+    fn spacer() -> Self {
+        Self {
+            line: Line::from(""),
+            byte_range: 0..0,
+        }
     }
 }
