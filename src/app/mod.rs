@@ -375,13 +375,16 @@ mod tests {
     fn test_app(content: &str) -> App {
         let n = FILE_SEQ.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!("rep_test_{n}.md"));
-        std::fs::write(&path, content).unwrap();
-        App::load(path).unwrap()
+        std::fs::write(&path, content).expect("test precondition: write temp markdown fixture");
+        App::load(path).expect("test precondition: load temp markdown fixture")
     }
 
     fn render(app: &mut App) -> Terminal<TestBackend> {
-        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
-        terminal.draw(|f| app.draw(f)).unwrap();
+        let mut terminal =
+            Terminal::new(TestBackend::new(80, 24)).expect("test precondition: create terminal");
+        terminal
+            .draw(|f| app.draw(f))
+            .expect("test precondition: draw app");
         terminal
     }
 
@@ -602,9 +605,13 @@ mod tests {
     fn block_title_shows_filename() {
         let n = FILE_SEQ.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!("named_doc_{n}.md"));
-        std::fs::write(&path, "line one\n").unwrap();
-        let stem = path.file_name().unwrap().to_string_lossy().to_string();
-        let mut app = App::load(path).unwrap();
+        std::fs::write(&path, "line one\n").expect("test precondition: write named temp fixture");
+        let stem = path
+            .file_name()
+            .expect("test precondition: temp path has a file name")
+            .to_string_lossy()
+            .to_string();
+        let mut app = App::load(path).expect("test precondition: load named temp fixture");
         let t = render(&mut app);
         let top = row(&t, 0);
         assert!(top.contains(&stem), "filename missing from title: {top:?}");
@@ -1719,8 +1726,11 @@ mod tests {
 
         let mut app = test_app(&content);
         // height=15: footer at row 14, outer block rows 0-13, inner rows 1-12 (height=12).
-        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
-        terminal.draw(|f| app.draw(f)).unwrap();
+        let mut terminal =
+            Terminal::new(TestBackend::new(40, 15)).expect("test precondition: create terminal");
+        terminal
+            .draw(|f| app.draw(f))
+            .expect("test precondition: draw app");
 
         // Inner row 11 = terminal row 12.
         let buf = terminal.backend().buffer();
@@ -1754,11 +1764,14 @@ mod tests {
         let content = "before\n\ntall line 0\ntall line 1\ntall line 2\ntall line 3\ntall line 4\ntall line 5\n";
         let mut app = test_app(content);
         // height=7: footer row 6, outer block rows 0-5, inner rows 1-4 (height=4).
-        let mut terminal = Terminal::new(TestBackend::new(40, 7)).unwrap();
+        let mut terminal =
+            Terminal::new(TestBackend::new(40, 7)).expect("test precondition: create terminal");
 
         // Navigate to node 1 (the tall paragraph).
         app.move_node(1);
-        terminal.draw(|f| app.draw(f)).unwrap();
+        terminal
+            .draw(|f| app.draw(f))
+            .expect("test precondition: draw app");
 
         let buf = terminal.backend().buffer();
         let inner_rows: Vec<String> = (1..=4)
@@ -1791,11 +1804,14 @@ mod tests {
         // adjust_scroll fires on every draw() regardless of how cursor moved.
         let content = "before\n\ntall line 0\ntall line 1\ntall line 2\ntall line 3\ntall line 4\ntall line 5\n";
         let mut app = test_app(content);
-        let mut terminal = Terminal::new(TestBackend::new(40, 7)).unwrap();
+        let mut terminal =
+            Terminal::new(TestBackend::new(40, 7)).expect("test precondition: create terminal");
 
         // move_sentence forward from node 0's last sentence → lands on node 1.
         app.handle_key(key_char('j'));
-        terminal.draw(|f| app.draw(f)).unwrap();
+        terminal
+            .draw(|f| app.draw(f))
+            .expect("test precondition: draw app");
 
         let buf = terminal.backend().buffer();
         let inner_rows: Vec<String> = (1..=4)
@@ -1843,10 +1859,13 @@ mod tests {
         //   Terminal row 7 should show "tall line 4" (the last of 5 node-2 lines).
         let content = "short A\n\nshort B. Next. Third.\n\ntall line 0\ntall line 1\ntall line 2\ntall line 3\ntall line 4\n";
         let mut app = test_app(content);
-        let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+        let mut terminal =
+            Terminal::new(TestBackend::new(40, 10)).expect("test precondition: create terminal");
 
         app.move_node(1); // cursor on "short B" node
-        terminal.draw(|f| app.draw(f)).unwrap();
+        terminal
+            .draw(|f| app.draw(f))
+            .expect("test precondition: draw app");
 
         let buf = terminal.backend().buffer();
         let last_inner_row: String = (0..40)
@@ -1962,8 +1981,11 @@ mod tests {
     // ── mouse-click selection ───────────────────────────────────────
 
     fn render_then_click(app: &mut App, row: u16, col: u16) {
-        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
-        terminal.draw(|f| app.draw(f)).unwrap();
+        let mut terminal =
+            Terminal::new(TestBackend::new(80, 24)).expect("test precondition: create terminal");
+        terminal
+            .draw(|f| app.draw(f))
+            .expect("test precondition: draw app");
         app.handle_mouse(MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             row,
@@ -2094,15 +2116,18 @@ mod tests {
                     kilo lima mike november oscar papa quebec romeo sierra tango \
                     uniform victor whiskey xray yankee zulu.";
         let mut app = test_app(&format!("{body}\n"));
-        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
-        terminal.draw(|f| app.draw(f)).unwrap();
+        let mut terminal =
+            Terminal::new(TestBackend::new(80, 24)).expect("test precondition: create terminal");
+        terminal
+            .draw(|f| app.draw(f))
+            .expect("test precondition: draw app");
 
         let para_idx = app
             .view
             .rendered_nodes()
             .iter()
             .position(|rn| rn.plain.starts_with("alpha bravo"))
-            .unwrap();
+            .expect("test invariant: wrapped paragraph rendered");
         let plain = app.view.rendered_nodes()[para_idx].plain.clone();
         // Print every visible row's byte range and rendered text so we
         // can see if there's drift on later rows.
@@ -2120,7 +2145,9 @@ mod tests {
         // Pick a word we expect to land on a later wrapped row; adjust
         // here based on how the backend wrapped it.
         let target_word = "victor";
-        let target_byte = plain.find(target_word).unwrap();
+        let target_byte = plain
+            .find(target_word)
+            .expect("test invariant: target word exists in wrapped paragraph");
         let (row_idx, row_map) = app
             .view
             .visible_rows()
@@ -2165,8 +2192,11 @@ mod tests {
     fn click_on_word_with_smart_apostrophe_picks_whole_contraction() {
         let body = "I'm chilling on a couch during my son's piano lesson.";
         let mut app = test_app(&format!("{body}\n"));
-        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
-        terminal.draw(|f| app.draw(f)).unwrap();
+        let mut terminal =
+            Terminal::new(TestBackend::new(80, 24)).expect("test precondition: create terminal");
+        terminal
+            .draw(|f| app.draw(f))
+            .expect("test precondition: draw app");
         let para_idx = 0;
         let plain = app.view.rendered_nodes()[para_idx].plain.clone();
         let display_words: Vec<&str> = app.view.rendered_nodes()[para_idx]
@@ -2185,8 +2215,13 @@ mod tests {
         // Click on the apostrophe of "son's" — used to land on the "s"
         // suffix or further off; should now resolve to the whole word.
         let target_word = "son\u{2019}s";
-        let target_byte = plain.find(target_word).unwrap();
-        let apos_byte = plain[target_byte..].find('\u{2019}').unwrap() + target_byte;
+        let target_byte = plain
+            .find(target_word)
+            .expect("test invariant: smart-apostrophe target word exists");
+        let apos_byte = plain[target_byte..]
+            .find('\u{2019}')
+            .expect("test invariant: target word contains smart apostrophe")
+            + target_byte;
         let row_idx = app
             .view
             .visible_rows()
@@ -2195,8 +2230,10 @@ mod tests {
                 rm.as_ref()
                     .is_some_and(|m| m.byte_range.contains(&apos_byte))
             })
-            .unwrap();
-        let map = app.view.visible_rows()[row_idx].clone().unwrap();
+            .expect("test invariant: apostrophe byte is visible");
+        let map = app.view.visible_rows()[row_idx]
+            .clone()
+            .expect("test invariant: visible row has mapping");
         let row_text = &plain[map.byte_range.clone()];
         let in_row = apos_byte - map.byte_range.start;
         let col_in_row: usize = row_text[..in_row]
@@ -2233,12 +2270,18 @@ mod tests {
         // partition_point and returns the closest preceding word.
         let mut app =
             test_app("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima.\n");
-        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
-        terminal.draw(|f| app.draw(f)).unwrap();
+        let mut terminal =
+            Terminal::new(TestBackend::new(80, 24)).expect("test precondition: create terminal");
+        terminal
+            .draw(|f| app.draw(f))
+            .expect("test precondition: draw app");
         let para_idx = 0;
         let plain = app.view.rendered_nodes()[para_idx].plain.clone();
         // Byte just past "charlie" — the space between charlie and delta.
-        let charlie_end = plain.find("charlie").unwrap() + "charlie".len();
+        let charlie_end = plain
+            .find("charlie")
+            .expect("test invariant: fixture contains charlie")
+            + "charlie".len();
         let row_idx = app
             .view
             .visible_rows()
@@ -2247,8 +2290,10 @@ mod tests {
                 rm.as_ref()
                     .is_some_and(|m| m.byte_range.contains(&charlie_end))
             })
-            .unwrap();
-        let map = app.view.visible_rows()[row_idx].clone().unwrap();
+            .expect("test invariant: trailing space after charlie is visible");
+        let map = app.view.visible_rows()[row_idx]
+            .clone()
+            .expect("test invariant: visible row has mapping");
         let row_text = &plain[map.byte_range.clone()];
         let in_row = charlie_end - map.byte_range.start;
         let col_in_row: usize = row_text[..in_row]
@@ -2282,9 +2327,12 @@ mod tests {
         // that a click on each word's column resolves to that word.
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/app/click-words-real-markdown.md");
-        let mut app = App::load(path).unwrap();
-        let mut terminal = Terminal::new(TestBackend::new(80, 40)).unwrap();
-        terminal.draw(|f| app.draw(f)).unwrap();
+        let mut app = App::load(path).expect("test precondition: load markdown fixture");
+        let mut terminal =
+            Terminal::new(TestBackend::new(80, 40)).expect("test precondition: create terminal");
+        terminal
+            .draw(|f| app.draw(f))
+            .expect("test precondition: draw app");
 
         let snapshot = app.view.visible_rows().to_vec();
         let mut mismatches: Vec<String> = Vec::new();
