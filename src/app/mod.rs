@@ -1313,7 +1313,7 @@ mod tests {
         );
         let (_, context) = app
             .view
-            .sentence_context(app.selection_state.anchor)
+            .target_capture(app.selection_state.anchor)
             .expect("sentence context");
         assert!(context.contains("Stabilize commands/flags"), "{context}");
         assert!(context.contains("stdin"), "{context}");
@@ -1326,7 +1326,7 @@ mod tests {
         let app = test_app("First sentence ends.\nSecond sentence starts here.\n");
         let (_, context) = app
             .view
-            .sentence_context(app.selection_state.anchor)
+            .target_capture(app.selection_state.anchor)
             .expect("sentence context");
         // Paragraph is joined → two sentences; cursor on sentence 0.
         assert!(context.contains("First sentence ends."), "{context}");

@@ -491,7 +491,7 @@ impl DocumentView {
         )
     }
 
-    pub(crate) fn sentence_context(&self, anchor: SelectionAnchor) -> Option<(usize, String)> {
+    fn sentence_context(&self, anchor: SelectionAnchor) -> Option<(usize, String)> {
         let unit_idx = anchor.unit_idx;
         let node = self.selection_index.nodes.get(anchor.node_idx)?;
         let range = node.sentence_ranges.get(unit_idx)?;
