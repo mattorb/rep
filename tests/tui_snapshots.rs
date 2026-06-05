@@ -10,7 +10,7 @@ fn test_app(name: &str, content: &str) -> App {
 }
 
 fn render(app: &mut App) -> String {
-    let mut terminal = Terminal::new(TestBackend::new(72, 20)).unwrap();
+    let mut terminal = Terminal::new(TestBackend::new(72, 22)).unwrap();
     terminal.draw(|frame| app.draw(frame)).unwrap();
     let buffer = terminal.backend().buffer();
     let mut out = String::new();

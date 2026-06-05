@@ -2459,28 +2459,25 @@ impl App {
 
     fn draw_help(frame: &mut Frame, area: Rect) {
         let help_lines = vec![
-            Line::from(Span::styled(
-                "  nav  next/prev",
-                Style::default().fg(Color::Cyan),
-            )),
-            Line::from(
-                "  i / o               cycle unit finer / coarser (section ↔ paragraph ↔ line ↔ sentence ↔ word)",
-            ),
-            Line::from("  Space / Backspace   synonyms for i / o"),
-            Line::from("  j / k               next / prev anchor in active unit"),
-            Line::from("  ↓ / ↑ / → / ←       synonyms for j / k"),
-            Line::from("  ]/[                 next/prev annotation"),
             Line::from(""),
-            Line::from("  I  AST view        O  links"),
-            Line::from("  /  search          n/N  next/prev match"),
-            Line::from("  c  change (literal)"),
-            Line::from("  f  feedback (intent)"),
-            Line::from("  b  a  insert before · after"),
-            Line::from("  e  edit existing change/feedback"),
-            Line::from("  x  clear annotation, or strike (sentence mode only)"),
-            Line::from("  r  copy result to clipboard"),
-            Line::from("  q  Q          quit (confirm y/n) · silent quit"),
-            Line::from("  ? / Esc       help · close"),
+            Line::from(Span::styled("  Navigate", Style::default().fg(Color::Cyan))),
+            Line::from("  j, k    next/prev unit"),
+            Line::from("  i, o    finer/coarser units"),
+            Line::from(""),
+            Line::from(Span::styled("  Annotate", Style::default().fg(Color::Cyan))),
+            Line::from("  c       change (literal)"),
+            Line::from("  f       feedback (intent)"),
+            Line::from("  b, a    insert before/after"),
+            Line::from("  x       clear or strike"),
+            Line::from(""),
+            Line::from("  [, ]    prev/next annotation"),
+            Line::from("  e       edit annotation"),
+            Line::from("  /       search"),
+            Line::from("  n, N    next/prev search match"),
+            Line::from(""),
+            Line::from("  r       copy annotations to clipboard"),
+            Line::from("  q       quit; printing changes to stdout"),
+            Line::from("  Q       silent quit (discard annotations)"),
         ];
 
         let content_width: u16 = help_lines
@@ -2494,7 +2491,7 @@ impl App {
             .max()
             .unwrap_or(40) as u16;
         let content_height = help_lines.len() as u16;
-        let popup_width = (content_width + 2).min(area.width);
+        let popup_width = (content_width + 2).max(72).min(area.width);
         let popup_height = (content_height + 2).min(area.height);
         let popup = Rect {
             x: area.x + area.width.saturating_sub(popup_width) / 2,
