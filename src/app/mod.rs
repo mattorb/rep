@@ -181,51 +181,6 @@ fn wrap_line_byte_ranges(plain: &str, wrapped: &[Vec<Span<'static>>]) -> Vec<Ran
     out
 }
 
-/// Pick the unit_idx whose range contains `byte`, or — when `byte` falls
-/// in a gap — the closest preceding unit. Falls through to unit 0 if the
-/// click sits before every range, and to the last unit when ranges are
-/// empty (`None` is returned in that case so the caller can no-op).
-///
-/// The naive "find a containing range or fall back to len-1" produces
-/// dramatic miss-by-many-words misclicks: a click on the trailing space
-/// after the second word in a 30-word paragraph would resolve to word
-/// 29. This walker honours the user's spatial intent — a click in
-/// inter-word whitespace selects the word it just left, matching how
-/// most text editors handle word selection.
-fn find_unit_at(ranges: &[Range<usize>], byte: usize) -> Option<usize> {
-    if ranges.is_empty() {
-        return None;
-    }
-    // partition_point returns the count of leading ranges whose start
-    // is ≤ byte. The target is the last such range (count - 1) — that
-    // range either contains the byte or sits immediately to its left.
-    let count = ranges.partition_point(|r| r.start <= byte);
-    Some(count.saturating_sub(1))
-}
-
-/// Walk `text` from byte 0 and return the byte index whose preceding
-/// chars sum to *strictly more than* `target_cols` columns of terminal
-/// width — i.e. the first byte that lies past column `target_cols`.
-/// Returns `text.len()` when the text never reaches that column.
-/// Combining marks (`UnicodeWidthChar::width == 0`) attach to the
-/// preceding char so a click on a base char's column resolves to the
-/// base char, not a stray combining mark beyond it.
-fn col_to_byte(text: &str, target_cols: usize) -> usize {
-    let mut used = 0usize;
-    for (idx, ch) in text.char_indices() {
-        let w = UnicodeWidthChar::width(ch).unwrap_or(0);
-        if w == 0 {
-            // zero-width: glue to the preceding char's column.
-            continue;
-        }
-        if used >= target_cols {
-            return idx;
-        }
-        used += w;
-    }
-    text.len()
-}
-
 // ── App ───────────────────────────────────────────────────────────────────────
 
 #[derive(Debug)]

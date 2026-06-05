@@ -674,22 +674,20 @@ impl App {
 
     fn handle_left_click(&mut self, row: u16, col: u16) {
         let count = self.bump_click_count(row, col);
-        let Some((node_idx, display_byte)) = self.mouse_to_target(row, col) else {
+        let Some(anchor) = self.mouse_to_anchor(row, col, count) else {
             // Click outside the list area or on a non-text row: leave
             // the click count alone (the next click on a real cell will
             // start fresh anyway via the cell-change reset above).
             return;
         };
-        let (unit, unit_idx) = self.click_target_unit(node_idx, display_byte, count);
-        let anchor = SelectionAnchor::new(node_idx, unit, unit_idx);
         self.selection_state.anchor = anchor;
         self.refresh_section_highlight(anchor);
         self.status = format!(
             "Node {}/{}  {} {}",
-            node_idx + 1,
+            anchor.node_idx + 1,
             self.view.node_count(),
-            unit.mode_str(),
-            unit_idx + 1,
+            anchor.unit.mode_str(),
+            anchor.unit_idx + 1,
         );
     }
 
@@ -719,10 +717,10 @@ impl App {
         count
     }
 
-    /// Resolve a mouse coordinate to (node_idx, byte offset in display
-    /// plain). Returns None for clicks outside `list_inner`, on spacer
-    /// rows, or on the gutter/indicator prefix to the left of the text.
-    fn mouse_to_target(&self, row: u16, col: u16) -> Option<(usize, usize)> {
+    /// Resolve a mouse coordinate to a selection anchor. Returns None for
+    /// clicks outside `list_inner`, on spacer rows, or on the
+    /// gutter/indicator prefix to the left of the text.
+    fn mouse_to_anchor(&self, row: u16, col: u16, click_count: u8) -> Option<SelectionAnchor> {
         let inner = self.list_inner;
         if row < inner.y
             || row >= inner.y.saturating_add(inner.height)
@@ -733,81 +731,13 @@ impl App {
         }
         let visual_row = (row - inner.y) as usize;
         let map = self.visible_rows.get(visual_row)?.as_ref()?;
-        let plain = self.view.rendered_nodes().get(map.node_idx)?.plain.as_str();
-        if map.byte_range.start >= map.byte_range.end {
-            // Spacer or empty row — no text to land on.
-            return None;
-        }
-        // Skip the gutter cols, then walk the row's slice by terminal
-        // width to find the byte the click landed on.
-        let row_text = plain.get(map.byte_range.clone())?;
         let col_in_text = (col - inner.x).saturating_sub(map.gutter_cols) as usize;
-        let local_byte = col_to_byte(row_text, col_in_text);
-        Some((map.node_idx, map.byte_range.start + local_byte))
-    }
-
-    /// Pick the selection (unit, unit_idx) for a click at the given
-    /// display byte on `node_idx`, dispatched by click count:
-    ///   1 → Word, 2 → Sentence (or Line for nodes without sentence
-    ///       semantics), 3 → Paragraph (whole node).
-    fn click_target_unit(
-        &self,
-        node_idx: usize,
-        display_byte: usize,
-        count: u8,
-    ) -> (SelectionUnit, usize) {
-        match count {
-            1 => {
-                let idx = self.find_word_at(node_idx, display_byte).unwrap_or(0);
-                (SelectionUnit::Word, idx)
-            }
-            2 => {
-                if self.node_has_sentence_semantics(node_idx) {
-                    let idx = self.find_sentence_at(node_idx, display_byte).unwrap_or(0);
-                    (SelectionUnit::Sentence, idx)
-                } else {
-                    let idx = self.find_line_at(node_idx, display_byte).unwrap_or(0);
-                    (SelectionUnit::Line, idx)
-                }
-            }
-            _ => (SelectionUnit::Paragraph, 0),
-        }
-    }
-
-    fn find_word_at(&self, node_idx: usize, display_byte: usize) -> Option<usize> {
-        let rn = self.view.rendered_nodes().get(node_idx)?;
-        find_unit_at(&rn.display_word_ranges, display_byte)
-    }
-
-    fn find_sentence_at(&self, node_idx: usize, display_byte: usize) -> Option<usize> {
-        let rn = self.view.rendered_nodes().get(node_idx)?;
-        find_unit_at(&rn.sentence_ranges, display_byte)
-    }
-
-    fn find_line_at(&self, node_idx: usize, display_byte: usize) -> Option<usize> {
-        let rn = self.view.rendered_nodes().get(node_idx)?;
-        find_unit_at(&rn.line_ranges, display_byte)
-    }
-
-    /// True when the node has real sentence-level structure, i.e. its
-    /// display plain contains terminal punctuation and `sentence_ranges`
-    /// reflects more than a single whole-node fallback. Code blocks
-    /// (which use `single_range`) and short list items / headings
-    /// without a terminator fall through to Line on double-click.
-    fn node_has_sentence_semantics(&self, node_idx: usize) -> bool {
-        let Some(rn) = self.view.rendered_nodes().get(node_idx) else {
-            return false;
-        };
-        if rn.sentence_ranges.is_empty() {
-            return false;
-        }
-        match self.view.document().nodes.get(node_idx) {
-            Some(DocNode::CodeBlock { .. }) => false,
-            Some(DocNode::Heading { .. }) | Some(DocNode::ListItem { .. }) => {
-                rn.plain.chars().any(|c| matches!(c, '.' | '!' | '?'))
-            }
-            _ => true,
-        }
+        self.view.selection_anchor_for_row_click(
+            map.node_idx,
+            map.byte_range.clone(),
+            col_in_text,
+            click_count,
+        )
     }
 
     fn has_annotation(&self, node_idx: usize) -> bool {

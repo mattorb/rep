@@ -2,6 +2,7 @@ use std::ops::Range;
 
 use anyhow::{Context, Result};
 use ratatui::prelude::*;
+use unicode_width::UnicodeWidthChar;
 
 use crate::document::{DocNode, Document};
 use crate::markdown::{MarkdownLinkRange, render_markdown_line};
@@ -207,6 +208,24 @@ impl DocumentView {
         (prev, next)
     }
 
+    pub(crate) fn selection_anchor_for_row_click(
+        &self,
+        node_idx: usize,
+        byte_range: Range<usize>,
+        col_in_text: usize,
+        click_count: u8,
+    ) -> Option<SelectionAnchor> {
+        if byte_range.start >= byte_range.end {
+            return None;
+        }
+        let plain = self.rendered_nodes.get(node_idx)?.plain.as_str();
+        let row_text = plain.get(byte_range.clone())?;
+        let local_byte = col_to_byte(row_text, col_in_text);
+        let display_byte = byte_range.start + local_byte;
+        let (unit, unit_idx) = self.click_target_unit(node_idx, display_byte, click_count);
+        Some(SelectionAnchor::new(node_idx, unit, unit_idx))
+    }
+
     fn paragraph_capture(&self, node_idx: usize) -> Option<(usize, String)> {
         let plain = self
             .selection_index
@@ -282,6 +301,61 @@ impl DocumentView {
         );
         let pos = nth_occurrence(&rn.plain, word_text, occurrence).unwrap_or(0);
         Some(first_line + newlines_before_byte(&rn.plain, pos))
+    }
+
+    fn click_target_unit(
+        &self,
+        node_idx: usize,
+        display_byte: usize,
+        count: u8,
+    ) -> (SelectionUnit, usize) {
+        match count {
+            1 => {
+                let idx = self.find_word_at(node_idx, display_byte).unwrap_or(0);
+                (SelectionUnit::Word, idx)
+            }
+            2 => {
+                if self.node_has_sentence_semantics(node_idx) {
+                    let idx = self.find_sentence_at(node_idx, display_byte).unwrap_or(0);
+                    (SelectionUnit::Sentence, idx)
+                } else {
+                    let idx = self.find_line_at(node_idx, display_byte).unwrap_or(0);
+                    (SelectionUnit::Line, idx)
+                }
+            }
+            _ => (SelectionUnit::Paragraph, 0),
+        }
+    }
+
+    fn find_word_at(&self, node_idx: usize, display_byte: usize) -> Option<usize> {
+        let rn = self.rendered_nodes.get(node_idx)?;
+        find_unit_at(&rn.display_word_ranges, display_byte)
+    }
+
+    fn find_sentence_at(&self, node_idx: usize, display_byte: usize) -> Option<usize> {
+        let rn = self.rendered_nodes.get(node_idx)?;
+        find_unit_at(&rn.sentence_ranges, display_byte)
+    }
+
+    fn find_line_at(&self, node_idx: usize, display_byte: usize) -> Option<usize> {
+        let rn = self.rendered_nodes.get(node_idx)?;
+        find_unit_at(&rn.line_ranges, display_byte)
+    }
+
+    fn node_has_sentence_semantics(&self, node_idx: usize) -> bool {
+        let Some(rn) = self.rendered_nodes.get(node_idx) else {
+            return false;
+        };
+        if rn.sentence_ranges.is_empty() {
+            return false;
+        }
+        match self.document.nodes.get(node_idx) {
+            Some(DocNode::CodeBlock { .. }) => false,
+            Some(DocNode::Heading { .. }) | Some(DocNode::ListItem { .. }) => {
+                rn.plain.chars().any(|c| matches!(c, '.' | '!' | '?'))
+            }
+            _ => true,
+        }
     }
 }
 
@@ -584,4 +658,31 @@ pub(crate) fn nth_occurrence(haystack: &str, needle: &str, n: usize) -> Option<u
         cursor = abs + needle.len();
     }
     None
+}
+
+/// Pick the unit_idx whose range contains `byte`, or when `byte` falls in a
+/// gap, the closest preceding unit.
+fn find_unit_at(ranges: &[Range<usize>], byte: usize) -> Option<usize> {
+    if ranges.is_empty() {
+        return None;
+    }
+    let count = ranges.partition_point(|r| r.start <= byte);
+    Some(count.saturating_sub(1))
+}
+
+/// Walk `text` from byte 0 and return the byte index whose preceding chars sum
+/// to strictly more than `target_cols` terminal columns.
+fn col_to_byte(text: &str, target_cols: usize) -> usize {
+    let mut used = 0usize;
+    for (idx, ch) in text.char_indices() {
+        let w = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if w == 0 {
+            continue;
+        }
+        if used >= target_cols {
+            return idx;
+        }
+        used += w;
+    }
+    text.len()
 }
