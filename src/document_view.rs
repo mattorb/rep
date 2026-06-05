@@ -9,11 +9,17 @@ use crate::selection::model::{NavOutcome, SelectionAnchor, SelectionUnit};
 use crate::ui::wrap_styled_spans;
 
 mod rendered;
+mod types;
 pub(crate) use rendered::RenderedNode;
 use rendered::{
     build_rendered_nodes, clamp_range, col_to_byte, count_occurrences_before, find_unit_at,
     newlines_before_byte, nth_occurrence, wrap_line_byte_ranges,
 };
+pub(crate) use types::{
+    AnnotationTargetCapture, CodeBlockDisplayRow, CodeBlockStyleRequest, DisplaySpanStyleRequest,
+    SourceActionContext, SourceLineContext, VisibleRowMap, WrappedDisplayRow,
+};
+use types::{CodeBlockLineStyleRequest, CodeBlockRenderLine};
 
 /// Owns the parsed source and the derived views used by app input, rendering,
 /// hit testing, and output context.
@@ -947,87 +953,6 @@ impl DocumentView {
             _ => true,
         }
     }
-}
-
-/// Maps a single visible terminal row to a slice of one rendered node's display
-/// plain text. Built each `draw()` from node rows so `handle_mouse` can resolve
-/// click coordinates without re-walking the wrap pipeline.
-#[derive(Debug, Clone)]
-pub(crate) struct VisibleRowMap {
-    pub(crate) node_idx: usize,
-    /// Byte range in the node's rendered display text covering the chars shown
-    /// on this row after the gutter prefix. Zero-width for spacer rows.
-    pub(crate) byte_range: Range<usize>,
-    /// Terminal columns to skip from the left edge of `list_inner` before text.
-    pub(crate) gutter_cols: u16,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct SourceLineContext {
-    pub(crate) source_line: usize,
-    pub(crate) line_text: String,
-    pub(crate) previous_line: Option<String>,
-    pub(crate) next_line: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct AnnotationTargetCapture {
-    pub(crate) sentence_index: Option<usize>,
-    pub(crate) sentence_text: Option<String>,
-    pub(crate) source_line: usize,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct SourceActionContext {
-    pub(crate) where_line: usize,
-    pub(crate) target: String,
-    pub(crate) previous_line: String,
-    pub(crate) next_line: String,
-}
-
-#[derive(Debug, Clone)]
-struct CodeBlockRenderLine<'a> {
-    source_line: usize,
-    text: &'a str,
-    byte_range: Range<usize>,
-    is_fence: bool,
-}
-
-pub(crate) struct WrappedDisplayRow {
-    pub(crate) spans: Vec<Span<'static>>,
-    pub(crate) byte_range: Range<usize>,
-}
-
-pub(crate) struct CodeBlockDisplayRow {
-    pub(crate) spans: Vec<Span<'static>>,
-    pub(crate) byte_range: Range<usize>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct DisplaySpanStyleRequest<'a> {
-    pub(crate) node_idx: usize,
-    pub(crate) active_anchor: SelectionAnchor,
-    pub(crate) section_highlight_active: bool,
-    pub(crate) strike_units: &'a [(SelectionUnit, usize)],
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct CodeBlockStyleRequest<'a> {
-    pub(crate) node_idx: usize,
-    pub(crate) active_anchor: SelectionAnchor,
-    pub(crate) section_highlight_active: bool,
-    pub(crate) strike_units: &'a [(SelectionUnit, usize)],
-}
-
-#[derive(Debug, Clone, Copy)]
-struct CodeBlockLineStyleRequest<'a> {
-    node_idx: usize,
-    source_line: usize,
-    line: &'a str,
-    base_style: Style,
-    active_anchor: SelectionAnchor,
-    section_highlight_active: bool,
-    strike_units: &'a [(SelectionUnit, usize)],
 }
 
 #[cfg(test)]
