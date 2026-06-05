@@ -10,8 +10,7 @@ use crate::selection::index::SelectionIndex;
 use crate::selection::model::{NavOutcome, SelectionAnchor, SelectionUnit};
 
 /// Owns the parsed source and the derived views used by app input, rendering,
-/// and output. Initial migration keeps most coordinate logic at call sites;
-/// later passes should move those conversions behind methods here.
+/// hit testing, and output context.
 #[derive(Debug)]
 pub(crate) struct DocumentView {
     document: Document,
@@ -730,7 +729,7 @@ impl DocumentView {
         Some(rows)
     }
 
-    pub(crate) fn selection_anchor_for_row_click(
+    fn selection_anchor_for_row_click(
         &self,
         node_idx: usize,
         byte_range: Range<usize>,
@@ -1268,20 +1267,20 @@ fn wrap_line_byte_ranges(plain: &str, wrapped: &[Vec<Span<'static>>]) -> Vec<Ran
     out
 }
 
-pub(crate) fn clamp_range(r: &Range<usize>, len: usize) -> Range<usize> {
+fn clamp_range(r: &Range<usize>, len: usize) -> Range<usize> {
     r.start.min(len)..r.end.min(len)
 }
 
 /// Count `\n` bytes in `plain[..byte]` - the number of source lines the
 /// byte position is past inside the rendered display plain text.
-pub(crate) fn newlines_before_byte(plain: &str, byte: usize) -> usize {
+fn newlines_before_byte(plain: &str, byte: usize) -> usize {
     plain
         .get(..byte)
         .map_or(0, |p| p.bytes().filter(|&b| b == b'\n').count())
 }
 
 /// Count occurrences of `needle` in `haystack[..before_byte]`.
-pub(crate) fn count_occurrences_before(haystack: &str, needle: &str, before_byte: usize) -> usize {
+fn count_occurrences_before(haystack: &str, needle: &str, before_byte: usize) -> usize {
     if needle.is_empty() {
         return 0;
     }
@@ -1301,7 +1300,7 @@ pub(crate) fn count_occurrences_before(haystack: &str, needle: &str, before_byte
 }
 
 /// Return the byte offset of the `n`th occurrence (0-indexed) of `needle`.
-pub(crate) fn nth_occurrence(haystack: &str, needle: &str, n: usize) -> Option<usize> {
+fn nth_occurrence(haystack: &str, needle: &str, n: usize) -> Option<usize> {
     if needle.is_empty() {
         return None;
     }
@@ -1342,4 +1341,46 @@ fn col_to_byte(text: &str, target_cols: usize) -> usize {
         used += w;
     }
     text.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn newlines_before_byte_basic() {
+        assert_eq!(newlines_before_byte("a\nb\nc", 0), 0);
+        assert_eq!(newlines_before_byte("a\nb\nc", 1), 0);
+        assert_eq!(newlines_before_byte("a\nb\nc", 2), 1);
+        assert_eq!(newlines_before_byte("a\nb\nc", 4), 2);
+        assert_eq!(newlines_before_byte("a\nb\nc", 5), 2);
+        assert_eq!(newlines_before_byte("abc", 999), 0);
+    }
+
+    #[test]
+    fn count_occurrences_before_empty_needle_returns_zero() {
+        assert_eq!(count_occurrences_before("a b c", "", 5), 0);
+    }
+
+    #[test]
+    fn nth_occurrence_empty_needle_returns_none() {
+        assert_eq!(nth_occurrence("a b c", "", 0), None);
+    }
+
+    #[test]
+    fn count_occurrences_before_basic() {
+        assert_eq!(count_occurrences_before("a b a c a", "a", 0), 0);
+        assert_eq!(count_occurrences_before("a b a c a", "a", 1), 1);
+        assert_eq!(count_occurrences_before("a b a c a", "a", 4), 1);
+        assert_eq!(count_occurrences_before("a b a c a", "a", 5), 2);
+        assert_eq!(count_occurrences_before("a b a c a", "a", 9), 3);
+    }
+
+    #[test]
+    fn nth_occurrence_basic() {
+        assert_eq!(nth_occurrence("a b a c a", "a", 0), Some(0));
+        assert_eq!(nth_occurrence("a b a c a", "a", 1), Some(4));
+        assert_eq!(nth_occurrence("a b a c a", "a", 2), Some(8));
+        assert_eq!(nth_occurrence("a b a c a", "a", 3), None);
+    }
 }
