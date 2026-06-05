@@ -53,12 +53,8 @@ impl App {
         // trailing spacer (when present) carries an empty range. Used
         // to populate `visible_rows` after scroll-clipping.
         let mut node_row_byte_ranges: Vec<Vec<Range<usize>>> = Vec::with_capacity(node_count);
-        let node_lines: Vec<Vec<Line<'static>>> = self
-            .view
-            .document_nodes()
-            .iter()
-            .enumerate()
-            .map(|(node_idx, node)| {
+        let node_lines: Vec<Vec<Line<'static>>> = (0..node_count)
+            .map(|node_idx| {
                 let (indicator, indicator_style) = self.node_indicator(node_idx);
                 // Add a blank trailing line when the NEXT node is a block start.
                 // This keeps the spacer at the END of the preceding item so that
@@ -67,58 +63,40 @@ impl App {
                     node_idx + 1 < node_count && self.view.is_block_start(node_idx + 1);
 
                 // Code blocks render line-by-line without sentence wrap logic.
-                if let DocNode::CodeBlock {
-                    source_lines: range,
-                    ..
-                } = node
-                {
-                    let raw = self.view.source_range(range);
-                    let range_start = range.start;
-                    // Code-block plain is raw.join("\n"); per-source-line
-                    // byte ranges are derivable from cumulative line
-                    // lengths. Fence + content lines are both rendered,
-                    // so every visible row gets an entry.
-                    let mut row_ranges: Vec<Range<usize>> = Vec::with_capacity(raw.len() + 1);
-                    let mut cb_cursor = 0usize;
-                    for line in raw {
-                        let end = cb_cursor + line.len();
-                        row_ranges.push(cb_cursor..end);
-                        cb_cursor = end + 1;
+                if let Some(code_rows) = self.view.code_block_render_lines(node_idx) {
+                    let mut row_ranges: Vec<Range<usize>> = Vec::with_capacity(code_rows.len() + 1);
+                    let mut display_lines: Vec<Line> = Vec::with_capacity(code_rows.len() + 1);
+                    for (i, row) in code_rows.iter().enumerate() {
+                        let base_style = if row.is_fence {
+                            Style::default().fg(Color::DarkGray)
+                        } else {
+                            Style::default().fg(Color::White).bg(Color::DarkGray)
+                        };
+                        let mut spans = vec![if i == 0 {
+                            Span::styled(format!("{indicator} "), indicator_style)
+                        } else {
+                            Span::raw("  ")
+                        }];
+                        // Overlay highlight + strikes on this source
+                        // line by mapping the active anchor's
+                        // selection-view byte range (and each strike
+                        // range) into bytes within `line`. Without
+                        // this, code blocks rendered with no visible
+                        // cursor — the special draw path used to
+                        // bypass render_node_spans entirely so
+                        // word-mode highlight on a fenced code block
+                        // (e.g. YAML frontmatter folded as a
+                        // CodeBlock) showed nothing.
+                        self.push_codeblock_line_spans(
+                            &mut spans,
+                            node_idx,
+                            row.source_line,
+                            row.text,
+                            base_style,
+                        );
+                        row_ranges.push(row.byte_range.clone());
+                        display_lines.push(Line::from(spans));
                     }
-                    let mut display_lines: Vec<Line> = raw
-                        .iter()
-                        .enumerate()
-                        .map(|(i, line)| {
-                            let base_style = if line.trim_start().starts_with("```") {
-                                Style::default().fg(Color::DarkGray)
-                            } else {
-                                Style::default().fg(Color::White).bg(Color::DarkGray)
-                            };
-                            let mut spans = vec![if i == 0 {
-                                Span::styled(format!("{indicator} "), indicator_style)
-                            } else {
-                                Span::raw("  ")
-                            }];
-                            // Overlay highlight + strikes on this source
-                            // line by mapping the active anchor's
-                            // selection-view byte range (and each strike
-                            // range) into bytes within `line`. Without
-                            // this, code blocks rendered with no visible
-                            // cursor — the special draw path used to
-                            // bypass render_node_spans entirely so
-                            // word-mode highlight on a fenced code block
-                            // (e.g. YAML frontmatter folded as a
-                            // CodeBlock) showed nothing.
-                            self.push_codeblock_line_spans(
-                                &mut spans,
-                                node_idx,
-                                range_start + i,
-                                line,
-                                base_style,
-                            );
-                            Line::from(spans)
-                        })
-                        .collect();
                     if add_spacer_after {
                         display_lines.push(Line::from(""));
                         row_ranges.push(0..0);

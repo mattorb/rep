@@ -51,10 +51,6 @@ impl DocumentView {
         self.document.node_count()
     }
 
-    pub(crate) fn document_nodes(&self) -> &[DocNode] {
-        &self.document.nodes
-    }
-
     pub(crate) fn rendered_node(&self, node_idx: usize) -> Option<&RenderedNode> {
         self.rendered_nodes.get(node_idx)
     }
@@ -79,10 +75,6 @@ impl DocumentView {
             byte_range,
             gutter_cols,
         }));
-    }
-
-    pub(crate) fn source_range(&self, range: &Range<usize>) -> &[String] {
-        &self.source_lines[clamp_range(range, self.source_lines.len())]
     }
 
     pub(crate) fn is_block_start(&self, node_idx: usize) -> bool {
@@ -418,6 +410,33 @@ impl DocumentView {
         (prev, next)
     }
 
+    pub(crate) fn code_block_render_lines(
+        &self,
+        node_idx: usize,
+    ) -> Option<Vec<CodeBlockRenderLine<'_>>> {
+        let DocNode::CodeBlock {
+            source_lines: range,
+            ..
+        } = self.document.nodes.get(node_idx)?
+        else {
+            return None;
+        };
+        let range = clamp_range(range, self.source_lines.len());
+        let mut cursor = 0usize;
+        let mut rows = Vec::with_capacity(range.len());
+        for (offset, line) in self.source_lines[range.clone()].iter().enumerate() {
+            let end = cursor + line.len();
+            rows.push(CodeBlockRenderLine {
+                source_line: range.start + offset,
+                text: line.as_str(),
+                byte_range: cursor..end,
+                is_fence: line.trim_start().starts_with("```"),
+            });
+            cursor = end + 1;
+        }
+        Some(rows)
+    }
+
     pub(crate) fn selection_anchor_for_row_click(
         &self,
         node_idx: usize,
@@ -616,6 +635,14 @@ pub(crate) struct SourceLineContext {
     pub(crate) line_text: String,
     pub(crate) previous_line: Option<String>,
     pub(crate) next_line: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct CodeBlockRenderLine<'a> {
+    pub(crate) source_line: usize,
+    pub(crate) text: &'a str,
+    pub(crate) byte_range: Range<usize>,
+    pub(crate) is_fence: bool,
 }
 
 /// Per-node rendering cache: styled spans for the joined source text plus
