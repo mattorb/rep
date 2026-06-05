@@ -57,43 +57,33 @@ impl App {
                     node_idx + 1 < node_count && self.view.is_block_start(node_idx + 1);
 
                 // Code blocks render line-by-line without sentence wrap logic.
-                if let Some(code_rows) = self.view.code_block_render_lines(node_idx) {
-                    let section_highlight_active = self
-                        .section_highlight_range
-                        .as_ref()
-                        .is_some_and(|range| range.contains(&node_idx));
-                    let strike_units: Vec<(SelectionUnit, usize)> = self
-                        .strikes
-                        .get(&node_idx)
-                        .map(|set| set.iter().copied().collect())
-                        .unwrap_or_default();
+                let section_highlight_active = self
+                    .section_highlight_range
+                    .as_ref()
+                    .is_some_and(|range| range.contains(&node_idx));
+                let strike_units: Vec<(SelectionUnit, usize)> = self
+                    .strikes
+                    .get(&node_idx)
+                    .map(|set| set.iter().copied().collect())
+                    .unwrap_or_default();
+                if let Some(code_rows) = self.view.styled_code_block_rows(CodeBlockStyleRequest {
+                    node_idx,
+                    active_anchor: self.selection_state.anchor,
+                    section_highlight_active,
+                    strike_units: &strike_units,
+                }) {
                     let mut display_rows: Vec<RenderedDisplayRow> =
                         Vec::with_capacity(code_rows.len() + 1);
-                    for (i, row) in code_rows.iter().enumerate() {
-                        let base_style = if row.is_fence {
-                            Style::default().fg(Color::DarkGray)
-                        } else {
-                            Style::default().fg(Color::White).bg(Color::DarkGray)
-                        };
+                    for (i, mut row) in code_rows.into_iter().enumerate() {
                         let mut spans = vec![if i == 0 {
                             Span::styled(format!("{indicator} "), indicator_style)
                         } else {
                             Span::raw("  ")
                         }];
-                        spans.extend(self.view.styled_code_block_line_spans(
-                            CodeBlockLineStyleRequest {
-                                node_idx,
-                                source_line: row.source_line,
-                                line: row.text,
-                                base_style,
-                                active_anchor: self.selection_state.anchor,
-                                section_highlight_active,
-                                strike_units: &strike_units,
-                            },
-                        ));
+                        spans.append(&mut row.spans);
                         display_rows.push(RenderedDisplayRow {
                             line: Line::from(spans),
-                            byte_range: row.byte_range.clone(),
+                            byte_range: row.byte_range,
                         });
                     }
                     if add_spacer_after {

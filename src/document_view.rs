@@ -358,7 +358,38 @@ impl DocumentView {
             .collect()
     }
 
-    pub(crate) fn styled_code_block_line_spans(
+    pub(crate) fn styled_code_block_rows(
+        &self,
+        request: CodeBlockStyleRequest<'_>,
+    ) -> Option<Vec<CodeBlockDisplayRow>> {
+        let rows = self.code_block_render_lines(request.node_idx)?;
+        Some(
+            rows.into_iter()
+                .map(|row| {
+                    let base_style = if row.is_fence {
+                        Style::default().fg(Color::DarkGray)
+                    } else {
+                        Style::default().fg(Color::White).bg(Color::DarkGray)
+                    };
+                    let spans = self.styled_code_block_line_spans(CodeBlockLineStyleRequest {
+                        node_idx: request.node_idx,
+                        source_line: row.source_line,
+                        line: row.text,
+                        base_style,
+                        active_anchor: request.active_anchor,
+                        section_highlight_active: request.section_highlight_active,
+                        strike_units: request.strike_units,
+                    });
+                    CodeBlockDisplayRow {
+                        spans,
+                        byte_range: row.byte_range,
+                    }
+                })
+                .collect(),
+        )
+    }
+
+    fn styled_code_block_line_spans(
         &self,
         request: CodeBlockLineStyleRequest<'_>,
     ) -> Vec<Span<'static>> {
@@ -710,10 +741,7 @@ impl DocumentView {
         (prev, next)
     }
 
-    pub(crate) fn code_block_render_lines(
-        &self,
-        node_idx: usize,
-    ) -> Option<Vec<CodeBlockRenderLine<'_>>> {
+    fn code_block_render_lines(&self, node_idx: usize) -> Option<Vec<CodeBlockRenderLine<'_>>> {
         let DocNode::CodeBlock {
             source_lines: range,
             ..
@@ -953,14 +981,19 @@ pub(crate) struct SourceActionContext {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CodeBlockRenderLine<'a> {
-    pub(crate) source_line: usize,
-    pub(crate) text: &'a str,
-    pub(crate) byte_range: Range<usize>,
-    pub(crate) is_fence: bool,
+struct CodeBlockRenderLine<'a> {
+    source_line: usize,
+    text: &'a str,
+    byte_range: Range<usize>,
+    is_fence: bool,
 }
 
 pub(crate) struct WrappedDisplayRow {
+    pub(crate) spans: Vec<Span<'static>>,
+    pub(crate) byte_range: Range<usize>,
+}
+
+pub(crate) struct CodeBlockDisplayRow {
     pub(crate) spans: Vec<Span<'static>>,
     pub(crate) byte_range: Range<usize>,
 }
@@ -974,14 +1007,22 @@ pub(crate) struct DisplaySpanStyleRequest<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct CodeBlockLineStyleRequest<'a> {
+pub(crate) struct CodeBlockStyleRequest<'a> {
     pub(crate) node_idx: usize,
-    pub(crate) source_line: usize,
-    pub(crate) line: &'a str,
-    pub(crate) base_style: Style,
     pub(crate) active_anchor: SelectionAnchor,
     pub(crate) section_highlight_active: bool,
     pub(crate) strike_units: &'a [(SelectionUnit, usize)],
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CodeBlockLineStyleRequest<'a> {
+    node_idx: usize,
+    source_line: usize,
+    line: &'a str,
+    base_style: Style,
+    active_anchor: SelectionAnchor,
+    section_highlight_active: bool,
+    strike_units: &'a [(SelectionUnit, usize)],
 }
 
 /// Per-node rendering cache: styled spans for the joined source text plus

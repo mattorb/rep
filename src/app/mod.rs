@@ -16,7 +16,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 #[cfg(test)]
 use crate::document::DocNode;
 use crate::document_view::{
-    CodeBlockLineStyleRequest, DisplaySpanStyleRequest, DocumentView, SourceActionContext,
+    CodeBlockStyleRequest, DisplaySpanStyleRequest, DocumentView, SourceActionContext,
 };
 use crate::output::{
     EmitAction, EmitActionContext, EmitChange, EmitFeedback, EmitInsert, EmitKeymap,
