@@ -2,7 +2,7 @@
 name = "rep"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.95"
 description = "A multi-unit TUI annotation tool for Markdown files (section / paragraph / line / sentence / word), designed for human-AI review loops"
 repository = "https://github.com/mattorb/rep"
 license = "MIT"
