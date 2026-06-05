@@ -222,7 +222,9 @@ impl App {
         target: String,
         payload: Option<EmitPayload>,
     ) -> EmitAction {
-        let (prev_clean_line, next_clean_line) = self.context_lines(where_line);
+        let (previous_line, next_line) = self.view.neighboring_source_lines(where_line);
+        let prev_clean_line = clean_context(previous_line, EMIT_CONTEXT_MAX_CHARS);
+        let next_clean_line = clean_context(next_line, EMIT_CONTEXT_MAX_CHARS);
         EmitAction {
             action: action.to_string(),
             where_line: where_line + 1,
@@ -233,13 +235,5 @@ impl App {
             },
             payload,
         }
-    }
-
-    fn context_lines(&self, source_line: usize) -> (String, String) {
-        let (prev, next) = self.view.context_lines(source_line);
-        (
-            clean_context(prev, EMIT_CONTEXT_MAX_CHARS),
-            clean_context(next, EMIT_CONTEXT_MAX_CHARS),
-        )
     }
 }

@@ -406,7 +406,7 @@ impl DocumentView {
         }
     }
 
-    pub(crate) fn context_lines(&self, source_line: usize) -> (&str, &str) {
+    pub(crate) fn neighboring_source_lines(&self, source_line: usize) -> (&str, &str) {
         let prev = source_line
             .checked_sub(1)
             .and_then(|i| self.source_lines.get(i))
