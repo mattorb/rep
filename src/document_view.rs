@@ -56,21 +56,21 @@ impl DocumentView {
         &self.visible_rows
     }
 
-    pub(crate) fn clear_visible_rows(&mut self) {
-        self.visible_rows.clear();
-    }
-
-    pub(crate) fn push_visible_row(
+    pub(crate) fn set_visible_rows(
         &mut self,
-        node_idx: usize,
-        byte_range: Range<usize>,
+        rows: impl IntoIterator<Item = (usize, Range<usize>)>,
         gutter_cols: u16,
     ) {
-        self.visible_rows.push(Some(VisibleRowMap {
-            node_idx,
-            byte_range,
-            gutter_cols,
-        }));
+        self.visible_rows = rows
+            .into_iter()
+            .map(|(node_idx, byte_range)| {
+                Some(VisibleRowMap {
+                    node_idx,
+                    byte_range,
+                    gutter_cols,
+                })
+            })
+            .collect();
     }
 
     pub(crate) fn is_block_start(&self, node_idx: usize) -> bool {

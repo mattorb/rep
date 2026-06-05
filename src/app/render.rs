@@ -149,9 +149,7 @@ impl App {
         // clipped at the bottom rather than skipped entirely.
         frame.render_widget(list_block, layout[0]);
         let mut visible: Vec<Line<'static>> = Vec::new();
-        // Re-build the view-owned per-row map in lockstep so a click at a
-        // visible row resolves to the correct node and display byte range.
-        self.view.clear_visible_rows();
+        let mut visible_row_ranges: Vec<(usize, Range<usize>)> = Vec::new();
         let mut count = 0u16;
         'outer: for (node_idx, (lines, row_ranges)) in node_lines
             .iter()
@@ -164,11 +162,12 @@ impl App {
                     break 'outer;
                 }
                 visible.push(line.clone());
-                self.view
-                    .push_visible_row(node_idx, byte_range.clone(), GUTTER_WIDTH as u16);
+                visible_row_ranges.push((node_idx, byte_range.clone()));
                 count += 1;
             }
         }
+        self.view
+            .set_visible_rows(visible_row_ranges, GUTTER_WIDTH as u16);
         frame.render_widget(Paragraph::new(Text::from(visible)), list_inner);
 
         // Two-zone footer: persistent left mode indicator + transient right
