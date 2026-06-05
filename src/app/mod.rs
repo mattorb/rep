@@ -123,68 +123,6 @@ fn truncate_to_columns(s: &str, max_cols: usize) -> String {
     out
 }
 
-/// Walk `plain` alongside the wrapped output of `wrap_styled_spans` and
-/// return one byte range per visible row indicating which slice of
-/// `plain` that row's text occupies. Wrap drops some chars from `plain`
-/// (the joining `\n`s and any leading whitespace on continuation lines)
-/// but never adds new ones — every emitted char is a verbatim copy
-/// from the input — so we can match each row's chars positionally
-/// against `plain` to recover its byte range.
-fn wrap_line_byte_ranges(plain: &str, wrapped: &[Vec<Span<'static>>]) -> Vec<Range<usize>> {
-    let mut out = Vec::with_capacity(wrapped.len());
-    let mut cursor = 0usize;
-    for line in wrapped {
-        // Concatenate the line's visible chars in order.
-        let mut iter = line
-            .iter()
-            .flat_map(|s| s.content.chars())
-            .filter(|c| *c != '\n');
-        let Some(first) = iter.next() else {
-            // Empty visible line: zero-width range at the cursor.
-            out.push(cursor..cursor);
-            continue;
-        };
-        // Advance `cursor` past any plain chars dropped by wrap (`\n` or
-        // discarded leading whitespace) until it sits on the row's first
-        // char. Bail to a zero-width range if the row goes off the end
-        // of plain (shouldn't happen, but keeps the function total).
-        let mut start = None;
-        while cursor < plain.len() {
-            let Some(pc) = plain[cursor..].chars().next() else {
-                break;
-            };
-            if pc == first {
-                start = Some(cursor);
-                cursor += pc.len_utf8();
-                break;
-            }
-            cursor += pc.len_utf8();
-        }
-        let Some(start) = start else {
-            out.push(plain.len()..plain.len());
-            continue;
-        };
-        // Walk the rest of the row's chars in lockstep with plain. If a
-        // plain char doesn't match (unlikely outside the dropped-ws/\n
-        // case above), skip it and try again — this keeps the cursor
-        // honest even if wrap and our model diverge.
-        for ch in iter {
-            while cursor < plain.len() {
-                let Some(pc) = plain[cursor..].chars().next() else {
-                    break;
-                };
-                if pc == ch {
-                    cursor += pc.len_utf8();
-                    break;
-                }
-                cursor += pc.len_utf8();
-            }
-        }
-        out.push(start..cursor);
-    }
-    out
-}
-
 // ── App ───────────────────────────────────────────────────────────────────────
 
 #[derive(Debug)]

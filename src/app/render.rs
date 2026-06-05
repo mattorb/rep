@@ -112,8 +112,7 @@ impl App {
 
                 let spans = self.render_node_spans(node_idx);
                 let wrapped = wrap_styled_spans(spans, wrapped_text_width);
-                let plain = self.view.rendered_plain(node_idx).unwrap_or("");
-                let mut row_ranges = wrap_line_byte_ranges(plain, &wrapped);
+                let mut row_ranges = self.view.wrapped_row_byte_ranges(node_idx, &wrapped);
 
                 let mut wrapped_lines: Vec<Line> = wrapped
                     .into_iter()

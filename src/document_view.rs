@@ -216,12 +216,6 @@ impl DocumentView {
         }
     }
 
-    pub(crate) fn rendered_plain(&self, node_idx: usize) -> Option<&str> {
-        self.rendered_nodes
-            .get(node_idx)
-            .map(|rn| rn.plain.as_str())
-    }
-
     pub(crate) fn styled_display_spans(
         &self,
         request: DisplaySpanStyleRequest<'_>,
@@ -343,6 +337,18 @@ impl DocumentView {
             spans.push(Span::raw(plain.to_string()));
         }
         Some(spans)
+    }
+
+    pub(crate) fn wrapped_row_byte_ranges(
+        &self,
+        node_idx: usize,
+        wrapped: &[Vec<Span<'static>>],
+    ) -> Vec<Range<usize>> {
+        let plain = self
+            .rendered_nodes
+            .get(node_idx)
+            .map_or("", |rn| rn.plain.as_str());
+        wrap_line_byte_ranges(plain, wrapped)
     }
 
     pub(crate) fn styled_code_block_line_spans(
@@ -1177,6 +1183,58 @@ fn render_source_lines_with_breaks(
         line_ranges.push(line_start..plain.len());
     }
     (plain, spans, links, line_ranges)
+}
+
+/// Walk `plain` alongside the wrapped output of `wrap_styled_spans` and
+/// return one byte range per visible row indicating which slice of `plain`
+/// that row's text occupies. Wrap drops some chars from `plain` (the joining
+/// `\n`s and any leading whitespace on continuation lines), but every emitted
+/// char remains a verbatim copy from the input.
+fn wrap_line_byte_ranges(plain: &str, wrapped: &[Vec<Span<'static>>]) -> Vec<Range<usize>> {
+    let mut out = Vec::with_capacity(wrapped.len());
+    let mut cursor = 0usize;
+    for line in wrapped {
+        let mut iter = line
+            .iter()
+            .flat_map(|span| span.content.chars())
+            .filter(|ch| *ch != '\n');
+        let Some(first) = iter.next() else {
+            out.push(cursor..cursor);
+            continue;
+        };
+
+        let mut start = None;
+        while cursor < plain.len() {
+            let Some(plain_char) = plain[cursor..].chars().next() else {
+                break;
+            };
+            if plain_char == first {
+                start = Some(cursor);
+                cursor += plain_char.len_utf8();
+                break;
+            }
+            cursor += plain_char.len_utf8();
+        }
+        let Some(start) = start else {
+            out.push(plain.len()..plain.len());
+            continue;
+        };
+
+        for ch in iter {
+            while cursor < plain.len() {
+                let Some(plain_char) = plain[cursor..].chars().next() else {
+                    break;
+                };
+                if plain_char == ch {
+                    cursor += plain_char.len_utf8();
+                    break;
+                }
+                cursor += plain_char.len_utf8();
+            }
+        }
+        out.push(start..cursor);
+    }
+    out
 }
 
 pub(crate) fn clamp_range(r: &Range<usize>, len: usize) -> Range<usize> {
