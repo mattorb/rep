@@ -1887,21 +1887,8 @@ mod tests {
             unit: SelectionUnit::Line,
             unit_idx: 0,
         };
-        let rn = &app.view.rendered_nodes()[para_idx];
-        let plain = rn.plain.as_str();
-        let range = app
-            .view
-            .display_range_for_unit(para_idx, SelectionUnit::Line, 0)
-            .expect("line range");
-        assert_eq!(
-            range,
-            0..plain.len(),
-            "single-line paragraph should highlight whole display plain (display: {plain:?})"
-        );
-
-        // Verify the rendered spans actually paint the highlight all the
-        // way to the end of the line — the byte-range fix should
-        // translate into visible coverage.
+        // Verify the rendered spans paint the highlight all the way to
+        // the end of the line.
         let spans = app.render_node_spans(para_idx);
         let highlighted: String = spans
             .iter()

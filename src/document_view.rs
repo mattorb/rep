@@ -188,7 +188,7 @@ impl DocumentView {
     /// Map a selection unit on `node_idx` to bytes in the rendered display
     /// plain text. Section returns None because section paint covers whole
     /// nodes in the caller.
-    pub(crate) fn display_range_for_unit(
+    fn display_range_for_unit(
         &self,
         node_idx: usize,
         unit: SelectionUnit,
