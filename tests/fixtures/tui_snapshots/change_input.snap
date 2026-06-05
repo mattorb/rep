@@ -1,0 +1,24 @@
+---
+source: tests/tui_snapshots.rs
+expression: render(&mut app)
+---
+┌ rep_snapshot_change_input.md ────────────────────────────────────────┐
+│  # Release Plan                                                      │
+│                                                                      │
+│┌ Change ────────────────────────────────────────────────────────────┐│
+││Change mode: Enter save | Esc cancel                                ││
+││Change> Include the agent skill                                     ││
+│└────────────────────────────────────────────────────────────────────┘│
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+ mode: sentence     Change mode: type text and press Enter. Esc cancels.

@@ -6,6 +6,7 @@ DEFAULT_REPO="mattorb/rep"
 
 REPO="${REP_INSTALL_REPO:-$DEFAULT_REPO}"
 INSTALL_DIR="${REP_INSTALL_DIR:-$HOME/.local/bin}"
+SKILLS_DIR="${REP_SKILLS_DIR:-$HOME/.agents/skills}"
 VERSION="${REP_VERSION:-}"
 TARGET=""
 TMP_DIR=""
@@ -195,15 +196,24 @@ fi
 
 printf 'Installed to %s/%s\n' "$INSTALL_DIR" "$BIN_NAME"
 
+if [ -d "${TMP_DIR}/.agents/skills/rep" ]; then
+  mkdir -p "$SKILLS_DIR"
+  rm -rf "${SKILLS_DIR}/rep"
+  cp -R "${TMP_DIR}/.agents/skills/rep" "${SKILLS_DIR}/rep"
+  printf 'Installed agent skill to %s/rep\n' "$SKILLS_DIR"
+else
+  printf 'No bundled agent skill found in archive; skipped skill install.\n'
+fi
+
 case ":$PATH:" in
   *":${INSTALL_DIR}:"*)
-    printf 'Run `%s --help` to get started.\n' "$BIN_NAME"
+    printf "Run \`%s --help\` to get started.\n" "$BIN_NAME"
     ;;
   *)
     detect_profile_file
     printf '\n%s is not currently on your PATH.\n' "$INSTALL_DIR"
     printf 'Add this line to %s:\n' "$PROFILE_FILE"
-    printf '  export PATH="%s:$PATH"\n' "$INSTALL_DIR"
+    printf '  export PATH="%s:%s"\n' "$INSTALL_DIR" "\$PATH"
     printf 'Then restart your shell.\n'
     ;;
 esac

@@ -5,7 +5,7 @@ set -euo pipefail
 TOOLS=(claude codex gemini opencode hermes droid)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILLS_SRC="$SCRIPT_DIR/.claude/skills"
+SKILLS_SRC="$SCRIPT_DIR/.agents/skills"
 
 if [ ! -d "$SKILLS_SRC" ]; then
     echo "No skills directory found at $SKILLS_SRC" >&2

@@ -8,18 +8,26 @@ pub struct CliArgs {
     pub source_path: PathBuf,
 }
 
-pub fn parse_cli_args() -> Result<CliArgs> {
+#[derive(Debug, Clone)]
+pub enum CliCommand {
+    Run(CliArgs),
+    Help(String),
+    Version(String),
+}
+
+pub fn parse_cli_args() -> Result<CliCommand> {
     let mut source_path: Option<PathBuf> = None;
 
     for arg in env::args().skip(1) {
         match arg.as_str() {
             "-h" | "--help" => {
-                print_help();
-                std::process::exit(0);
+                return Ok(CliCommand::Help(help_text()));
             }
             "--version" | "-V" => {
-                println!("rep {}", env!("CARGO_PKG_VERSION"));
-                std::process::exit(0);
+                return Ok(CliCommand::Version(format!(
+                    "rep {}",
+                    env!("CARGO_PKG_VERSION")
+                )));
             }
             _ if arg.starts_with('-') => {
                 anyhow::bail!("unknown option: {arg}\nusage: rep <markdown-file-path>");
@@ -36,11 +44,11 @@ pub fn parse_cli_args() -> Result<CliArgs> {
     }
 
     let source_path = source_path.context("usage: rep <markdown-file-path>")?;
-    Ok(CliArgs { source_path })
+    Ok(CliCommand::Run(CliArgs { source_path }))
 }
 
-fn print_help() {
-    println!(
+fn help_text() -> String {
+    format!(
         "rep {} - Collaboratively Tag Text Tool
 
 Usage: rep [OPTIONS] <markdown-file>
@@ -52,5 +60,5 @@ Options:
   -h, --help        Print this help message
   -V, --version     Print version",
         env!("CARGO_PKG_VERSION")
-    );
+    )
 }

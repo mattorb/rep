@@ -5,6 +5,8 @@
 
 A human in the loop TUI to revise markdown plan files quickly in collaboration with an LLM.  It is **made for use inside a tmux session** wrapping an agent tool like Claude Code or Codex. This is the way.
 
+![Rep TUI demo](docs/rep-demo.gif)
+
 ## Overview
 
 `rep` opens a markdown file in an interactive terminal UI optimized for providing feedback and requesting changes.  On quit of the app, it prints out list a changes requested, for an AI agent.
@@ -27,6 +29,9 @@ The installer:
 - Downloads the matching release archive from [GitHub Releases](https://github.com/mattorb/rep/releases)
 - Verifies SHA-256 checksum against `checksums.txt`
 - Installs `rep` to `~/.local/bin` by default
+- Installs the bundled agent skill to `~/.agents/skills/rep` by default
+
+Install locations can be changed with `REP_INSTALL_DIR` and `REP_SKILLS_DIR`.
 
 ## Usage
 
@@ -60,12 +65,67 @@ $ claude
 ```
 
 ## Platform Support
-Note: I have been building and testing on Mac.   Linux and Windows binaries are in the release artifacts, but untested.
+
+| Platform | Release artifact | CI coverage | Support status |
+| --- | --- | --- | --- |
+| macOS x86_64 | `x86_64-apple-darwin` | Build and tests on GitHub-hosted macOS | Supported |
+| macOS arm64 | `aarch64-apple-darwin` | Cross-target release build on GitHub-hosted macOS | Supported |
+| Linux x86_64 | `x86_64-unknown-linux-musl` | Build and tests on GitHub-hosted Ubuntu | Supported |
+| Linux arm64 | `aarch64-unknown-linux-musl` | Cross-target release build on GitHub-hosted Ubuntu | Best effort |
+| Windows | none | none | Not currently supported |
+
+Release artifacts are limited to platforms that are either tested directly or built in CI with a documented support tier.
+
+## Keybindings
+
+| Key | Action |
+| --- | --- |
+| `i` / `o` | Cycle selection unit forward/backward |
+| `j` / `k` | Move to next/previous anchor in the active unit |
+| `c` | Request a change for the current selection |
+| `f` | Add feedback for the current selection |
+| `b` / `a` | Insert text before/after the current selection |
+| `x` | Strike the current sentence |
+| `[` / `]` | Jump to previous/next annotation |
+| `O` | Reveal link under the current selection |
+| `?` | Toggle help |
+| `q` | Quit and emit action blocks |
+| `Q` | Quit silently |
+
+## Emitted Action Example
+
+```text
+FILE: plan.md
+
+ACTION: change
+WHERE: line 12 sentence 2
+CONTEXT:
+  prev: The release workflow builds archives for every configured target.
+  target: Windows artifacts are published even though the installer and tests do not cover Windows.
+  next: Checksums are generated after packaging.
+CHANGE: Stop publishing Windows archives until CI and installer support are added.
+```
 
 ## Development
 ```sh
-cargo build
+./build.sh
 # binary is at target/debug/rep
+```
+
+Additional release checks:
+
+```sh
+cargo doc --no-deps
+cargo package --allow-dirty
+cargo publish --dry-run
+cargo audit
+shellcheck build.sh install.sh install-skills.sh .agents/skills/rep/scripts/*.sh scripts/*.sh
+```
+
+Record the README demo GIF with:
+
+```sh
+scripts/record-demo.sh
 ```
 
 ## License

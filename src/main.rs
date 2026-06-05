@@ -10,7 +10,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use rep::app::App;
-use rep::cli::parse_cli_args;
+use rep::cli::{CliCommand, parse_cli_args};
 use rep::ui;
 use rep::ui::Tui;
 
@@ -27,7 +27,13 @@ fn main() {
 
 fn real_main() -> Result<()> {
     let raw_args: Vec<OsString> = env::args_os().skip(1).collect();
-    let cli = parse_cli_args()?;
+    let cli = match parse_cli_args()? {
+        CliCommand::Run(cli) => cli,
+        CliCommand::Help(text) | CliCommand::Version(text) => {
+            println!("{text}");
+            return Ok(());
+        }
+    };
     if !ui::terminal_available() {
         let used_tmux_fallback = try_tmux_fallback(&raw_args)?;
         let should_try_local_terminal =

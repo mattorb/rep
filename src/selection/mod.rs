@@ -23,6 +23,6 @@ pub mod segment;
 #[cfg(test)]
 pub(crate) fn build_test_index(src: &str) -> index::SelectionIndex {
     let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
-    let doc = crate::document::Document::parse(src);
+    let doc = crate::document::Document::parse(src).unwrap();
     index::SelectionIndex::build(&doc, &lines)
 }

@@ -1,0 +1,24 @@
+---
+source: tests/tui_snapshots.rs
+expression: render(&mut app)
+---
+┌ rep_snapshot_normal.md ──────────────────────────────────────────────┐
+│  # Release Plan                                                      │
+│                                                                      │
+│  Ship the binary installer.                                          │
+│                                                                      │
+│  • Add checks.                                                       │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+ mode: sentence      Loaded file. Press q to quit and print annotations.

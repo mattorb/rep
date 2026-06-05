@@ -8,7 +8,13 @@ usage() {
   cat <<'USAGE'
 Usage: ./build.sh [--release] [cargo-build-args...]
 
-Builds the rep binary with cargo.
+Runs local validation and builds the rep binary with cargo.
+
+Validation:
+  - cargo fmt --check
+  - cargo clippy --all-targets -- -D warnings
+  - cargo test --locked
+  - cargo llvm-cov when installed, otherwise a coverage skip notice
 
 Examples:
   ./build.sh
@@ -52,6 +58,15 @@ run_cmd() {
 }
 
 run_cmd cargo fmt --check
+run_cmd cargo clippy --all-targets -- -D warnings
+run_cmd cargo test --locked
+
+if run_cmd cargo llvm-cov --version >/dev/null 2>&1; then
+  run_cmd cargo llvm-cov --locked --workspace --all-targets
+else
+  printf 'Coverage skipped: cargo-llvm-cov is not installed.\n'
+fi
+
 run_cmd "${build_cmd[@]}"
 
 if [[ "$release" == true ]]; then

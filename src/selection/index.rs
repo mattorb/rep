@@ -610,7 +610,7 @@ mod tests {
     fn node_selection_plain_text_per_variant() {
         // Heading: returns the parsed text (markers stripped by parser).
         let lines: Vec<String> = vec!["# My Heading".into()];
-        let doc = Document::parse("# My Heading");
+        let doc = Document::parse("# My Heading").unwrap();
         assert_eq!(
             node_selection_plain_text(&doc.nodes[0], &lines),
             "My Heading"
@@ -618,7 +618,7 @@ mod tests {
 
         // Paragraph: parsed plain text.
         let lines: Vec<String> = vec!["A paragraph here.".into()];
-        let doc = Document::parse("A paragraph here.");
+        let doc = Document::parse("A paragraph here.").unwrap();
         assert_eq!(
             node_selection_plain_text(&doc.nodes[0], &lines),
             "A paragraph here."
@@ -627,7 +627,7 @@ mod tests {
         // ListItem: source-line join with markers stripped.
         let src = "- the item text";
         let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
-        let doc = Document::parse(src);
+        let doc = Document::parse(src).unwrap();
         assert_eq!(
             node_selection_plain_text(&doc.nodes[0], &lines),
             "the item text"
@@ -636,7 +636,7 @@ mod tests {
         // CodeBlock: fence lines excluded.
         let src = "```\nfn x() {}\n```";
         let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
-        let doc = Document::parse(src);
+        let doc = Document::parse(src).unwrap();
         assert_eq!(
             node_selection_plain_text(&doc.nodes[0], &lines),
             "fn x() {}"
@@ -645,7 +645,7 @@ mod tests {
         // ThematicBreak: empty.
         let src = "---";
         let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();
-        let doc = Document::parse(src);
+        let doc = Document::parse(src).unwrap();
         assert_eq!(node_selection_plain_text(&doc.nodes[0], &lines), "");
     }
 

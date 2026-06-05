@@ -8,6 +8,17 @@ repository = "https://github.com/mattorb/rep"
 license = "MIT"
 keywords = ["tui", "markdown", "annotation", "review", "ai"]
 categories = ["command-line-utilities", "text-editors"]
+exclude = [
+    ".agents/",
+    ".claude/",
+    ".github/",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "combine_sentence_line_modes_plan.md",
+    "implementation.md",
+]
 
 [dependencies]
 anyhow = "1.0"
@@ -17,3 +28,6 @@ ratatui = "0.29"
 unicode-width = "0.2"
 pulldown-cmark = "0.12"
 markdown = "1"
+
+[dev-dependencies]
+insta = "1"

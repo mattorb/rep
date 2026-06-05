@@ -1,6 +1,5 @@
 #![cfg_attr(test, allow(dead_code))]
 
-#[cfg(test)]
 #[derive(Debug)]
 pub struct AgentOutput {
     pub source_file: String,
@@ -9,7 +8,6 @@ pub struct AgentOutput {
     pub annotations: Vec<LineAnnotationOutput>,
 }
 
-#[cfg(test)]
 #[derive(Debug)]
 pub struct KeymapOutput {
     /// Cycle the active selection unit forward (section -> paragraph ->
@@ -38,7 +36,6 @@ pub struct KeymapOutput {
     pub quit_silent: String,
 }
 
-#[cfg(test)]
 #[derive(Debug)]
 pub struct LineAnnotationOutput {
     pub line_number: usize,
@@ -51,7 +48,6 @@ pub struct LineAnnotationOutput {
     pub reactions: Vec<ReactionOutput>,
 }
 
-#[cfg(test)]
 #[derive(Debug)]
 pub struct LineContext {
     pub previous_line: Option<String>,
@@ -59,7 +55,6 @@ pub struct LineContext {
     pub next_line: Option<String>,
 }
 
-#[cfg(test)]
 #[derive(Debug)]
 pub struct ChangeOutput {
     pub created_at: String,
@@ -68,7 +63,6 @@ pub struct ChangeOutput {
     pub change: String,
 }
 
-#[cfg(test)]
 #[derive(Debug)]
 pub struct FeedbackOutput {
     pub created_at: String,
@@ -77,7 +71,6 @@ pub struct FeedbackOutput {
     pub feedback: String,
 }
 
-#[cfg(test)]
 #[derive(Debug)]
 pub struct InsertOutput {
     pub created_at: String,
@@ -86,7 +79,6 @@ pub struct InsertOutput {
     pub text: String,
 }
 
-#[cfg(test)]
 #[derive(Debug)]
 pub struct ReactionOutput {
     pub kind: String,

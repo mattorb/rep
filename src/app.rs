@@ -15,7 +15,6 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::document::{DocNode, Document};
 use crate::markdown::{MarkdownLinkRange, render_markdown_line};
 use crate::output::clean_context;
-#[cfg(test)]
 use crate::output::{
     AgentOutput, ChangeOutput, FeedbackOutput, InsertOutput, KeymapOutput, LineAnnotationOutput,
     LineContext, ReactionOutput,
@@ -86,11 +85,6 @@ enum EditableAnnotation {
 
 #[derive(Debug, Clone)]
 struct InsertAnnotation {
-    // Consumed only by the #[cfg(test)] InsertOutput in src/output.rs;
-    // dead in non-test builds. ChangeAnnotation / FeedbackAnnotation
-    // also read created_at for stale-annotation suppression in
-    // current_target_capture, so theirs are reachable everywhere.
-    #[allow(dead_code)]
     created_at: String,
     target_unit: SelectionUnit,
     sentence_index: Option<usize>,
@@ -622,7 +616,7 @@ impl App {
             |node| format!("{node:#?}"),
         );
         let ast_lines: Vec<String> = ast_text.lines().map(ToOwned::to_owned).collect();
-        let doc = Document::parse(&raw);
+        let doc = Document::parse(&raw).context("failed to parse markdown document")?;
         let rendered_nodes = build_rendered_nodes(&doc, &source_lines);
         let index = SelectionIndex::build(&doc, &source_lines);
 
@@ -3127,8 +3121,7 @@ impl App {
 
     // ── Output ────────────────────────────────────────────────────────────────
 
-    #[cfg(test)]
-    fn to_output(&self) -> AgentOutput {
+    pub fn to_output(&self) -> AgentOutput {
         let mut touched = BTreeSet::new();
         touched.extend(self.changes.keys().copied());
         touched.extend(self.feedbacks.keys().copied());
@@ -3595,7 +3588,7 @@ fn try_os_clipboard(text: &str) -> bool {
         if let Some(stdin) = child.stdin.as_mut() {
             let _ = stdin.write_all(text.as_bytes());
         }
-        if child.wait().is_ok() {
+        if child.wait().is_ok_and(|status| status.success()) {
             return true;
         }
     }

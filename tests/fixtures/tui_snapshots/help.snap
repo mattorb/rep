@@ -1,0 +1,24 @@
+---
+source: tests/tui_snapshots.rs
+expression: render(&mut app)
+---
+┌ Help ────────────────────────────────────────────────────────────────┐
+│  nav  next/prev                                                      │
+│  i / o               cycle unit finer / coarser (section ↔ paragraph │
+│↔ line ↔ sentence ↔ word)                                             │
+│  Space / Backspace   synonyms for i / o                              │
+│  j / k               next / prev anchor in active unit               │
+│  ↓ / ↑ / → / ←       synonyms for j / k                              │
+│  ]/[                 next/prev annotation                            │
+│                                                                      │
+│  I  AST view        O  links                                         │
+│  /  search          n/N  next/prev match                             │
+│  c  change (literal)                                                 │
+│  f  feedback (intent)                                                │
+│  b  a  insert before · after                                         │
+│  e  edit existing change/feedback                                    │
+│  x  clear annotation, or strike (sentence mode only)                 │
+│  r  copy result to clipboard                                         │
+│  q  Q          quit (confirm y/n) · silent quit                      │
+└──────────────────────────────────────────────────────────────────────┘
+ mode: sentence                      Help open. Press ? or Esc to close.

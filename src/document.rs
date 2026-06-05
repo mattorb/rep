@@ -1,5 +1,6 @@
 use std::ops::Range;
 
+use anyhow::Result;
 use markdown::mdast;
 
 // ── Data model ───────────────────────────────────────────────────────────────
@@ -79,7 +80,7 @@ impl DocNode {
 // ── Parser ────────────────────────────────────────────────────────────────────
 
 impl Document {
-    pub fn parse(content: &str) -> Self {
+    pub fn parse(content: &str) -> Result<Self> {
         // Start from GFM and additionally enable the frontmatter
         // construct. Without this, a YAML/TOML block delimited by
         // `---\n...\n---` at the top of the file would be misparsed
@@ -92,9 +93,7 @@ impl Document {
         // in display, so no highlight got painted.
         let mut options = markdown::ParseOptions::gfm();
         options.constructs.frontmatter = true;
-        let Ok(ast) = markdown::to_mdast(content, &options) else {
-            return Self { nodes: Vec::new() };
-        };
+        let ast = markdown::to_mdast(content, &options).map_err(anyhow::Error::msg)?;
 
         let mut nodes = Vec::new();
         let mut list_counter = 0usize;
@@ -104,7 +103,7 @@ impl Document {
             }
         }
 
-        Self { nodes }
+        Ok(Self { nodes })
     }
 }
 
@@ -390,7 +389,7 @@ mod tests {
 
     #[test]
     fn parses_heading_and_paragraph() {
-        let doc = Document::parse("# Hello World\n\nSome text.");
+        let doc = Document::parse("# Hello World\n\nSome text.").unwrap();
         assert_eq!(doc.nodes.len(), 2);
         assert!(doc.nodes[0].is_heading());
         let DocNode::Heading {
@@ -408,7 +407,8 @@ mod tests {
 
     #[test]
     fn joins_soft_wrapped_paragraph_lines() {
-        let doc = Document::parse("This is a sentence that\ncontinues here. Next sentence.");
+        let doc =
+            Document::parse("This is a sentence that\ncontinues here. Next sentence.").unwrap();
         assert_eq!(doc.nodes.len(), 1);
         let DocNode::Paragraph { text, .. } = &doc.nodes[0] else {
             panic!("expected Paragraph")
@@ -421,7 +421,7 @@ mod tests {
 
     #[test]
     fn parses_unordered_list() {
-        let doc = Document::parse("- First item\n- Second item\n- Third item");
+        let doc = Document::parse("- First item\n- Second item\n- Third item").unwrap();
         assert_eq!(doc.nodes.len(), 3);
         for node in &doc.nodes {
             assert!(matches!(node, DocNode::ListItem { ordered: false, .. }));
@@ -435,7 +435,7 @@ mod tests {
 
     #[test]
     fn parses_ordered_list() {
-        let doc = Document::parse("1. Alpha\n2. Beta\n3. Gamma");
+        let doc = Document::parse("1. Alpha\n2. Beta\n3. Gamma").unwrap();
         assert_eq!(doc.nodes.len(), 3);
         let prefixes: Vec<_> = doc
             .nodes
@@ -453,7 +453,7 @@ mod tests {
 
     #[test]
     fn parses_fenced_code_block() {
-        let doc = Document::parse("```rust\nfn main() {}\n```");
+        let doc = Document::parse("```rust\nfn main() {}\n```").unwrap();
         assert_eq!(doc.nodes.len(), 1);
         let DocNode::CodeBlock {
             language, content, ..
@@ -468,7 +468,7 @@ mod tests {
     #[test]
     fn content_node_navigation_includes_headings_and_code() {
         let src = "# Title\n\nText here.\n\n```sh\necho hi\n```\n\nMore text.";
-        let doc = Document::parse(src);
+        let doc = Document::parse(src).unwrap();
         // nodes: [Heading, Paragraph, CodeBlock, Paragraph]
         // Headings and non-empty code blocks count as content.
         assert_eq!(doc.next_content_node(0), Some(0)); // heading is visitable
@@ -479,7 +479,7 @@ mod tests {
     #[test]
     fn nested_list_produces_flat_nodes_with_depth() {
         let src = "- Top\n  - Nested\n- Top2";
-        let doc = Document::parse(src);
+        let doc = Document::parse(src).unwrap();
         let depths: Vec<usize> = doc
             .nodes
             .iter()
@@ -499,7 +499,7 @@ mod tests {
     #[test]
     fn source_line_mapping() {
         let src = "# Title\n\nParagraph starts here\nand continues.\n\n## Next";
-        let doc = Document::parse(src);
+        let doc = Document::parse(src).unwrap();
         assert_eq!(doc.nodes[0].source_start_line(), 0); // "# Title" on line 0
         assert_eq!(doc.nodes[1].source_start_line(), 2); // paragraph starts on line 2
     }
@@ -509,7 +509,7 @@ mod tests {
     #[test]
     fn two_consecutive_lists_have_distinct_list_ids() {
         // Unordered then ordered — markdown spec guarantees these are separate List nodes.
-        let doc = Document::parse("- A1\n- A2\n\n1. B1\n2. B2");
+        let doc = Document::parse("- A1\n- A2\n\n1. B1\n2. B2").unwrap();
         assert_eq!(doc.nodes.len(), 4);
         let ids: Vec<usize> = doc
             .nodes
@@ -533,7 +533,7 @@ mod tests {
     #[test]
     fn block_end_stops_at_first_list_boundary() {
         // Unordered then ordered produces two distinct lists in the AST.
-        let doc = Document::parse("- A1\n- A2\n\n1. B1\n2. B2");
+        let doc = Document::parse("- A1\n- A2\n\n1. B1\n2. B2").unwrap();
         assert_eq!(
             doc.block_end(0),
             1,
@@ -548,7 +548,7 @@ mod tests {
 
     #[test]
     fn is_block_start_true_at_second_list_start() {
-        let doc = Document::parse("- A\n- B\n\n1. C\n2. D");
+        let doc = Document::parse("- A\n- B\n\n1. C\n2. D").unwrap();
         assert!(doc.is_block_start(0));
         assert!(
             !doc.is_block_start(1),
@@ -566,7 +566,7 @@ mod tests {
 
     #[test]
     fn block_end_for_non_list_node_returns_self() {
-        let doc = Document::parse("# Title\n\nParagraph.\n\n```rust\ncode\n```");
+        let doc = Document::parse("# Title\n\nParagraph.\n\n```rust\ncode\n```").unwrap();
         assert_eq!(doc.block_end(0), 0, "heading");
         assert_eq!(doc.block_end(1), 1, "paragraph");
         assert_eq!(doc.block_end(2), 2, "code block");
@@ -574,7 +574,7 @@ mod tests {
 
     #[test]
     fn nested_list_items_share_list_id_and_block_end_spans_all() {
-        let doc = Document::parse("- Top\n  - Nested\n- Top2");
+        let doc = Document::parse("- Top\n  - Nested\n- Top2").unwrap();
         // nodes: [ListItem(depth=0, Top), ListItem(depth=1, Nested), ListItem(depth=0, Top2)]
         let ids: Vec<usize> = doc
             .nodes

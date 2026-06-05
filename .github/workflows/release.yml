@@ -29,20 +29,20 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             use_cross: false
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            use_cross: false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
         with:
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Check release tag matches Cargo.toml
+        run: scripts/release-version.sh check
+
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           key: ${{ matrix.target }}
 
@@ -77,7 +77,7 @@ jobs:
             $binaryName = $binary
             $archive = "$binary-$version-$target.tar.gz"
             Copy-Item (Join-Path $releaseDir $binaryName) $binaryName
-            tar czf $archive $binaryName
+            tar czf $archive $binaryName .agents/skills/rep
           }
 
           $sha = (Get-FileHash -Algorithm SHA256 -Path $archive).Hash.ToLowerInvariant()
@@ -86,12 +86,12 @@ jobs:
 
       - name: Attest build provenance
         if: ${{ github.event.repository.private == false }}
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         with:
           subject-path: ${{ steps.package.outputs.archive }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ steps.package.outputs.archive }}
           path: ${{ steps.package.outputs.archive }}
@@ -100,7 +100,7 @@ jobs:
       - name: Record checksum
         run: echo "${{ steps.package.outputs.sha256 }}  ${{ steps.package.outputs.archive }}" >> checksums-${{ matrix.target }}.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: checksum-${{ matrix.target }}
           path: checksums-${{ matrix.target }}.txt
@@ -110,12 +110,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
           merge-multiple: true
@@ -124,7 +124,7 @@ jobs:
         run: cat artifacts/checksums-*.txt > checksums.txt
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             artifacts/*.tar.gz
