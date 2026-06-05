@@ -504,6 +504,18 @@ impl DocumentView {
         Some((unit_idx, text))
     }
 
+    pub(crate) fn sentence_index_for_anchor(&self, anchor: SelectionAnchor) -> Option<usize> {
+        if anchor.unit != SelectionUnit::Sentence {
+            return None;
+        }
+        self.selection_index
+            .nodes
+            .get(anchor.node_idx)?
+            .sentence_ranges
+            .get(anchor.unit_idx)?;
+        Some(anchor.unit_idx)
+    }
+
     pub(crate) fn target_capture(&self, anchor: SelectionAnchor) -> Option<(usize, String)> {
         match anchor.unit {
             SelectionUnit::Line => self.line_capture(anchor.node_idx, anchor.unit_idx),

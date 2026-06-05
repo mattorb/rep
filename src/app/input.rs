@@ -688,8 +688,7 @@ impl App {
         if self.selection_state.anchor.unit == SelectionUnit::Sentence
             && let Some(idx) = self
                 .view
-                .sentence_context(self.selection_state.anchor)
-                .map(|(idx, _)| idx)
+                .sentence_index_for_anchor(self.selection_state.anchor)
         {
             changes.iter().rposition(|c| c.sentence_index == Some(idx))
         } else {
@@ -702,8 +701,7 @@ impl App {
         if self.selection_state.anchor.unit == SelectionUnit::Sentence
             && let Some(idx) = self
                 .view
-                .sentence_context(self.selection_state.anchor)
-                .map(|(idx, _)| idx)
+                .sentence_index_for_anchor(self.selection_state.anchor)
         {
             feedbacks
                 .iter()
@@ -807,13 +805,9 @@ impl App {
         // Sentence-keyed match only fires in Sentence mode; in any other
         // unit the unit_idx is not a sentence index. Mirrors the same
         // gate applied in existing_change/feedback_for_cursor.
-        let sentence_idx = if self.selection_state.anchor.unit == SelectionUnit::Sentence {
-            self.view
-                .sentence_context(self.selection_state.anchor)
-                .map(|(idx, _)| idx)
-        } else {
-            None
-        };
+        let sentence_idx = self
+            .view
+            .sentence_index_for_anchor(self.selection_state.anchor);
 
         let sentence_match = sentence_idx.and_then(|idx| {
             let change = self
