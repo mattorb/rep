@@ -105,33 +105,29 @@ impl App {
                 }
 
                 let spans = self.render_node_spans(node_idx);
-                let wrapped = wrap_styled_spans(spans, wrapped_text_width);
-                let mut row_ranges = self.view.wrapped_row_byte_ranges(node_idx, &wrapped);
-
-                let mut wrapped_lines: Vec<Line> = wrapped
+                let mut display_rows: Vec<RenderedDisplayRow> = self
+                    .view
+                    .wrapped_display_rows(node_idx, spans, wrapped_text_width)
                     .into_iter()
                     .enumerate()
-                    .map(|(seg_idx, mut seg)| {
+                    .map(|(seg_idx, mut row)| {
                         let mut line_spans = Vec::new();
                         if seg_idx == 0 {
                             line_spans.push(Span::styled(format!("{indicator} "), indicator_style));
                         } else {
                             line_spans.push(Span::raw("  "));
                         }
-                        line_spans.append(&mut seg);
-                        Line::from(line_spans)
+                        line_spans.append(&mut row.spans);
+                        RenderedDisplayRow {
+                            line: Line::from(line_spans),
+                            byte_range: row.byte_range,
+                        }
                     })
                     .collect();
 
                 if add_spacer_after {
-                    wrapped_lines.push(Line::from(""));
-                    row_ranges.push(0..0);
+                    display_rows.push(RenderedDisplayRow::spacer());
                 }
-                let display_rows: Vec<RenderedDisplayRow> = wrapped_lines
-                    .into_iter()
-                    .zip(row_ranges)
-                    .map(|(line, byte_range)| RenderedDisplayRow { line, byte_range })
-                    .collect();
                 let height = display_rows.len().max(1) as u16;
                 node_heights.push(height);
                 display_rows

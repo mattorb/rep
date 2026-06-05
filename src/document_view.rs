@@ -8,6 +8,7 @@ use crate::document::{DocNode, Document};
 use crate::markdown::{MarkdownLinkRange, render_markdown_line};
 use crate::selection::index::SelectionIndex;
 use crate::selection::model::{NavOutcome, SelectionAnchor, SelectionUnit};
+use crate::ui::wrap_styled_spans;
 
 /// Owns the parsed source and the derived views used by app input, rendering,
 /// hit testing, and output context.
@@ -338,16 +339,23 @@ impl DocumentView {
         Some(spans)
     }
 
-    pub(crate) fn wrapped_row_byte_ranges(
+    pub(crate) fn wrapped_display_rows(
         &self,
         node_idx: usize,
-        wrapped: &[Vec<Span<'static>>],
-    ) -> Vec<Range<usize>> {
+        spans: Vec<Span<'static>>,
+        width: usize,
+    ) -> Vec<WrappedDisplayRow> {
+        let wrapped = wrap_styled_spans(spans, width);
         let plain = self
             .rendered_nodes
             .get(node_idx)
             .map_or("", |rn| rn.plain.as_str());
-        wrap_line_byte_ranges(plain, wrapped)
+        let byte_ranges = wrap_line_byte_ranges(plain, &wrapped);
+        wrapped
+            .into_iter()
+            .zip(byte_ranges)
+            .map(|(spans, byte_range)| WrappedDisplayRow { spans, byte_range })
+            .collect()
     }
 
     pub(crate) fn styled_code_block_line_spans(
@@ -950,6 +958,11 @@ pub(crate) struct CodeBlockRenderLine<'a> {
     pub(crate) text: &'a str,
     pub(crate) byte_range: Range<usize>,
     pub(crate) is_fence: bool,
+}
+
+pub(crate) struct WrappedDisplayRow {
+    pub(crate) spans: Vec<Span<'static>>,
+    pub(crate) byte_range: Range<usize>,
 }
 
 #[derive(Debug, Clone, Copy)]
