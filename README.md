@@ -3,18 +3,18 @@
 
 # Rep
 
-A human in the loop TUI to revise markdown plan files quickly in collaboration with an LLM.  It is **made for use inside a tmux session** wrapping an agent tool like Claude Code or Codex. This is the way.
+A human in the loop TUI to revise markdown plan files quickly in collaboration with an LLM. It is primarily **made for use inside a tmux session** wrapping an agent tool like Claude Code or Codex. This is the way.
 
 ![Rep TUI demo](docs/rep-demo.gif)
 
 ## Overview
 
-`rep` opens a markdown file in an interactive terminal UI optimized for providing feedback and requesting changes.  On quit of the app, it prints out list a changes requested, for an AI agent.
+`rep` opens a markdown file in an interactive terminal UI optimized for providing feedback and requesting changes from an LLM. On quit of the app, it prints out list a [changes requested](#emitted-annotations-example), for an AI agent.
 
 For a seamless experience, launch Codex or Claude Code inside a tmux session, which allows rep to launch as modal and automatically pass the results into the agentic loop.
 
-**Why not just talk to the LLM asking for the changes I want**
-You can try, but to really target your changes and apply a whole series of them in one shot, you will end up having to provide lots of context.   Rep automatically includes context of _where_ in the plan you are requesting any given change.
+* Why not just talk to the LLM asking for the changes I want? *
+To really target your changes and apply a whole series of them in one shot, you have to provide lots of context. Rep automatically includes context of _where_ in the plan you are requesting any given change.
 
 ## Installation
 
@@ -39,7 +39,7 @@ The BEST way to use this TUI tool is in the agentic loop, with a skill, immediat
 
 1. Ensure `rep` is on your PATH
 2. Install the agent skill: `./install-skills.sh`
-3. Launch tmux, and you Agentic coding tool inside of the tmux session.  Wrapping the agent in a tmux session is what allows rep to present modally and automatically continue the agentic loop on quit.
+3. Launch tmux, and then launch your Agentic coding tool inside of that tmux session. Wrapping the agent in a tmux session is what allows rep to present modally and automatically feed its results into the agentic loop.
 ```
 $ tmux new-session -t tryrep
 $ claude
@@ -49,8 +49,9 @@ $ claude
 **Claude Code**
 ```
 ) generate a plan to accomplish [goal] and write it to a plan.md
-...ai plans...
+...ai creates plan.md...
 ) /rep plan.md
+...you 'mark up' the mark down file :), then 'q'uit rep.
 ...ai applies edits/feedback...
 ) 
 ```
@@ -58,11 +59,14 @@ $ claude
 **Codex**
 ```
 > generate a plan to accomplish [goal] and write it to a plan.md
-...ai plans...
+...ai creates plan.md...
 > $rep plan.md
+...you 'mark up' the mark down file :), then 'q'uit rep.
 ...ai applies edits/feedback...
 >
 ```
+
+Note: rep _can_ also be executed directly against a plan file outside of an agentic loop, but you'll have copy/paste the annotation output back to an LLM and give it a hint on how to proceed.
 
 ## Platform Support
 
@@ -70,29 +74,12 @@ $ claude
 | --- | --- | --- | --- |
 | macOS x86_64 | `x86_64-apple-darwin` | Build and tests on GitHub-hosted macOS | Supported |
 | macOS arm64 | `aarch64-apple-darwin` | Cross-target release build on GitHub-hosted macOS | Supported |
-| Linux x86_64 | `x86_64-unknown-linux-musl` | Build and tests on GitHub-hosted Ubuntu | Supported |
-| Linux arm64 | `aarch64-unknown-linux-musl` | Cross-target release build on GitHub-hosted Ubuntu | Best effort |
+| Linux x86_64 | `x86_64-unknown-linux-musl` | Build and tests on GitHub-hosted Ubuntu | untested |
+| Linux arm64 | `aarch64-unknown-linux-musl` | Cross-target release build on GitHub-hosted Ubuntu | untested |
 | Windows | none | none | Not currently supported |
 
-Release artifacts are limited to platforms that are either tested directly or built in CI with a documented support tier.
-
-## Keybindings
-
-| Key | Action |
-| --- | --- |
-| `i` / `o` | Cycle selection unit forward/backward |
-| `j` / `k` | Move to next/previous anchor in the active unit |
-| `c` | Request a change for the current selection |
-| `f` | Add feedback for the current selection |
-| `b` / `a` | Insert text before/after the current selection |
-| `x` | Strike the current sentence |
-| `[` / `]` | Jump to previous/next annotation |
-| `O` | Reveal link under the current selection |
-| `?` | Toggle help |
-| `q` | Quit and emit action blocks |
-| `Q` | Quit silently |
-
-## Emitted Action Example
+## Emitted Annotations Example
+On exit, something like this prints to stdout, for the LLM agent to consume and make modifications to the markdown plan file.
 
 ```text
 FILE: plan.md
@@ -104,28 +91,6 @@ CONTEXT:
   target: Windows artifacts are published even though the installer and tests do not cover Windows.
   next: Checksums are generated after packaging.
 CHANGE: Stop publishing Windows archives until CI and installer support are added.
-```
-
-## Development
-```sh
-./build.sh
-# binary is at target/debug/rep
-```
-
-Additional release checks:
-
-```sh
-cargo doc --no-deps
-cargo package --allow-dirty
-cargo publish --dry-run
-cargo audit
-shellcheck build.sh install.sh install-skills.sh .agents/skills/rep/scripts/*.sh scripts/*.sh
-```
-
-Record the README demo GIF with:
-
-```sh
-scripts/record-demo.sh
 ```
 
 ## License
