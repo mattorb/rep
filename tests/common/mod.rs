@@ -9,6 +9,7 @@
 #![allow(dead_code)]
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::{Terminal, backend::TestBackend};
 use rep::app::App;
 use std::path::{Path, PathBuf};
 
@@ -68,6 +69,32 @@ pub fn parse_keys(body: &str) -> Vec<KeyEvent> {
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .map(parse_key)
         .collect()
+}
+
+/// Load an `App` from a deterministic temp-file name for render snapshots.
+pub fn snapshot_app(name: &str, content: &str) -> App {
+    let path = std::env::temp_dir().join(format!("rep_snapshot_{name}.md"));
+    std::fs::write(&path, content).unwrap();
+    App::load(path).unwrap()
+}
+
+/// Render an `App` into a stable TestBackend string.
+pub fn render_app_to_string(app: &mut App, width: u16, height: u16) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let buffer = terminal.backend().buffer();
+    let mut out = String::new();
+    for y in 0..buffer.area.height {
+        for x in 0..buffer.area.width {
+            out.push_str(
+                buffer
+                    .cell(ratatui::layout::Position::new(x, y))
+                    .map_or(" ", |cell| cell.symbol()),
+            );
+        }
+        out.push('\n');
+    }
+    out
 }
 
 /// Replay a transcript: load `input.md` into a fresh `App`, dispatch each

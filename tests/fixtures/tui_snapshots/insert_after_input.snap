@@ -1,0 +1,26 @@
+---
+source: tests/tui_snapshots.rs
+expression: render(&mut app)
+---
+┌ rep_snapshot_insert_after_input.md ──────────────────────────────────┐
+│  # Release Plan                                                      │
+│                                                                      │
+│┌ Insert After ──────────────────────────────────────────────────────┐│
+││Insert after: Enter save | Esc cancel                               ││
+││After> Follow with install verification                             ││
+│└────────────────────────────────────────────────────────────────────┘│
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+ mode: sentence    Insert after: type text and press Enter. Esc cancels.

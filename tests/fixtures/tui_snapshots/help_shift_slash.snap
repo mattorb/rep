@@ -1,0 +1,26 @@
+---
+source: tests/tui_snapshots.rs
+expression: render(&mut app)
+---
+┌ Help ────────────────────────────────────────────────────────────────┐
+│                                                                      │
+│  Navigate                                                            │
+│  j, k    next/prev unit                                              │
+│  i, o    finer/coarser units                                         │
+│                                                                      │
+│  Annotate                                                            │
+│  c       change (literal)                                            │
+│  f       feedback (intent)                                           │
+│  b, a    insert before/after                                         │
+│  x       clear or strike                                             │
+│                                                                      │
+│  [, ]    prev/next annotation                                        │
+│  e       edit annotation                                             │
+│  /       search                                                      │
+│  n, N    next/prev search match                                      │
+│                                                                      │
+│  r       copy annotations to clipboard                               │
+│  q       quit; printing changes to stdout                            │
+│  Q       silent quit (discard annotations)                           │
+└──────────────────────────────────────────────────────────────────────┘
+ mode: sentence                      Help open. Press ? or Esc to close.

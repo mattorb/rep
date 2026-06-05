@@ -1,0 +1,26 @@
+---
+source: tests/tui_snapshots.rs
+expression: render(&mut app)
+---
+┌ rep_snapshot_quit_confirmation.md ───────────────────────────────────┐
+│  # Release Plan                                                      │
+│                                                                      │
+│  Ship the binary installer.                                          │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+ mode: sentence              Are you sure? (results go to stdout)  y / n

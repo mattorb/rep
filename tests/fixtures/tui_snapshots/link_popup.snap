@@ -1,0 +1,26 @@
+---
+source: tests/tui_snapshots.rs
+expression: render(&mut app)
+---
+┌ rep_snapshot_link_popup.md ──────────────────────────────────────────┐
+│  # Release Plan                                                      │
+│                                                                      │
+│  See the installer before shipping.                                  │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│    ┌ Link ──────────────────────────────────────────────────────┐    │
+│    │Links in current sentence:                                  │    │
+│    │                                                            │    │
+│    │1. https://example.com/install                              │    │
+│    │                                                            │    │
+│    └────────────────────────────────────────────────────────────┘    │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+ mode: sentence                 Showing 1 link(s) from current sentence.

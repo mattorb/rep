@@ -1,0 +1,26 @@
+---
+source: tests/tui_snapshots.rs
+expression: render(&mut app)
+---
+┌ rep_snapshot_search_input.md ────────────────────────────────────────┐
+│  # Release Plan                                                      │
+│                                                                      │
+│┌ Search ────────────────────────────────────────────────────────────┐│
+││Search: Enter jump | Esc cancel | n/N next/prev                     ││
+││/binary                                                             ││
+│└────────────────────────────────────────────────────────────────────┘│
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+ mode: sentence       Search: type pattern and press Enter. Esc cancels.

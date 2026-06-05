@@ -1,0 +1,26 @@
+---
+source: tests/tui_snapshots.rs
+expression: render(&mut app)
+---
+┌ rep_snapshot_insert_before_input.md ─────────────────────────────────┐
+│  # Release Plan                                                      │
+│                                                                      │
+│┌ Insert Before ─────────────────────────────────────────────────────┐│
+││Insert before: Enter save | Esc cancel                              ││
+││Before> Add a rollback note                                         ││
+│└────────────────────────────────────────────────────────────────────┘│
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+ mode: sentence   Insert before: type text and press Enter. Esc cancels.

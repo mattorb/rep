@@ -1,0 +1,26 @@
+---
+source: tests/tui_snapshots.rs
+expression: render(&mut app)
+---
+┌ rep_snapshot_feedback_input.md ──────────────────────────────────────┐
+│  # Release Plan                                                      │
+│                                                                      │
+│┌ Feedback ──────────────────────────────────────────────────────────┐│
+││Feedback mode: Enter save | Esc cancel                              ││
+││Feedback> Clarify the release risk                                  ││
+│└────────────────────────────────────────────────────────────────────┘│
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+ mode: sentence   Feedback mode: type text and press Enter. Esc cancels.
