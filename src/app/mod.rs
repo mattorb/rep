@@ -2280,13 +2280,8 @@ mod tests {
     fn click_words_in_real_markdown_file() {
         // Walk every visible word in a real wrapped document and assert
         // that a click on each word's column resolves to that word.
-        let path = std::path::PathBuf::from(
-            "/Users/admin/dev/projects/mattorb.com/src/content/posts/macbook-neo-ai-remote-control.md",
-        );
-        if !path.exists() {
-            eprintln!("skipping: {} not present", path.display());
-            return;
-        }
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/app/click-words-real-markdown.md");
         let mut app = App::load(path).unwrap();
         let mut terminal = Terminal::new(TestBackend::new(80, 40)).unwrap();
         terminal.draw(|f| app.draw(f)).unwrap();

@@ -1,4 +1,5 @@
 /target
 .claude/
+*.snap.new
 # Debug artifacts written by the transcript test driver on golden mismatches.
 tests/fixtures/transcripts/**/*.actual.txt
