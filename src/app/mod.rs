@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(test)]
 use std::fmt::Write;
 use std::fs;
 use std::ops::Range;
@@ -14,10 +15,10 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::document::DocNode;
 use crate::document_view::DocumentView;
-use crate::output::clean_context;
 use crate::output::{
-    AgentOutput, ChangeOutput, FeedbackOutput, InsertOutput, KeymapOutput, LineAnnotationOutput,
-    LineContext, ReactionOutput,
+    EmitAction, EmitActionContext, EmitChange, EmitFeedback, EmitInsert, EmitKeymap,
+    EmitLineAnnotation, EmitLineContext, EmitModel, EmitPayload, EmitReaction, clean_context,
+    render_human_output,
 };
 use crate::selection::model::{SelectionAnchor, SelectionState, SelectionUnit};
 use crate::ui::wrap_styled_spans;
@@ -837,6 +838,29 @@ mod tests {
         assert_eq!(out.annotations[0].inserts_after[0].text, "post");
         assert_eq!(out.keymap.insert_before, "b");
         assert_eq!(out.keymap.insert_after, "a");
+    }
+
+    #[test]
+    fn emit_model_actions_capture_human_output_fields() {
+        let mut app = test_app("Intro.\nTarget sentence.\nAfter.\n");
+        app.selection_state.anchor.unit_idx = 1;
+        app.handle_key(key_char('c'));
+        for ch in "tighten wording".chars() {
+            app.handle_key(key_char(ch));
+        }
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        let model = app.to_output();
+        assert_eq!(model.actions.len(), 1);
+        let action = &model.actions[0];
+        assert_eq!(action.action, "change");
+        assert_eq!(action.where_line, 2);
+        assert_eq!(action.context.previous_line.as_deref(), Some("Intro."));
+        assert_eq!(action.context.target, "Target sentence.");
+        assert_eq!(action.context.next_line.as_deref(), Some("After."));
+        let payload = action.payload.as_ref().expect("change payload");
+        assert_eq!(payload.key, "CHANGE");
+        assert_eq!(payload.text, "tighten wording");
     }
 
     #[test]

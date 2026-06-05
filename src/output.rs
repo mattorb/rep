@@ -1,15 +1,16 @@
 #![cfg_attr(test, allow(dead_code))]
 
 #[derive(Debug)]
-pub struct AgentOutput {
+pub struct EmitModel {
     pub source_file: String,
     pub generated_at: String,
-    pub keymap: KeymapOutput,
-    pub annotations: Vec<LineAnnotationOutput>,
+    pub keymap: EmitKeymap,
+    pub annotations: Vec<EmitLineAnnotation>,
+    pub actions: Vec<EmitAction>,
 }
 
 #[derive(Debug)]
-pub struct KeymapOutput {
+pub struct EmitKeymap {
     /// Cycle the active selection unit forward (section -> paragraph ->
     /// line -> sentence -> word -> section -> ...).
     pub mode_cycle_forward: String,
@@ -37,50 +38,53 @@ pub struct KeymapOutput {
 }
 
 #[derive(Debug)]
-pub struct LineAnnotationOutput {
+pub struct EmitLineAnnotation {
     pub line_number: usize,
     pub line_text: String,
-    pub context: LineContext,
-    pub changes: Vec<ChangeOutput>,
-    pub feedbacks: Vec<FeedbackOutput>,
-    pub inserts_before: Vec<InsertOutput>,
-    pub inserts_after: Vec<InsertOutput>,
-    pub reactions: Vec<ReactionOutput>,
+    pub context: EmitLineContext,
+    pub changes: Vec<EmitChange>,
+    pub feedbacks: Vec<EmitFeedback>,
+    pub inserts_before: Vec<EmitInsert>,
+    pub inserts_after: Vec<EmitInsert>,
+    pub reactions: Vec<EmitReaction>,
 }
 
 #[derive(Debug)]
-pub struct LineContext {
+pub struct EmitLineContext {
     pub previous_line: Option<String>,
     pub current_line: String,
     pub next_line: Option<String>,
 }
 
 #[derive(Debug)]
-pub struct ChangeOutput {
+pub struct EmitChange {
     pub created_at: String,
+    pub target_unit: String,
     pub sentence_index: Option<usize>,
     pub sentence_text: Option<String>,
     pub change: String,
 }
 
 #[derive(Debug)]
-pub struct FeedbackOutput {
+pub struct EmitFeedback {
     pub created_at: String,
+    pub target_unit: String,
     pub sentence_index: Option<usize>,
     pub sentence_text: Option<String>,
     pub feedback: String,
 }
 
 #[derive(Debug)]
-pub struct InsertOutput {
+pub struct EmitInsert {
     pub created_at: String,
+    pub target_unit: String,
     pub sentence_index: Option<usize>,
     pub sentence_text: Option<String>,
     pub text: String,
 }
 
 #[derive(Debug)]
-pub struct ReactionOutput {
+pub struct EmitReaction {
     pub kind: String,
     /// Selection unit at the time the reaction (e.g. strike) was applied —
     /// "sentence" / "word" / "line" / "paragraph" / "section".
@@ -90,6 +94,59 @@ pub struct ReactionOutput {
     /// Captured text of the targeted unit (selection plain text, markers
     /// stripped per Req 11).
     pub target_text: String,
+}
+
+#[derive(Debug)]
+pub struct EmitAction {
+    pub action: String,
+    /// 1-based source line number for human output.
+    pub where_line: usize,
+    pub context: EmitActionContext,
+    pub payload: Option<EmitPayload>,
+}
+
+#[derive(Debug)]
+pub struct EmitActionContext {
+    pub previous_line: Option<String>,
+    pub target: String,
+    pub next_line: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct EmitPayload {
+    pub key: String,
+    pub text: String,
+}
+
+pub fn render_human_output(model: &EmitModel) -> String {
+    use std::fmt::Write;
+
+    let mut out = String::new();
+    let _ = writeln!(out, "FILE: {}", model.source_file);
+
+    if model.actions.is_empty() {
+        out.push_str("\nNo actions.\n");
+        return out;
+    }
+
+    for action in &model.actions {
+        out.push('\n');
+        let _ = writeln!(out, "ACTION: {}", action.action);
+        let _ = writeln!(out, "WHERE: line {}", action.where_line);
+        out.push_str("CONTEXT:\n");
+        if let Some(previous_line) = &action.context.previous_line {
+            let _ = writeln!(out, "  prev: \"{previous_line}\"");
+        }
+        let _ = writeln!(out, "  target: \"{}\"", action.context.target);
+        if let Some(next_line) = &action.context.next_line {
+            let _ = writeln!(out, "  next: \"{next_line}\"");
+        }
+        if let Some(payload) = &action.payload {
+            let _ = writeln!(out, "{}: \"{}\"", payload.key, payload.text);
+        }
+    }
+
+    out
 }
 
 pub fn clean_context(value: &str, max_chars: usize) -> String {
