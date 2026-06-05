@@ -8,18 +8,15 @@
 pub mod index;
 pub mod model;
 pub mod navigator;
+#[cfg(test)]
 pub mod projection;
 pub mod segment;
 
-/// Test-only helper: parse a markdown source string into a
-/// `SelectionIndex` the same way `App::load` does (split into lines,
-/// parse the Document, build the index).
+/// Test-only helper: parse a markdown source string into a `SelectionIndex`
+/// the same way `App::load` does.
 ///
-/// Used by `index` / `navigator` / `projection` test modules so each
-/// doesn't carry its own copy. Integration tests under `tests/`
-/// have their own copy in `tests/common/mod.rs::build_index` because
-/// they live in a separate compilation unit and can't see this
-/// `cfg(test)` item.
+/// Used by `index` / `navigator` / `projection` test modules so each doesn't
+/// carry its own copy.
 #[cfg(test)]
 pub(crate) fn build_test_index(src: &str) -> index::SelectionIndex {
     let lines: Vec<String> = src.lines().map(ToOwned::to_owned).collect();

@@ -441,3 +441,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "navigator_integration_tests.rs"]
+mod integration_tests;

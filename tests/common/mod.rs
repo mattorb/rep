@@ -204,12 +204,3 @@ pub fn transcripts_root() -> PathBuf {
         .join("fixtures")
         .join("transcripts")
 }
-
-/// Parse a markdown source string into a `SelectionIndex`, mirroring
-/// how `App::load` builds it (parse Document, then build the index
-/// against the source lines). Shared by the `selection_navigation` /
-/// `selection_projection` integration tests to avoid each carrying
-/// its own copy.
-pub fn build_index(src: &str) -> rep::selection::index::SelectionIndex {
-    rep::selection::index::SelectionIndex::from_markdown(src).unwrap()
-}

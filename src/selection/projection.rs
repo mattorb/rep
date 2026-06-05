@@ -183,3 +183,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "projection_integration_tests.rs"]
+mod integration_tests;

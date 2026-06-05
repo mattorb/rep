@@ -337,3 +337,7 @@ mod tests {
         assert_eq!(words[1], "naive");
     }
 }
+
+#[cfg(test)]
+#[path = "segment_integration_tests.rs"]
+mod integration_tests;

@@ -1,12 +1,4 @@
-//! Integration tests for `rep::selection::segment`. The unit tests in
-//! `src/selection/segment.rs` cover canonical behaviors per fixture;
-//! this file pins two cross-cutting properties that don't fit a single
-//! unit test (sentence-segmentation totality across many inputs, and
-//! a multi-feature word-segmentation aggregate) plus keeps the public
-//! API surface alive — `segment_sentences` and `segment_words` must
-//! remain reachable for external consumers.
-
-use rep::selection::segment::{segment_sentences, segment_words};
+use super::*;
 
 #[test]
 fn sentence_segmentation_is_a_total_function_on_plain_text() {
