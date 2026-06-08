@@ -92,7 +92,10 @@ fn json_flag_exits_nonzero() {
     let out = rep_bin().arg("--json").output().expect("failed to run rep");
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("unknown option"), "got: {stderr}");
+    assert!(
+        stderr.contains("unexpected argument '--json'"),
+        "got: {stderr}"
+    );
 }
 
 #[test]

@@ -3,7 +3,8 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
+use clap::{CommandFactory, Parser, error::ErrorKind};
 use crossterm::event::{self, Event, KeyEventKind, MouseEventKind};
 
 use crate::app::App;
@@ -21,6 +22,19 @@ pub enum CliCommand {
     Version(String),
 }
 
+#[derive(Debug, Parser)]
+#[command(
+    name = "rep",
+    version,
+    about = "Collaboratively Tag Text Tool",
+    override_usage = "rep [OPTIONS] <markdown-file>"
+)]
+struct RawCliArgs {
+    /// Path to the Markdown file to annotate
+    #[arg(value_name = "markdown-file")]
+    source_path: PathBuf,
+}
+
 pub fn parse_cli_args() -> Result<CliCommand> {
     parse_cli_args_from(env::args_os().skip(1))
 }
@@ -30,37 +44,31 @@ where
     I: IntoIterator<Item = S>,
     S: Into<OsString>,
 {
-    let mut source_path: Option<PathBuf> = None;
-
-    for arg in args {
-        let arg = arg.into();
-        let arg_text = arg.to_string_lossy();
-        match arg_text.as_ref() {
-            "-h" | "--help" => {
-                return Ok(CliCommand::Help(help_text()));
-            }
-            "--version" | "-V" => {
-                return Ok(CliCommand::Version(format!(
-                    "rep {}",
-                    env!("CARGO_PKG_VERSION")
-                )));
-            }
-            _ if arg_text.starts_with('-') => {
-                anyhow::bail!("unknown option: {arg_text}\nusage: rep <markdown-file-path>");
-            }
-            _ => {
-                if source_path.is_some() {
-                    anyhow::bail!(
-                        "expected a single markdown file path\nusage: rep <markdown-file-path>"
-                    );
-                }
-                source_path = Some(PathBuf::from(arg));
-            }
+    let raw_args = std::iter::once(OsString::from("rep")).chain(args.into_iter().map(Into::into));
+    match RawCliArgs::try_parse_from(raw_args) {
+        Ok(args) => Ok(CliCommand::Run(CliArgs {
+            source_path: args.source_path,
+        })),
+        Err(err) if err.kind() == ErrorKind::DisplayHelp => {
+            let mut command = RawCliArgs::command();
+            Ok(CliCommand::Help(command.render_help().to_string()))
         }
+        Err(err) if err.kind() == ErrorKind::DisplayVersion => Ok(CliCommand::Version(
+            RawCliArgs::command()
+                .render_version()
+                .to_string()
+                .trim_end()
+                .to_string(),
+        )),
+        Err(err) => Err(anyhow::anyhow!(strip_error_prefix(err.to_string()))),
     }
+}
 
-    let source_path = source_path.context("usage: rep <markdown-file-path>")?;
-    Ok(CliCommand::Run(CliArgs { source_path }))
+fn strip_error_prefix(message: String) -> String {
+    message
+        .strip_prefix("error: ")
+        .unwrap_or(&message)
+        .to_string()
 }
 
 /// Run the interactive TUI for a parsed CLI source path.
@@ -95,22 +103,6 @@ fn run_tui(app: &mut App) -> Result<()> {
         }
     }
     Ok(())
-}
-
-fn help_text() -> String {
-    format!(
-        "rep {} - Collaboratively Tag Text Tool
-
-Usage: rep [OPTIONS] <markdown-file>
-
-Arguments:
-  <markdown-file>   Path to the Markdown file to annotate
-
-Options:
-  -h, --help        Print this help message
-  -V, --version     Print version",
-        env!("CARGO_PKG_VERSION")
-    )
 }
 
 #[cfg(test)]
@@ -153,7 +145,7 @@ mod tests {
 
             match command {
                 CliCommand::Version(text) => {
-                    assert_eq!(text, format!("rep {}", env!("CARGO_PKG_VERSION")));
+                    assert_eq!(text.trim(), format!("rep {}", env!("CARGO_PKG_VERSION")));
                 }
                 other => panic!("expected version command for {flag}, got {other:?}"),
             }
@@ -164,26 +156,25 @@ mod tests {
     fn rejects_unknown_options() {
         let err = parse(&["--bogus"]).unwrap_err();
 
-        assert_eq!(
-            err.to_string(),
-            "unknown option: --bogus\nusage: rep <markdown-file-path>"
-        );
+        assert!(err.to_string().contains("unexpected argument '--bogus'"));
+        assert!(!err.to_string().starts_with("error: "));
     }
 
     #[test]
     fn rejects_missing_source_path() {
         let err = parse(&[]).unwrap_err();
 
-        assert_eq!(err.to_string(), "usage: rep <markdown-file-path>");
+        assert!(
+            err.to_string()
+                .contains("required arguments were not provided")
+        );
+        assert!(err.to_string().contains("<markdown-file>"));
     }
 
     #[test]
     fn rejects_multiple_source_paths() {
         let err = parse(&["one.md", "two.md"]).unwrap_err();
 
-        assert_eq!(
-            err.to_string(),
-            "expected a single markdown file path\nusage: rep <markdown-file-path>"
-        );
+        assert!(err.to_string().contains("unexpected argument 'two.md'"));
     }
 }

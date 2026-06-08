@@ -25,6 +25,7 @@ exclude = [
 [dependencies]
 anyhow = "1.0"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+clap = { version = "4", features = ["derive"] }
 crossterm = "0.29"
 ratatui = "0.30"
 unicode-width = "0.2"
