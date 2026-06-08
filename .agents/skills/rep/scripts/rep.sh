@@ -74,7 +74,7 @@ find_rep_repo_upward() {
   local manifest
   while :; do
     manifest="$dir/Cargo.toml"
-    if [[ -f "$manifest" ]] && rg -q '^name\s*=\s*"rep"\s*$' "$manifest"; then
+    if [[ -f "$manifest" ]] && cargo_manifest_names_rep "$manifest"; then
       printf '%s\n' "$dir"
       return 0
     fi
@@ -82,6 +82,38 @@ find_rep_repo_upward() {
     dir="$(dirname -- "$dir")"
   done
   return 1
+}
+
+cargo_manifest_names_rep() {
+  local manifest="$1"
+  awk '
+    BEGIN {
+      in_package = 0
+      done = 0
+      status = 1
+    }
+    done {
+      next
+    }
+    /^[[:space:]]*\[/ {
+      if (in_package) {
+        done = 1
+        next
+      }
+      in_package = ($0 ~ /^[[:space:]]*\[package\][[:space:]]*$/)
+      next
+    }
+    in_package && /^[[:space:]]*name[[:space:]]*=/ {
+      value = $0
+      sub(/^[[:space:]]*name[[:space:]]*=[[:space:]]*/, "", value)
+      sub(/[[:space:]]*(#.*)?$/, "", value)
+      status = (value == "\"rep\"" ? 0 : 1)
+      done = 1
+    }
+    END {
+      exit status
+    }
+  ' "$manifest"
 }
 
 if [[ -n "${REP_BIN:-}" ]]; then
