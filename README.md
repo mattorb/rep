@@ -37,6 +37,14 @@ Linux release archives are not published yet, so `install.sh` exits with build-f
 
 ## Usage
 
+Open a markdown file directly:
+
+```sh
+rep plan.md
+```
+
+Annotate the file in the TUI, then press `q` to quit and print the requested changes to stdout.
+
 The BEST way to use this TUI tool is in the agentic loop, with a skill, immediately after you ask AI to help generate a plan (to a file) to accomplish a goal. This allows you to tap a few keys, put some feedback and requests in context quickly.
 
 1. Ensure `rep` is on your PATH
@@ -69,6 +77,34 @@ $ claude
 ```
 
 Note: rep _can_ also be executed directly against a plan file outside of an agentic loop, but you'll have copy/paste the annotation output back to an LLM and give it a hint on how to proceed.
+
+## Keybindings
+
+| Key | Action |
+| --- | --- |
+| `j`, `Down`, `Right` | Move to the next active unit |
+| `k`, `Up`, `Left` | Move to the previous active unit |
+| `Space` | Cycle to the next selection unit |
+| `Backspace` | Cycle to the previous selection unit |
+| `i` | Use a finer selection unit |
+| `o` | Use a coarser selection unit |
+| `c` | Add or edit a literal change request |
+| `f` | Add or edit feedback or intent |
+| `b` | Insert text before the current unit |
+| `a` | Insert text after the current unit |
+| `x` | Clear existing annotations or mark the unit for deletion |
+| `e` | Edit an existing annotation |
+| `[`, `]` | Jump to the previous or next annotation |
+| `/` | Search |
+| `n`, `N` | Jump to the next or previous search match |
+| `?`, `Shift` + `/` | Open or close help |
+| `I` | Open or close the AST view |
+| `O` | Reveal markdown links for the current sentence |
+| `r` | Copy annotations to the clipboard |
+| `q` | Quit and print annotations to stdout |
+| `Q` | Quit silently and discard annotations |
+| `Enter` | Save text in change, feedback, insert, edit, or search modes |
+| `Esc` | Cancel the current input mode or close an open popup |
 
 ## Platform Support
 
