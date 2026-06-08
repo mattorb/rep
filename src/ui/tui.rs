@@ -15,14 +15,17 @@ pub struct Tui {
 }
 
 pub fn terminal_available() -> bool {
-    if io::stdout().is_terminal() {
-        return true;
-    }
-    OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open("/dev/tty")
-        .is_ok()
+    terminal_available_from(io::stdout().is_terminal(), || {
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/tty")
+            .is_ok()
+    })
+}
+
+fn terminal_available_from(stdout_is_terminal: bool, tty_available: impl FnOnce() -> bool) -> bool {
+    stdout_is_terminal || tty_available()
 }
 
 impl Tui {
@@ -32,22 +35,41 @@ Run it in a real terminal session, or launch it from your agent with PTY/interac
 
         // If stdout is being captured by a parent process, write the UI directly to /dev/tty.
         // This allows the TUI to take over the user's terminal while preserving stdout capture.
-        let mut output: Box<dyn io::Write> = if io::stdout().is_terminal() {
-            Box::new(io::stdout())
-        } else {
-            let tty = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open("/dev/tty")
-                .context(tty_help)?;
-            Box::new(tty)
-        };
+        let mut output = open_tui_output(
+            io::stdout().is_terminal(),
+            || Box::new(io::stdout()),
+            || {
+                OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open("/dev/tty")
+                    .map(|tty| Box::new(tty) as Box<dyn io::Write>)
+            },
+            tty_help,
+        )?;
 
         enable_raw_mode().context(tty_help)?;
         execute!(output, EnterAlternateScreen, EnableMouseCapture).context(tty_help)?;
         let backend = CrosstermBackend::new(output);
         let terminal = Terminal::new(backend)?;
         Ok(Self { terminal })
+    }
+}
+
+fn open_tui_output<OpenStdout, OpenTty>(
+    stdout_is_terminal: bool,
+    open_stdout: OpenStdout,
+    open_tty: OpenTty,
+    tty_help: &str,
+) -> Result<Box<dyn io::Write>>
+where
+    OpenStdout: FnOnce() -> Box<dyn io::Write>,
+    OpenTty: FnOnce() -> io::Result<Box<dyn io::Write>>,
+{
+    if stdout_is_terminal {
+        Ok(open_stdout())
+    } else {
+        open_tty().with_context(|| tty_help.to_string())
     }
 }
 
@@ -60,5 +82,87 @@ impl Drop for Tui {
             DisableMouseCapture
         );
         let _ = self.terminal.show_cursor();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::ErrorKind;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn terminal_available_when_stdout_is_terminal() {
+        assert!(terminal_available_from(true, || {
+            panic!("tty should not be probed when stdout is a terminal")
+        }));
+    }
+
+    #[test]
+    fn terminal_available_when_tty_can_be_opened() {
+        assert!(terminal_available_from(false, || true));
+    }
+
+    #[test]
+    fn terminal_unavailable_when_stdout_and_tty_are_unavailable() {
+        assert!(!terminal_available_from(false, || false));
+    }
+
+    #[test]
+    fn tui_output_prefers_stdout_when_it_is_terminal() {
+        let tty_opened = AtomicBool::new(false);
+
+        let output = open_tui_output(
+            true,
+            || Box::new(Vec::<u8>::new()),
+            || {
+                tty_opened.store(true, Ordering::SeqCst);
+                Ok(Box::new(Vec::<u8>::new()))
+            },
+            "tty help",
+        )
+        .unwrap();
+
+        assert!(!tty_opened.load(Ordering::SeqCst));
+        drop(output);
+    }
+
+    #[test]
+    fn tui_output_uses_tty_when_stdout_is_captured() {
+        let stdout_opened = AtomicBool::new(false);
+
+        let output = open_tui_output(
+            false,
+            || {
+                stdout_opened.store(true, Ordering::SeqCst);
+                Box::new(Vec::<u8>::new())
+            },
+            || Ok(Box::new(Vec::<u8>::new())),
+            "tty help",
+        )
+        .unwrap();
+
+        assert!(!stdout_opened.load(Ordering::SeqCst));
+        drop(output);
+    }
+
+    #[test]
+    fn tui_output_adds_tty_help_to_open_errors() {
+        let err = match open_tui_output(
+            false,
+            || Box::new(Vec::<u8>::new()),
+            || {
+                Err(io::Error::new(
+                    ErrorKind::NotFound,
+                    "no controlling terminal",
+                ))
+            },
+            "tty help",
+        ) {
+            Ok(_) => panic!("expected tty open error"),
+            Err(err) => err,
+        };
+
+        assert_eq!(err.to_string(), "tty help");
     }
 }
