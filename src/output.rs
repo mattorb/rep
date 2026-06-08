@@ -21,6 +21,10 @@ pub struct EmitKeymap {
     pub unit_next: String,
     /// Move to the previous anchor in the active unit.
     pub unit_prev: String,
+    /// Adjust the active selection unit one step finer without wrapping.
+    pub selection_finer: String,
+    /// Adjust the active selection unit one step coarser without wrapping.
+    pub selection_coarser: String,
     pub reveal_link: String,
     pub annotation_prev: String,
     pub annotation_next: String,
@@ -40,10 +44,12 @@ pub struct EmitKeymap {
 impl EmitKeymap {
     pub(crate) fn rep_defaults() -> Self {
         Self {
-            mode_cycle_forward: "i".to_string(),
-            mode_cycle_backward: "o".to_string(),
+            mode_cycle_forward: "Space".to_string(),
+            mode_cycle_backward: "Backspace".to_string(),
             unit_next: "j".to_string(),
             unit_prev: "k".to_string(),
+            selection_finer: "i".to_string(),
+            selection_coarser: "o".to_string(),
             reveal_link: "O".to_string(),
             annotation_prev: "[".to_string(),
             annotation_next: "]".to_string(),
@@ -57,6 +63,118 @@ impl EmitKeymap {
             quit_silent: "Q".to_string(),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct KeyBindingDocRow {
+    pub keys: String,
+    pub action: String,
+}
+
+pub(crate) fn keybinding_doc_rows() -> Vec<KeyBindingDocRow> {
+    let keymap = EmitKeymap::rep_defaults();
+    vec![
+        KeyBindingDocRow {
+            keys: format!("`{}`, `Down`, `Right`", keymap.unit_next),
+            action: "Move to the next active unit".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: format!("`{}`, `Up`, `Left`", keymap.unit_prev),
+            action: "Move to the previous active unit".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: format!("`{}`", keymap.mode_cycle_forward),
+            action: "Cycle to the next selection unit".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: format!("`{}`", keymap.mode_cycle_backward),
+            action: "Cycle to the previous selection unit".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: format!("`{}`", keymap.selection_finer),
+            action: "Use a finer selection unit".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: format!("`{}`", keymap.selection_coarser),
+            action: "Use a coarser selection unit".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: format!("`{}`", keymap.change),
+            action: "Add or edit a literal change request".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: format!("`{}`", keymap.feedback),
+            action: "Add or edit feedback or intent".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: format!("`{}`", keymap.insert_before),
+            action: "Insert text before the current unit".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: format!("`{}`", keymap.insert_after),
+            action: "Insert text after the current unit".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: format!("`{}`", keymap.strike),
+            action: "Clear existing annotations or mark the unit for deletion".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: "`e`".to_string(),
+            action: "Edit an existing annotation".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: format!("`{}`, `{}`", keymap.annotation_prev, keymap.annotation_next),
+            action: "Jump to the previous or next annotation".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: "`/`".to_string(),
+            action: "Search".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: "`n`, `N`".to_string(),
+            action: "Jump to the next or previous search match".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: format!("`{}`, `Shift` + `/`", keymap.help),
+            action: "Open or close help".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: "`I`".to_string(),
+            action: "Open or close the AST view".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: format!("`{}`", keymap.reveal_link),
+            action: "Reveal markdown links for the current sentence".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: "`r`".to_string(),
+            action: "Copy annotations to the clipboard".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: format!("`{}`", keymap.quit),
+            action: "Quit and print annotations to stdout".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: format!("`{}`", keymap.quit_silent),
+            action: "Quit silently and discard annotations".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: "`Enter`".to_string(),
+            action: "Save text in change, feedback, insert, edit, or search modes".to_string(),
+        },
+        KeyBindingDocRow {
+            keys: "`Esc`".to_string(),
+            action: "Cancel the current input mode or close an open popup".to_string(),
+        },
+    ]
+}
+
+pub(crate) fn readme_keybinding_table() -> String {
+    let mut table = String::from("| Key | Action |\n| --- | --- |\n");
+    for row in keybinding_doc_rows() {
+        table.push_str(&format!("| {} | {} |\n", row.keys, row.action));
+    }
+    table
 }
 
 #[derive(Debug)]
@@ -193,7 +311,7 @@ pub fn clean_context(value: &str, max_chars: usize) -> String {
 mod tests {
     use super::{
         EmitAction, EmitActionContext, EmitKeymap, EmitModel, EmitPayload, clean_context,
-        render_human_output,
+        readme_keybinding_table, render_human_output,
     };
 
     #[test]
@@ -239,6 +357,28 @@ mod tests {
             render_human_output(&model),
             "FILE: input.md\n\nNo actions.\n"
         );
+    }
+
+    #[test]
+    fn rep_default_keymap_matches_runtime_mode_cycle_keys() {
+        let keymap = EmitKeymap::rep_defaults();
+        assert_eq!(keymap.mode_cycle_forward, "Space");
+        assert_eq!(keymap.mode_cycle_backward, "Backspace");
+        assert_eq!(keymap.selection_finer, "i");
+        assert_eq!(keymap.selection_coarser, "o");
+    }
+
+    #[test]
+    fn readme_keybindings_match_default_keymap() {
+        let readme = include_str!("../README.md");
+        let start = readme
+            .find("| Key | Action |")
+            .expect("README contains keybinding table");
+        let rest = &readme[start..];
+        let end = rest
+            .find("\n\n## ")
+            .expect("README keybinding table is followed by a heading");
+        assert_eq!(&rest[..end + 1], readme_keybinding_table());
     }
 
     #[test]

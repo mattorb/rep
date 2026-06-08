@@ -340,26 +340,77 @@ impl App {
     }
 
     fn draw_help(frame: &mut Frame, area: Rect) {
+        let keybindings = keybinding_doc_rows();
+        let key_action = |action: &str| {
+            keybindings
+                .iter()
+                .find(|row| row.action == action)
+                .map(|row| row.keys.replace('`', ""))
+                .expect("help action has keybinding documentation")
+        };
         let help_lines = vec![
             Line::from(""),
             Line::from(Span::styled("  Navigate", Style::default().fg(Color::Cyan))),
-            Line::from("  j, k    next/prev unit"),
-            Line::from("  i, o    finer/coarser units"),
-            Line::from(""),
+            Line::from(format!(
+                "  {}, {}    next/prev unit",
+                key_action("Move to the next active unit"),
+                key_action("Move to the previous active unit")
+            )),
+            Line::from(format!(
+                "  {}, {}    next/prev selection unit",
+                key_action("Cycle to the next selection unit"),
+                key_action("Cycle to the previous selection unit")
+            )),
+            Line::from(format!(
+                "  {}, {}    finer/coarser units",
+                key_action("Use a finer selection unit"),
+                key_action("Use a coarser selection unit")
+            )),
             Line::from(Span::styled("  Annotate", Style::default().fg(Color::Cyan))),
-            Line::from("  c       change (literal)"),
-            Line::from("  f       feedback (intent)"),
-            Line::from("  b, a    insert before/after"),
-            Line::from("  x       clear or strike"),
+            Line::from(format!(
+                "  {}       change (literal)",
+                key_action("Add or edit a literal change request")
+            )),
+            Line::from(format!(
+                "  {}       feedback (intent)",
+                key_action("Add or edit feedback or intent")
+            )),
+            Line::from(format!(
+                "  {}, {}    insert before/after",
+                key_action("Insert text before the current unit"),
+                key_action("Insert text after the current unit")
+            )),
+            Line::from(format!(
+                "  {}       clear or strike",
+                key_action("Clear existing annotations or mark the unit for deletion")
+            )),
             Line::from(""),
-            Line::from("  [, ]    prev/next annotation"),
-            Line::from("  e       edit annotation"),
-            Line::from("  /       search"),
-            Line::from("  n, N    next/prev search match"),
+            Line::from(format!(
+                "  {}    prev/next annotation",
+                key_action("Jump to the previous or next annotation")
+            )),
+            Line::from(format!(
+                "  {}       edit annotation",
+                key_action("Edit an existing annotation")
+            )),
+            Line::from(format!("  {}       search", key_action("Search"))),
+            Line::from(format!(
+                "  {}    next/prev search match",
+                key_action("Jump to the next or previous search match")
+            )),
             Line::from(""),
-            Line::from("  r       copy annotations to clipboard"),
-            Line::from("  q       quit; printing changes to stdout"),
-            Line::from("  Q       silent quit (discard annotations)"),
+            Line::from(format!(
+                "  {}       copy annotations to clipboard",
+                key_action("Copy annotations to the clipboard")
+            )),
+            Line::from(format!(
+                "  {}       quit; printing changes to stdout",
+                key_action("Quit and print annotations to stdout")
+            )),
+            Line::from(format!(
+                "  {}       silent quit (discard annotations)",
+                key_action("Quit silently and discard annotations")
+            )),
         ];
 
         let content_width: u16 = help_lines

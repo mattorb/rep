@@ -20,7 +20,7 @@ use crate::document_view::{
 use crate::output::{
     EmitAction, EmitActionContext, EmitChange, EmitFeedback, EmitInsert, EmitKeymap,
     EmitLineAnnotation, EmitLineContext, EmitModel, EmitPayload, EmitReaction, clean_context,
-    render_human_output,
+    keybinding_doc_rows, render_human_output,
 };
 use crate::selection::model::{SelectionAnchor, SelectionState, SelectionUnit};
 use crate::ui::wrap_styled_spans;

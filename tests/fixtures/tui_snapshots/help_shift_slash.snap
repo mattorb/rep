@@ -1,13 +1,14 @@
 ---
-source: tests/tui_snapshots.rs
+source: src/app/tui_snapshot_tests.rs
+assertion_line: 226
 expression: render(&mut app)
 ---
 ┌ Help ────────────────────────────────────────────────────────────────┐
 │                                                                      │
 │  Navigate                                                            │
-│  j, k    next/prev unit                                              │
+│  j, Down, Right, k, Up, Left    next/prev unit                       │
+│  Space, Backspace    next/prev selection unit                        │
 │  i, o    finer/coarser units                                         │
-│                                                                      │
 │  Annotate                                                            │
 │  c       change (literal)                                            │
 │  f       feedback (intent)                                           │
