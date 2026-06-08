@@ -1,12 +1,10 @@
 use super::*;
 
 mod document;
-mod footer;
-mod popups;
 mod state;
 mod styles;
 
-use state::RenderState;
+pub(crate) use state::RenderState;
 
 impl App {
     // ── Drawing ───────────────────────────────────────────────────────────────
@@ -21,19 +19,19 @@ impl App {
         let list_inner = self.draw_document(frame, layout[0]);
         let state = self.render_state();
 
-        Self::draw_footer(frame, layout[1], &state);
-        Self::draw_active_input_popup(frame, list_inner, &state);
+        crate::ui::render::draw_footer(frame, layout[1], &state);
+        crate::ui::render::draw_active_input_popup(frame, list_inner, &state);
 
         if state.link_popup_urls.is_some() {
-            Self::draw_link_popup(frame, area, &state);
+            crate::ui::render::draw_link_popup(frame, area, &state);
         }
 
         if state.show_help {
-            Self::draw_help(frame, area);
+            crate::ui::render::draw_help(frame, area);
         }
 
         if state.ast_view_scroll.is_some() {
-            Self::draw_ast_popup(frame, area, &state);
+            crate::ui::render::draw_ast_popup(frame, area, &state);
         }
     }
 }

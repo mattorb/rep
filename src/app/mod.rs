@@ -9,8 +9,8 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use ratatui::widgets::{Block, Borders, Paragraph};
+use unicode_width::UnicodeWidthChar;
 
 #[cfg(test)]
 use crate::document::DocNode;
@@ -20,15 +20,16 @@ use crate::document_view::{
 use crate::output::{
     EmitAction, EmitActionContext, EmitChange, EmitFeedback, EmitInsert, EmitKeymap,
     EmitLineAnnotation, EmitLineContext, EmitModel, EmitPayload, EmitReaction, clean_context,
-    keybinding_doc_rows, render_human_output,
+    render_human_output,
 };
 use crate::selection::model::{SelectionAnchor, SelectionState, SelectionUnit};
-use crate::ui::wrap_styled_spans;
 
 mod input;
 mod output;
 mod render;
 mod state;
+
+pub(crate) use render::RenderState;
 
 use self::state::{
     CLICK_DOUBLE_INTERVAL, ChangeAnnotation, EditableAnnotation, FeedbackAnnotation, InputMode,
@@ -58,7 +59,7 @@ const EMIT_PAYLOAD_MAX_CHARS: usize = 220;
 /// string when `max_cols == 0`, including for inputs that begin with a
 /// zero-width character (an orphaned combining mark renders unpredictably
 /// across terminals; "no output" is the safer choice).
-fn truncate_to_columns(s: &str, max_cols: usize) -> String {
+pub(crate) fn truncate_to_columns(s: &str, max_cols: usize) -> String {
     if max_cols == 0 {
         return String::new();
     }

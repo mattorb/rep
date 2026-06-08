@@ -1,3 +1,4 @@
+pub(crate) mod render;
 mod tui;
 mod wrap;
 

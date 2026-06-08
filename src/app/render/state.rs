@@ -9,7 +9,7 @@ pub(crate) struct RenderState<'a> {
     pub(crate) view: &'a DocumentView,
     pub(crate) selection_state: SelectionState,
     pub(crate) section_highlight_range: Option<Range<usize>>,
-    pub(crate) input_mode: &'a InputMode,
+    pub(in crate::app) input_mode: &'a InputMode,
     pub(crate) status: &'a str,
     pub(crate) notification: Option<&'a str>,
     pub(crate) nav_feedback: Option<&'a str>,
@@ -24,14 +24,64 @@ pub(crate) struct RenderState<'a> {
     pub(crate) cached_node_heights: &'a [u16],
     pub(crate) scroll_offset: usize,
     pub(crate) mode_indicator: &'static str,
-    pub(crate) changes: &'a BTreeMap<usize, Vec<ChangeAnnotation>>,
-    pub(crate) feedbacks: &'a BTreeMap<usize, Vec<FeedbackAnnotation>>,
-    pub(crate) inserts_before: &'a BTreeMap<usize, Vec<InsertAnnotation>>,
-    pub(crate) inserts_after: &'a BTreeMap<usize, Vec<InsertAnnotation>>,
-    pub(crate) strikes: &'a BTreeMap<usize, BTreeSet<(SelectionUnit, usize)>>,
+    pub(in crate::app) changes: &'a BTreeMap<usize, Vec<ChangeAnnotation>>,
+    pub(in crate::app) feedbacks: &'a BTreeMap<usize, Vec<FeedbackAnnotation>>,
+    pub(in crate::app) inserts_before: &'a BTreeMap<usize, Vec<InsertAnnotation>>,
+    pub(in crate::app) inserts_after: &'a BTreeMap<usize, Vec<InsertAnnotation>>,
+    pub(in crate::app) strikes: &'a BTreeMap<usize, BTreeSet<(SelectionUnit, usize)>>,
 }
 
 impl RenderState<'_> {
+    pub(crate) fn input_popup_spec(
+        &self,
+    ) -> Option<(&'static str, &'static str, &'static str, &str)> {
+        match self.input_mode {
+            InputMode::Change => Some((
+                " Change ",
+                "Change mode: Enter save | Esc cancel",
+                "Change> ",
+                self.change_buffer,
+            )),
+            InputMode::EditChange(..) => Some((
+                " Edit Change ",
+                "Edit mode: Enter save | Esc cancel",
+                "Change> ",
+                self.change_buffer,
+            )),
+            InputMode::Feedback => Some((
+                " Feedback ",
+                "Feedback mode: Enter save | Esc cancel",
+                "Feedback> ",
+                self.feedback_buffer,
+            )),
+            InputMode::EditFeedback(..) => Some((
+                " Edit Feedback ",
+                "Edit mode: Enter save | Esc cancel",
+                "Feedback> ",
+                self.feedback_buffer,
+            )),
+            InputMode::InsertBefore => Some((
+                " Insert Before ",
+                "Insert before: Enter save | Esc cancel",
+                "Before> ",
+                self.insert_buffer,
+            )),
+            InputMode::InsertAfter => Some((
+                " Insert After ",
+                "Insert after: Enter save | Esc cancel",
+                "After> ",
+                self.insert_buffer,
+            )),
+            InputMode::Search => Some((
+                " Search ",
+                "Search: Enter jump | Esc cancel | n/N next/prev",
+                "/",
+                self.search_buffer,
+            )),
+            InputMode::Normal => None,
+        }
+    }
+
     pub(crate) fn annotation_counts(&self) -> (usize, usize, usize, usize) {
         let changes: usize = self.changes.values().map(|v| v.len()).sum();
         let feedbacks: usize = self.feedbacks.values().map(|v| v.len()).sum();
