@@ -1,12 +1,15 @@
 use anyhow::Result;
 use std::env;
 use std::ffi::OsString;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use rep::cli::{CliCommand, parse_cli_args_from, run_interactive};
 use rep::ui;
 
 mod terminal_fallback;
+
+const DEMO_MARKDOWN: &str = include_str!("../examples/demo-plan.md");
 
 fn main() {
     if let Err(err) = real_main() {
@@ -39,16 +42,17 @@ where
     TryFallback: FnMut(&[OsString]) -> Result<bool>,
     RunInteractive: FnMut(PathBuf) -> Result<Option<String>>,
 {
-    let cli = match parse_cli_args_from(raw_args.iter().cloned())? {
+    let (source_path, debug) = match parse_cli_args_from(raw_args.iter().cloned())? {
         CliCommand::Help(text) | CliCommand::Version(text) => {
             return Ok(Some(text));
         }
-        CliCommand::Run(cli) => cli,
+        CliCommand::Run(cli) => (cli.source_path, cli.debug),
+        CliCommand::Demo { debug } => (write_demo_source()?, debug),
     };
-    if cli.debug {
+    if debug {
         let terminal_available = terminal_available();
         return Ok(Some(render_debug_diagnostics(
-            &cli.source_path,
+            &source_path,
             &terminal_fallback::diagnostics(terminal_available),
         )));
     }
@@ -56,7 +60,14 @@ where
         return Ok(None);
     }
 
-    run_interactive(cli.source_path)
+    run_interactive(source_path)
+}
+
+fn write_demo_source() -> Result<PathBuf> {
+    let mut path = env::temp_dir();
+    path.push(format!("rep-demo-{}.md", std::process::id()));
+    fs::write(&path, DEMO_MARKDOWN)?;
+    Ok(path)
 }
 
 fn render_debug_diagnostics(
@@ -107,7 +118,7 @@ mod tests {
         assert!(
             output
                 .unwrap()
-                .contains("Usage: rep [OPTIONS] <markdown-file>")
+                .contains("Usage: rep [OPTIONS] <markdown-file|--demo>")
         );
     }
 
@@ -157,6 +168,30 @@ mod tests {
         assert!(output.contains("rep debug diagnostics"));
         assert!(output.contains("source_path: plan.md"));
         assert!(output.contains("terminal_available: true"));
+    }
+
+    #[test]
+    fn demo_runs_interactive_with_generated_sample_file() {
+        let output = real_main_with(
+            vec![OsString::from("--demo")],
+            || true,
+            |_| panic!("fallback should not run when terminal is available"),
+            |source_path| {
+                let contents = std::fs::read_to_string(&source_path).unwrap();
+                assert!(contents.contains("Checkout Cleanup Plan"));
+                assert!(
+                    source_path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .starts_with("rep-demo-")
+                );
+                Ok(Some("demo output".to_string()))
+            },
+        )
+        .unwrap();
+
+        assert_eq!(output.as_deref(), Some("demo output"));
     }
 
     #[test]

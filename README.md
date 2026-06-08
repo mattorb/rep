@@ -45,6 +45,12 @@ rep plan.md
 
 Annotate the file in the TUI, then press `q` to quit and print the requested changes to stdout.
 
+Try the built-in sample file:
+
+```sh
+rep --demo
+```
+
 The BEST way to use this TUI tool is in the agentic loop, with a skill, immediately after you ask AI to help generate a plan (to a file) to accomplish a goal. This allows you to tap a few keys, put some feedback and requests in context quickly.
 
 1. Ensure `rep` is on your PATH

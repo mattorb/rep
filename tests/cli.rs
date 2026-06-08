@@ -69,6 +69,20 @@ fn debug_flag_prints_diagnostics_without_opening_tui() {
 }
 
 #[test]
+fn debug_demo_flag_prints_generated_demo_path() {
+    let out = rep_bin()
+        .args(["--debug", "--demo"])
+        .output()
+        .expect("failed to run rep");
+
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("rep debug diagnostics"), "got: {stdout}");
+    assert!(stdout.contains("source_path:"), "got: {stdout}");
+    assert!(stdout.contains("rep-demo-"), "got: {stdout}");
+}
+
+#[test]
 fn unknown_flag_exits_nonzero() {
     let out = rep_bin()
         .arg("--bogus-flag")

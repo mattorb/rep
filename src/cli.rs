@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::Result;
-use clap::{CommandFactory, Parser, error::ErrorKind};
+use clap::{ArgGroup, CommandFactory, Parser, error::ErrorKind};
 use crossterm::event::{self, Event, KeyEventKind, MouseEventKind};
 
 use crate::app::App;
@@ -19,6 +19,7 @@ pub struct CliArgs {
 #[derive(Debug, Clone)]
 pub enum CliCommand {
     Run(CliArgs),
+    Demo { debug: bool },
     Help(String),
     Version(String),
 }
@@ -28,16 +29,25 @@ pub enum CliCommand {
     name = "rep",
     version,
     about = "Collaboratively Tag Text Tool",
-    override_usage = "rep [OPTIONS] <markdown-file>"
+    override_usage = "rep [OPTIONS] <markdown-file|--demo>",
+    group(
+        ArgGroup::new("input")
+            .required(true)
+            .args(["source_path", "demo"])
+    )
 )]
 struct RawCliArgs {
     /// Print launch diagnostics and exit without opening the TUI
     #[arg(long)]
     debug: bool,
 
+    /// Open a built-in sample Markdown file
+    #[arg(long, conflicts_with = "source_path")]
+    demo: bool,
+
     /// Path to the Markdown file to annotate
     #[arg(value_name = "markdown-file")]
-    source_path: PathBuf,
+    source_path: Option<PathBuf>,
 }
 
 pub fn parse_cli_args() -> Result<CliCommand> {
@@ -51,8 +61,11 @@ where
 {
     let raw_args = std::iter::once(OsString::from("rep")).chain(args.into_iter().map(Into::into));
     match RawCliArgs::try_parse_from(raw_args) {
+        Ok(args) if args.demo => Ok(CliCommand::Demo { debug: args.debug }),
         Ok(args) => Ok(CliCommand::Run(CliArgs {
-            source_path: args.source_path,
+            source_path: args
+                .source_path
+                .expect("required input group guarantees a source path unless --demo was used"),
             debug: args.debug,
         })),
         Err(err) if err.kind() == ErrorKind::DisplayHelp => {
@@ -146,14 +159,42 @@ mod tests {
     }
 
     #[test]
+    fn parses_demo_flag_without_source_path() {
+        let command = parse(&["--demo"]).unwrap();
+
+        match command {
+            CliCommand::Demo { debug } => assert!(!debug),
+            other => panic!("expected demo command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_debug_demo_flag() {
+        let command = parse(&["--debug", "--demo"]).unwrap();
+
+        match command {
+            CliCommand::Demo { debug } => assert!(debug),
+            other => panic!("expected demo command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_demo_with_source_path() {
+        let err = parse(&["--demo", "notes.md"]).unwrap_err();
+
+        assert!(err.to_string().contains("cannot be used with"));
+    }
+
+    #[test]
     fn returns_help_text_for_short_and_long_help_flags() {
         for flag in ["-h", "--help"] {
             let command = parse(&[flag]).unwrap();
 
             match command {
                 CliCommand::Help(text) => {
-                    assert!(text.contains("Usage: rep [OPTIONS] <markdown-file>"));
+                    assert!(text.contains("Usage: rep [OPTIONS] <markdown-file|--demo>"));
                     assert!(text.contains("--debug"));
+                    assert!(text.contains("--demo"));
                     assert!(text.contains("-V, --version"));
                 }
                 other => panic!("expected help command for {flag}, got {other:?}"),
@@ -191,7 +232,7 @@ mod tests {
             err.to_string()
                 .contains("required arguments were not provided")
         );
-        assert!(err.to_string().contains("<markdown-file>"));
+        assert!(err.to_string().contains("<markdown-file>") || err.to_string().contains("--demo"));
     }
 
     #[test]
