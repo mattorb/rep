@@ -4,7 +4,9 @@ version = "0.2.0"
 edition = "2024"
 rust-version = "1.95"
 description = "A multi-unit TUI annotation tool for Markdown files (section / paragraph / line / sentence / word), designed for human-AI review loops"
+homepage = "https://github.com/mattorb/rep"
 repository = "https://github.com/mattorb/rep"
+documentation = "https://docs.rs/rep"
 license = "MIT"
 keywords = ["tui", "markdown", "annotation", "review", "ai"]
 categories = ["command-line-utilities", "text-editors"]
@@ -16,7 +18,7 @@ exclude = [
     "CLAUDE.md",
     "CONTRIBUTING.md",
     "SECURITY.md",
-    "combine_sentence_line_modes_plan.md",
+    "plans/combine_sentence_line_modes_plan.md",
     "implementation.md",
 ]
 

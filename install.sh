@@ -95,6 +95,17 @@ detect_target() {
   uname_s="$(uname -s)"
   uname_m="$(uname -m)"
 
+  case "$uname_s" in
+    Linux)
+      fail "Linux release archives are not published yet. Build from source with: cargo install --git https://github.com/${REPO}. You can also clone the repository and run ./build.sh."
+      ;;
+    Darwin)
+      ;;
+    *)
+      fail "Unsupported OS: ${uname_s} (supported release installer OS: macOS)."
+      ;;
+  esac
+
   case "$uname_m" in
     x86_64|amd64)
       arch="x86_64"
@@ -107,17 +118,7 @@ detect_target() {
       ;;
   esac
 
-  case "$uname_s" in
-    Darwin)
-      TARGET="${arch}-apple-darwin"
-      ;;
-    Linux)
-      TARGET="${arch}-unknown-linux-musl"
-      ;;
-    *)
-      fail "Unsupported OS: ${uname_s} (supported: macOS, Linux)."
-      ;;
-  esac
+  TARGET="${arch}-apple-darwin"
 }
 
 detect_profile_file() {

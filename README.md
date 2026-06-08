@@ -25,13 +25,15 @@ curl -fsSL https://raw.githubusercontent.com/mattorb/rep/main/install.sh | sh
 ```
 
 The installer:
-- Detects your platform (macOS/Linux, x86\_64/aarch64)
+- Detects your platform (macOS x86\_64/aarch64)
 - Downloads the matching release archive from [GitHub Releases](https://github.com/mattorb/rep/releases)
 - Verifies SHA-256 checksum against `checksums.txt`
 - Installs `rep` to `~/.local/bin` by default
 - Installs the bundled agent skill to `~/.agents/skills/rep` by default
 
 Install locations can be changed with `REP_INSTALL_DIR` and `REP_SKILLS_DIR`.
+
+Linux release archives are not published yet, so `install.sh` exits with build-from-source guidance on Linux.
 
 ## Usage
 
