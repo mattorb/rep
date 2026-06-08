@@ -5,13 +5,15 @@ impl App {
         let line_area_inner_width = area.width.saturating_sub(2) as usize;
         let wrapped_text_width = line_area_inner_width.saturating_sub(GUTTER_WIDTH).max(1);
 
-        let filename = self
-            .source_path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("markdown");
-        let (change_count, feedback_count, insert_count, strike_count) = self.annotation_counts();
-        let block_title =
+        let block_title = {
+            let state = self.render_state();
+            let filename = state
+                .source_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("markdown");
+            let (change_count, feedback_count, insert_count, strike_count) =
+                state.annotation_counts();
             if change_count == 0 && feedback_count == 0 && insert_count == 0 && strike_count == 0 {
                 format!(" {filename} ")
             } else {
@@ -29,7 +31,8 @@ impl App {
                     parts.push(format!("{strike_count}X"));
                 }
                 format!(" {filename}  {} ", parts.join(" · "))
-            };
+            }
+        };
 
         let list_block = Block::default()
             .borders(Borders::ALL)
@@ -38,84 +41,91 @@ impl App {
         let list_inner = list_block.inner(area);
         self.list_inner = list_inner;
 
-        let node_count = self.view.node_count();
-        let mut node_heights: Vec<u16> = Vec::with_capacity(node_count);
-        let node_rows: Vec<Vec<RenderedDisplayRow>> = (0..node_count)
-            .map(|node_idx| {
-                let (indicator, indicator_style) = self.node_indicator(node_idx);
-                // Add a blank trailing line when the NEXT node is a block start.
-                // This keeps the spacer at the END of the preceding item so that
-                // navigating to any node always shows content as the first line.
-                let add_spacer_after =
-                    node_idx + 1 < node_count && self.view.is_block_start(node_idx + 1);
+        let (node_rows, node_heights) = {
+            let state = self.render_state();
+            let node_count = state.view.node_count();
+            let mut node_heights: Vec<u16> = Vec::with_capacity(node_count);
+            let node_rows: Vec<Vec<RenderedDisplayRow>> = (0..node_count)
+                .map(|node_idx| {
+                    let (indicator, indicator_style) = Self::node_indicator(&state, node_idx);
+                    // Add a blank trailing line when the NEXT node is a block start.
+                    // This keeps the spacer at the END of the preceding item so that
+                    // navigating to any node always shows content as the first line.
+                    let add_spacer_after =
+                        node_idx + 1 < node_count && state.view.is_block_start(node_idx + 1);
 
-                // Code blocks render line-by-line without sentence wrap logic.
-                let section_highlight_active = self
-                    .section_highlight_range
-                    .as_ref()
-                    .is_some_and(|range| range.contains(&node_idx));
-                let strike_units: Vec<(SelectionUnit, usize)> = self
-                    .strikes
-                    .get(&node_idx)
-                    .map(|set| set.iter().copied().collect())
-                    .unwrap_or_default();
-                if let Some(code_rows) = self.view.styled_code_block_rows(CodeBlockStyleRequest {
-                    node_idx,
-                    active_anchor: self.selection_state.anchor,
-                    section_highlight_active,
-                    strike_units: &strike_units,
-                }) {
-                    let mut display_rows: Vec<RenderedDisplayRow> =
-                        Vec::with_capacity(code_rows.len() + 1);
-                    for (i, mut row) in code_rows.into_iter().enumerate() {
-                        let mut spans = vec![if i == 0 {
-                            Span::styled(format!("{indicator} "), indicator_style)
-                        } else {
-                            Span::raw("  ")
-                        }];
-                        spans.append(&mut row.spans);
-                        display_rows.push(RenderedDisplayRow {
-                            line: Line::from(spans),
-                            byte_range: row.byte_range,
-                        });
+                    // Code blocks render line-by-line without sentence wrap logic.
+                    let section_highlight_active = state
+                        .section_highlight_range
+                        .as_ref()
+                        .is_some_and(|range| range.contains(&node_idx));
+                    let strike_units: Vec<(SelectionUnit, usize)> = state
+                        .strikes
+                        .get(&node_idx)
+                        .map(|set| set.iter().copied().collect())
+                        .unwrap_or_default();
+                    if let Some(code_rows) =
+                        state.view.styled_code_block_rows(CodeBlockStyleRequest {
+                            node_idx,
+                            active_anchor: state.selection_state.anchor,
+                            section_highlight_active,
+                            strike_units: &strike_units,
+                        })
+                    {
+                        let mut display_rows: Vec<RenderedDisplayRow> =
+                            Vec::with_capacity(code_rows.len() + 1);
+                        for (i, mut row) in code_rows.into_iter().enumerate() {
+                            let mut spans = vec![if i == 0 {
+                                Span::styled(format!("{indicator} "), indicator_style)
+                            } else {
+                                Span::raw("  ")
+                            }];
+                            spans.append(&mut row.spans);
+                            display_rows.push(RenderedDisplayRow {
+                                line: Line::from(spans),
+                                byte_range: row.byte_range,
+                            });
+                        }
+                        if add_spacer_after {
+                            display_rows.push(RenderedDisplayRow::spacer());
+                        }
+                        let height = display_rows.len().max(1) as u16;
+                        node_heights.push(height);
+                        return display_rows;
                     }
+
+                    let spans = Self::render_node_spans_for(&state, node_idx);
+                    let mut display_rows: Vec<RenderedDisplayRow> = state
+                        .view
+                        .wrapped_display_rows(node_idx, spans, wrapped_text_width)
+                        .into_iter()
+                        .enumerate()
+                        .map(|(seg_idx, mut row)| {
+                            let mut line_spans = Vec::new();
+                            if seg_idx == 0 {
+                                line_spans
+                                    .push(Span::styled(format!("{indicator} "), indicator_style));
+                            } else {
+                                line_spans.push(Span::raw("  "));
+                            }
+                            line_spans.append(&mut row.spans);
+                            RenderedDisplayRow {
+                                line: Line::from(line_spans),
+                                byte_range: row.byte_range,
+                            }
+                        })
+                        .collect();
+
                     if add_spacer_after {
                         display_rows.push(RenderedDisplayRow::spacer());
                     }
                     let height = display_rows.len().max(1) as u16;
                     node_heights.push(height);
-                    return display_rows;
-                }
-
-                let spans = self.render_node_spans(node_idx);
-                let mut display_rows: Vec<RenderedDisplayRow> = self
-                    .view
-                    .wrapped_display_rows(node_idx, spans, wrapped_text_width)
-                    .into_iter()
-                    .enumerate()
-                    .map(|(seg_idx, mut row)| {
-                        let mut line_spans = Vec::new();
-                        if seg_idx == 0 {
-                            line_spans.push(Span::styled(format!("{indicator} "), indicator_style));
-                        } else {
-                            line_spans.push(Span::raw("  "));
-                        }
-                        line_spans.append(&mut row.spans);
-                        RenderedDisplayRow {
-                            line: Line::from(line_spans),
-                            byte_range: row.byte_range,
-                        }
-                    })
-                    .collect();
-
-                if add_spacer_after {
-                    display_rows.push(RenderedDisplayRow::spacer());
-                }
-                let height = display_rows.len().max(1) as u16;
-                node_heights.push(height);
-                display_rows
-            })
-            .collect();
+                    display_rows
+                })
+                .collect();
+            (node_rows, node_heights)
+        };
 
         self.cached_node_heights = node_heights;
         self.adjust_scroll(list_inner.height);

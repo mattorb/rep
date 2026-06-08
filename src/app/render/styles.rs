@@ -1,12 +1,15 @@
 use super::*;
 
 impl App {
-    pub(super) fn node_indicator(&self, node_idx: usize) -> (&'static str, Style) {
-        let change_count = self.changes.get(&node_idx).map_or(0, |v| v.len());
-        let feedback_count = self.feedbacks.get(&node_idx).map_or(0, |v| v.len());
-        let insert_count = self.inserts_before.get(&node_idx).map_or(0, |v| v.len())
-            + self.inserts_after.get(&node_idx).map_or(0, |v| v.len());
-        let strike_count = self.strikes.get(&node_idx).map_or(0, |v| v.len());
+    pub(super) fn node_indicator(
+        state: &RenderState<'_>,
+        node_idx: usize,
+    ) -> (&'static str, Style) {
+        let change_count = state.changes.get(&node_idx).map_or(0, |v| v.len());
+        let feedback_count = state.feedbacks.get(&node_idx).map_or(0, |v| v.len());
+        let insert_count = state.inserts_before.get(&node_idx).map_or(0, |v| v.len())
+            + state.inserts_after.get(&node_idx).map_or(0, |v| v.len());
+        let strike_count = state.strikes.get(&node_idx).map_or(0, |v| v.len());
 
         let has_change = change_count > 0;
         let has_feedback = feedback_count > 0;
@@ -52,21 +55,31 @@ impl App {
         (" ", Style::default().fg(Color::DarkGray))
     }
 
+    #[cfg(test)]
     pub(in crate::app) fn render_node_spans(&self, node_idx: usize) -> Vec<Span<'static>> {
-        let strike_units: Vec<(SelectionUnit, usize)> = self
+        let state = self.render_state();
+        Self::render_node_spans_for(&state, node_idx)
+    }
+
+    pub(super) fn render_node_spans_for(
+        state: &RenderState<'_>,
+        node_idx: usize,
+    ) -> Vec<Span<'static>> {
+        let strike_units: Vec<(SelectionUnit, usize)> = state
             .strikes
             .get(&node_idx)
             .map(|set| set.iter().copied().collect())
             .unwrap_or_default();
-        let section_highlight_active = self
+        let section_highlight_active = state
             .section_highlight_range
             .as_ref()
             .is_some_and(|range| range.contains(&node_idx));
 
-        self.view
+        state
+            .view
             .styled_display_spans(DisplaySpanStyleRequest {
                 node_idx,
-                active_anchor: self.selection_state.anchor,
+                active_anchor: state.selection_state.anchor,
                 section_highlight_active,
                 strike_units: &strike_units,
             })

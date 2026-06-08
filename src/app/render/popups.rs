@@ -1,86 +1,90 @@
 use super::*;
 
 impl App {
-    pub(super) fn draw_active_input_popup(&self, frame: &mut Frame, list_inner: Rect) {
-        let popup_spec: Option<(&str, &str, &str, &str)> = match &self.input_mode {
+    pub(super) fn draw_active_input_popup(
+        frame: &mut Frame,
+        list_inner: Rect,
+        state: &RenderState<'_>,
+    ) {
+        let popup_spec: Option<(&str, &str, &str, &str)> = match state.input_mode {
             InputMode::Change => Some((
                 " Change ",
                 "Change mode: Enter save | Esc cancel",
                 "Change> ",
-                self.change_buffer.as_str(),
+                state.change_buffer,
             )),
             InputMode::EditChange(..) => Some((
                 " Edit Change ",
                 "Edit mode: Enter save | Esc cancel",
                 "Change> ",
-                self.change_buffer.as_str(),
+                state.change_buffer,
             )),
             InputMode::Feedback => Some((
                 " Feedback ",
                 "Feedback mode: Enter save | Esc cancel",
                 "Feedback> ",
-                self.feedback_buffer.as_str(),
+                state.feedback_buffer,
             )),
             InputMode::EditFeedback(..) => Some((
                 " Edit Feedback ",
                 "Edit mode: Enter save | Esc cancel",
                 "Feedback> ",
-                self.feedback_buffer.as_str(),
+                state.feedback_buffer,
             )),
             InputMode::InsertBefore => Some((
                 " Insert Before ",
                 "Insert before: Enter save | Esc cancel",
                 "Before> ",
-                self.insert_buffer.as_str(),
+                state.insert_buffer,
             )),
             InputMode::InsertAfter => Some((
                 " Insert After ",
                 "Insert after: Enter save | Esc cancel",
                 "After> ",
-                self.insert_buffer.as_str(),
+                state.insert_buffer,
             )),
             InputMode::Search => Some((
                 " Search ",
                 "Search: Enter jump | Esc cancel | n/N next/prev",
                 "/",
-                self.search_buffer.as_str(),
+                state.search_buffer,
             )),
             InputMode::Normal => None,
         };
         if let Some((title, hint, prompt, buf)) = popup_spec {
-            self.draw_input_popup(frame, list_inner, title, hint, prompt, buf);
+            Self::draw_input_popup(frame, list_inner, state, title, hint, prompt, buf);
         }
     }
 
     fn draw_input_popup(
-        &self,
         frame: &mut Frame,
         list_inner: Rect,
+        state: &RenderState<'_>,
         title: &str,
         hint: &str,
         prompt: &str,
         buf: &str,
     ) {
-        let heights = &self.cached_node_heights;
+        let heights = state.cached_node_heights;
         if list_inner.width < 12
             || list_inner.height < 4
-            || self.selection_state.anchor.node_idx >= heights.len()
+            || state.selection_state.anchor.node_idx >= heights.len()
         {
             return;
         }
 
-        let list_offset = self.scroll_offset;
-        if self.selection_state.anchor.node_idx < list_offset {
+        let list_offset = state.scroll_offset;
+        if state.selection_state.anchor.node_idx < list_offset {
             return;
         }
 
         let selected_top: u16 = heights
             .iter()
             .skip(list_offset)
-            .take(self.selection_state.anchor.node_idx - list_offset)
+            .take(state.selection_state.anchor.node_idx - list_offset)
             .copied()
             .sum();
-        let selected_height = heights[self.selection_state.anchor.node_idx].max(1);
+        let selected_height = heights[state.selection_state.anchor.node_idx].max(1);
 
         if selected_top >= list_inner.height {
             return;
@@ -251,7 +255,7 @@ impl App {
         );
     }
 
-    pub(super) fn draw_ast_popup(&self, frame: &mut Frame, area: Rect) {
+    pub(super) fn draw_ast_popup(frame: &mut Frame, area: Rect, state: &RenderState<'_>) {
         let popup_width = (area.width * 4 / 5).max(40).min(area.width);
         let popup_height = (area.height * 4 / 5).max(6).min(area.height);
         let popup = Rect {
@@ -261,13 +265,13 @@ impl App {
             height: popup_height,
         };
 
-        let lines: Vec<Line> = self
+        let lines: Vec<Line> = state
             .ast_lines
             .iter()
             .map(|l| Line::from(Span::raw(l.clone())))
             .collect();
 
-        let total = self.ast_lines.len() as u16;
+        let total = state.ast_lines.len() as u16;
         // With wrap enabled the scroll axis is display-rows, not
         // source-lines; long lines wrap to multiple rows so the user
         // can drift past `total` worth of "lines" before exhausting
@@ -276,7 +280,7 @@ impl App {
         // at the bottom rather than truncating right-edge content.
         let inner_height = popup_height.saturating_sub(2);
         let max_scroll = total.saturating_sub(inner_height);
-        let scroll = self.ast_view_scroll.unwrap_or(0).min(max_scroll);
+        let scroll = state.ast_view_scroll.unwrap_or(0).min(max_scroll);
 
         frame.render_widget(Clear, popup);
         frame.render_widget(
@@ -297,11 +301,11 @@ impl App {
         );
     }
 
-    pub(super) fn draw_link_popup(&self, frame: &mut Frame, area: Rect) {
+    pub(super) fn draw_link_popup(frame: &mut Frame, area: Rect, state: &RenderState<'_>) {
         // Caller in draw() gates on link_popup_urls.is_some(), so the
         // None case here is unreachable; default to an empty slice if
         // it ever fires.
-        let urls: &[String] = self.link_popup_urls.as_deref().unwrap_or(&[]);
+        let urls = state.link_popup_urls.unwrap_or(&[]);
         let popup_width = area.width.saturating_sub(10).clamp(40, 100);
         let max_height = area.height.saturating_sub(6).max(6);
         let desired_height = (urls.len() as u16).saturating_add(5).clamp(6, max_height);

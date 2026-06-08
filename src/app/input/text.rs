@@ -515,13 +515,4 @@ impl App {
     pub(in crate::app) fn current_sentence_links(&self) -> Vec<String> {
         self.view.links_for_anchor(self.selection_state.anchor)
     }
-
-    pub(in crate::app) fn annotation_counts(&self) -> (usize, usize, usize, usize) {
-        let changes: usize = self.changes.values().map(|v| v.len()).sum();
-        let feedbacks: usize = self.feedbacks.values().map(|v| v.len()).sum();
-        let inserts: usize = self.inserts_before.values().map(|v| v.len()).sum::<usize>()
-            + self.inserts_after.values().map(|v| v.len()).sum::<usize>();
-        let strikes: usize = self.strikes.values().map(|v| v.len()).sum();
-        (changes, feedbacks, inserts, strikes)
-    }
 }

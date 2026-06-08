@@ -1,11 +1,11 @@
 use super::*;
 
 impl App {
-    pub(super) fn draw_footer(&self, frame: &mut Frame, area: Rect) {
+    pub(super) fn draw_footer(frame: &mut Frame, area: Rect, state: &RenderState<'_>) {
         // Two-zone footer: persistent left mode indicator + transient right
         // zone (nav feedback / notification / hint). Mode indicator is never
         // truncated; right zone shrinks first under width pressure.
-        let mode_text = format!(" mode: {}", self.mode_indicator());
+        let mode_text = format!(" mode: {}", state.mode_indicator);
         let mode_style = Style::default().fg(Color::Cyan);
         let hint_style = Style::default().fg(Color::DarkGray);
         // Right zone priority: transient nav_feedback (one-keypress
@@ -14,12 +14,12 @@ impl App {
         // hint. The status field accumulates input-mode prompts and
         // action-confirmation messages; without showing it the user never
         // sees mode prompts like "Change mode: type text and press Enter."
-        let right_text = if let Some(fb) = &self.nav_feedback {
-            (fb.clone(), Style::default().fg(Color::Yellow))
-        } else if let Some(note) = &self.notification {
-            (note.clone(), Style::default().fg(Color::Green))
-        } else if !self.status.is_empty() {
-            (self.status.clone(), Style::default().fg(Color::Gray))
+        let right_text = if let Some(fb) = state.nav_feedback {
+            (fb.to_string(), Style::default().fg(Color::Yellow))
+        } else if let Some(note) = state.notification {
+            (note.to_string(), Style::default().fg(Color::Green))
+        } else if !state.status.is_empty() {
+            (state.status.to_string(), Style::default().fg(Color::Gray))
         } else {
             ("? for help ".to_string(), hint_style)
         };

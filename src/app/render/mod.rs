@@ -3,7 +3,10 @@ use super::*;
 mod document;
 mod footer;
 mod popups;
+mod state;
 mod styles;
+
+use state::RenderState;
 
 impl App {
     // ── Drawing ───────────────────────────────────────────────────────────────
@@ -16,19 +19,21 @@ impl App {
             .split(area);
 
         let list_inner = self.draw_document(frame, layout[0]);
-        self.draw_footer(frame, layout[1]);
-        self.draw_active_input_popup(frame, list_inner);
+        let state = self.render_state();
 
-        if self.link_popup_urls.is_some() {
-            self.draw_link_popup(frame, area);
+        Self::draw_footer(frame, layout[1], &state);
+        Self::draw_active_input_popup(frame, list_inner, &state);
+
+        if state.link_popup_urls.is_some() {
+            Self::draw_link_popup(frame, area, &state);
         }
 
-        if self.show_help {
+        if state.show_help {
             Self::draw_help(frame, area);
         }
 
-        if self.ast_view_scroll.is_some() {
-            self.draw_ast_popup(frame, area);
+        if state.ast_view_scroll.is_some() {
+            Self::draw_ast_popup(frame, area, &state);
         }
     }
 }
