@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::env;
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rep::cli::{CliCommand, parse_cli_args_from, run_interactive};
 use rep::ui;
@@ -45,11 +45,48 @@ where
         }
         CliCommand::Run(cli) => cli,
     };
+    if cli.debug {
+        let terminal_available = terminal_available();
+        return Ok(Some(render_debug_diagnostics(
+            &cli.source_path,
+            &terminal_fallback::diagnostics(terminal_available),
+        )));
+    }
     if !terminal_available() && try_fallback(&raw_args)? {
         return Ok(None);
     }
 
     run_interactive(cli.source_path)
+}
+
+fn render_debug_diagnostics(
+    source_path: &Path,
+    diagnostics: &terminal_fallback::FallbackDiagnostics,
+) -> String {
+    format!(
+        "\
+rep debug diagnostics
+source_path: {}
+terminal_available: {}
+tmux_env_present: {}
+tmux_pane_env_present: {}
+rep_tmux_fallback_env_present: {}
+rep_terminal_window_fallback_env_present: {}
+ssh_session: {}
+tmux_unavailable: {}
+would_try_tmux_fallback: {}
+would_try_terminal_window_fallback: {}",
+        source_path.display(),
+        diagnostics.terminal_available,
+        diagnostics.tmux_env_present,
+        diagnostics.tmux_pane_env_present,
+        diagnostics.tmux_fallback_env_present,
+        diagnostics.terminal_window_fallback_env_present,
+        diagnostics.ssh_session,
+        diagnostics.tmux_unavailable,
+        diagnostics.would_try_tmux_fallback,
+        diagnostics.would_try_terminal_window_fallback,
+    )
 }
 
 #[cfg(test)]
@@ -104,6 +141,22 @@ mod tests {
         .unwrap();
 
         assert_eq!(output.as_deref(), Some("final output"));
+    }
+
+    #[test]
+    fn debug_returns_diagnostics_without_touching_tui_or_fallback() {
+        let output = real_main_with(
+            vec![OsString::from("--debug"), OsString::from("plan.md")],
+            || true,
+            |_| panic!("fallback should not run for debug"),
+            |_| panic!("interactive TUI should not run for debug"),
+        )
+        .unwrap()
+        .unwrap();
+
+        assert!(output.contains("rep debug diagnostics"));
+        assert!(output.contains("source_path: plan.md"));
+        assert!(output.contains("terminal_available: true"));
     }
 
     #[test]

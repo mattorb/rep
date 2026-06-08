@@ -54,6 +54,21 @@ fn short_help_flag() {
 }
 
 #[test]
+fn debug_flag_prints_diagnostics_without_opening_tui() {
+    let out = rep_bin()
+        .args(["--debug", "plan.md"])
+        .output()
+        .expect("failed to run rep");
+
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("rep debug diagnostics"), "got: {stdout}");
+    assert!(stdout.contains("source_path: plan.md"), "got: {stdout}");
+    assert!(stdout.contains("terminal_available:"), "got: {stdout}");
+    assert!(stdout.contains("would_try_tmux_fallback:"), "got: {stdout}");
+}
+
+#[test]
 fn unknown_flag_exits_nonzero() {
     let out = rep_bin()
         .arg("--bogus-flag")

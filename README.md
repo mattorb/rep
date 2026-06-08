@@ -78,6 +78,16 @@ $ claude
 
 Note: rep _can_ also be executed directly against a plan file outside of an agentic loop, but you'll have copy/paste the annotation output back to an LLM and give it a hint on how to proceed.
 
+## Troubleshooting
+
+Print launch diagnostics without opening the TUI:
+
+```sh
+rep --debug plan.md
+```
+
+The diagnostics report the source path, terminal availability, tmux and SSH environment detection, and whether rep would try tmux or terminal-window fallback launch paths.
+
 ## Keybindings
 
 | Key | Action |

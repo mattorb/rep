@@ -4,13 +4,54 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const TMUX_FALLBACK_ENV: &str = "REP_TMUX_FALLBACK";
 const TERMINAL_WINDOW_FALLBACK_ENV: &str = "REP_TERMINAL_WINDOW_FALLBACK";
 const FALLBACK_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FallbackDiagnostics {
+    pub terminal_available: bool,
+    pub tmux_env_present: bool,
+    pub tmux_pane_env_present: bool,
+    pub tmux_fallback_env_present: bool,
+    pub terminal_window_fallback_env_present: bool,
+    pub ssh_session: bool,
+    pub tmux_unavailable: bool,
+    pub would_try_tmux_fallback: bool,
+    pub would_try_terminal_window_fallback: bool,
+}
+
+pub(crate) fn diagnostics(terminal_available: bool) -> FallbackDiagnostics {
+    let tmux_env_present = env::var_os("TMUX").is_some();
+    let tmux_pane_env_present = env::var_os("TMUX_PANE").is_some();
+    let tmux_fallback_env_present = env::var_os(TMUX_FALLBACK_ENV).is_some();
+    let terminal_window_fallback_env_present = env::var_os(TERMINAL_WINDOW_FALLBACK_ENV).is_some();
+    let ssh_session = is_ssh_session();
+    let tmux_unavailable = tmux_unavailable();
+    let would_try_tmux_fallback = !terminal_available
+        && !tmux_fallback_env_present
+        && tmux_env_present
+        && tmux_pane_env_present;
+    let would_try_terminal_window_fallback = !terminal_available
+        && !terminal_window_fallback_env_present
+        && should_try_terminal_window(would_try_tmux_fallback, ssh_session, tmux_unavailable);
+
+    FallbackDiagnostics {
+        terminal_available,
+        tmux_env_present,
+        tmux_pane_env_present,
+        tmux_fallback_env_present,
+        terminal_window_fallback_env_present,
+        ssh_session,
+        tmux_unavailable,
+        would_try_tmux_fallback,
+        would_try_terminal_window_fallback,
+    }
+}
 
 pub(crate) fn try_launch(raw_args: &[OsString]) -> Result<bool> {
     let used_tmux_fallback = try_tmux_fallback(raw_args)?;
@@ -180,6 +221,8 @@ fn tmux_unavailable() -> bool {
     }
     Command::new("tmux")
         .arg("-V")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .map_or(true, |status| !status.success())
 }

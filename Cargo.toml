@@ -28,6 +28,9 @@ clap = { version = "4", features = ["derive"] }
 crossterm = "0.29"
 ratatui = "0.30"
 unicode-width = "0.2"
+# `pulldown-cmark` renders inline markdown for terminal display, while
+# `markdown` provides the mdast/source-structure parser used by selection and
+# AST views. Keeping both is intentional until one parser can satisfy both jobs.
 pulldown-cmark = "0.12"
 markdown = "1"
 

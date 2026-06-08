@@ -13,6 +13,7 @@ use crate::ui::Tui;
 #[derive(Debug, Clone)]
 pub struct CliArgs {
     pub source_path: PathBuf,
+    pub debug: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -30,6 +31,10 @@ pub enum CliCommand {
     override_usage = "rep [OPTIONS] <markdown-file>"
 )]
 struct RawCliArgs {
+    /// Print launch diagnostics and exit without opening the TUI
+    #[arg(long)]
+    debug: bool,
+
     /// Path to the Markdown file to annotate
     #[arg(value_name = "markdown-file")]
     source_path: PathBuf,
@@ -48,6 +53,7 @@ where
     match RawCliArgs::try_parse_from(raw_args) {
         Ok(args) => Ok(CliCommand::Run(CliArgs {
             source_path: args.source_path,
+            debug: args.debug,
         })),
         Err(err) if err.kind() == ErrorKind::DisplayHelp => {
             let mut command = RawCliArgs::command();
@@ -118,7 +124,23 @@ mod tests {
         let command = parse(&["notes.md"]).unwrap();
 
         match command {
-            CliCommand::Run(args) => assert_eq!(args.source_path, PathBuf::from("notes.md")),
+            CliCommand::Run(args) => {
+                assert_eq!(args.source_path, PathBuf::from("notes.md"));
+                assert!(!args.debug);
+            }
+            other => panic!("expected run command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_debug_flag_with_source_path() {
+        let command = parse(&["--debug", "notes.md"]).unwrap();
+
+        match command {
+            CliCommand::Run(args) => {
+                assert_eq!(args.source_path, PathBuf::from("notes.md"));
+                assert!(args.debug);
+            }
             other => panic!("expected run command, got {other:?}"),
         }
     }
@@ -131,6 +153,7 @@ mod tests {
             match command {
                 CliCommand::Help(text) => {
                     assert!(text.contains("Usage: rep [OPTIONS] <markdown-file>"));
+                    assert!(text.contains("--debug"));
                     assert!(text.contains("-V, --version"));
                 }
                 other => panic!("expected help command for {flag}, got {other:?}"),
