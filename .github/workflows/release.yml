@@ -163,12 +163,12 @@ jobs:
             $binaryName = "$binary.exe"
             $archive = "$binary-$version-$target.zip"
             Copy-Item (Join-Path $releaseDir $binaryName) $binaryName
-            Compress-Archive -Path $binaryName -DestinationPath $archive -Force
+            Compress-Archive -Path $binaryName, "LICENSE", "README.md" -DestinationPath $archive -Force
           } else {
             $binaryName = $binary
             $archive = "$binary-$version-$target.tar.gz"
             Copy-Item (Join-Path $releaseDir $binaryName) $binaryName
-            tar czf $archive $binaryName .agents/skills/rep
+            tar czf $archive $binaryName LICENSE README.md .agents/skills/rep
           }
 
           $sha = (Get-FileHash -Algorithm SHA256 -Path $archive).Hash.ToLowerInvariant()
