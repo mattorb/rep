@@ -10,11 +10,11 @@ expression: render(&mut app)
 │                                                                      │
 │                                                                      │
 │             ┌ Quit ────────────────────────────────────┐             │
-│             │Are you sure?                             │             │
+│             │ Are you sure?                            │             │
 │             │                                          │             │
-│             │Results will be printed to stdout.        │             │
+│             │ Results will be printed to stdout.       │             │
 │             │                                          │             │
-│             │y / Enter confirm   n / Esc cancel        │             │
+│             │ y confirm   n cancel                     │             │
 │             └──────────────────────────────────────────┘             │
 │                                                                      │
 │                                                                      │

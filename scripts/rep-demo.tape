@@ -68,6 +68,6 @@ Enter
 Sleep 600ms
 
 Type "q"
-Sleep 620ms
+Sleep 1000ms
 Type "y"
-Sleep 900ms
+Sleep 5000ms

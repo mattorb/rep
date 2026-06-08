@@ -5,10 +5,10 @@ expression: render(&mut app)
 ┌ rep_snapshot_change_input.md ────────────────────────────────────────┐
 │  # Release Plan                                                      │
 │                                                                      │
-│┌ Change ────────────────────────────────────────────────────────────┐│
-││Change mode: Enter save | Esc cancel                                ││
-││Change> Include the agent skill                                     ││
+│┌ Change (literal) ──────────────────────────────────────────────────┐│
+││> Include the agent skill                                           ││
 │└────────────────────────────────────────────────────────────────────┘│
+│                                                                      │
 │                                                                      │
 │                                                                      │
 │                                                                      │

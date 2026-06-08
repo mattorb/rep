@@ -5,10 +5,10 @@ expression: render(&mut app)
 ┌ rep_snapshot_insert_after_input.md ──────────────────────────────────┐
 │  # Release Plan                                                      │
 │                                                                      │
-│┌ Insert After ──────────────────────────────────────────────────────┐│
-││Insert after: Enter save | Esc cancel                               ││
-││After> Follow with install verification                             ││
+│┌ Insert After (literal) ────────────────────────────────────────────┐│
+││> Follow with install verification                                  ││
 │└────────────────────────────────────────────────────────────────────┘│
+│                                                                      │
 │                                                                      │
 │                                                                      │
 │                                                                      │

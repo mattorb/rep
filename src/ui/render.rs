@@ -255,13 +255,13 @@ fn draw_input_popup(
     list_inner: Rect,
     state: &RenderState<'_>,
     title: &str,
-    hint: &str,
+    hint: Option<&str>,
     prompt: &str,
     buf: &str,
 ) {
     let heights = state.cached_node_heights;
     if list_inner.width < 12
-        || list_inner.height < 4
+        || list_inner.height < 3
         || state.selection_state.anchor.node_idx >= heights.len()
     {
         return;
@@ -287,15 +287,16 @@ fn draw_input_popup(
     let popup_width = list_inner.width.clamp(20, 80);
     let inner_width = popup_width.saturating_sub(2) as usize;
 
-    let hint_height = wrap_styled_spans(vec![Span::raw(hint.to_owned())], inner_width).len() as u16;
+    let hint_height = hint
+        .map(|hint| wrap_styled_spans(vec![Span::raw(hint.to_owned())], inner_width).len() as u16)
+        .unwrap_or(0);
     let body_height =
         wrap_styled_spans(vec![Span::raw(format!("{prompt}{buf}"))], inner_width).len() as u16;
     let needed_height = hint_height
-        .max(1)
         .saturating_add(body_height.max(1))
         .saturating_add(2);
-    let max_popup_height = list_inner.height.saturating_sub(2).max(4);
-    let popup_height = needed_height.clamp(4, max_popup_height);
+    let max_popup_height = list_inner.height.saturating_sub(2).max(3);
+    let popup_height = needed_height.clamp(3, max_popup_height);
 
     let list_bottom = list_inner.y + list_inner.height;
     let preferred_below_y = list_inner.y
@@ -318,13 +319,14 @@ fn draw_input_popup(
         height: popup_height,
     };
 
-    let lines = vec![
-        Line::from(Span::styled(
+    let mut lines = Vec::new();
+    if let Some(hint) = hint {
+        lines.push(Line::from(Span::styled(
             hint.to_owned(),
             Style::default().fg(Color::Yellow),
-        )),
-        Line::from(format!("{prompt}{buf}")),
-    ];
+        )));
+    }
+    lines.push(Line::from(format!("{prompt}{buf}")));
 
     frame.render_widget(Clear, popup);
     frame.render_widget(
@@ -352,21 +354,9 @@ pub(crate) fn draw_help(frame: &mut Frame, area: Rect) {
     let help_lines = vec![
         Line::from(""),
         Line::from(Span::styled("  Navigate", Style::default().fg(Color::Cyan))),
-        Line::from(format!(
-            "  {}, {}    next/prev unit",
-            key_action("Move to the next active unit"),
-            key_action("Move to the previous active unit")
-        )),
-        Line::from(format!(
-            "  {}, {}    next/prev selection unit",
-            key_action("Cycle to the next selection unit"),
-            key_action("Cycle to the previous selection unit")
-        )),
-        Line::from(format!(
-            "  {}, {}    finer/coarser units",
-            key_action("Use a finer selection unit"),
-            key_action("Use a coarser selection unit")
-        )),
+        Line::from("  j, k    next/prev unit"),
+        Line::from("  i, o    finer/coarser units"),
+        Line::from(""),
         Line::from(Span::styled("  Annotate", Style::default().fg(Color::Cyan))),
         Line::from(format!(
             "  {}       change (literal)",
@@ -450,19 +440,17 @@ pub(crate) fn draw_help(frame: &mut Frame, area: Rect) {
 
 pub(crate) fn draw_quit_confirmation_popup(frame: &mut Frame, area: Rect) {
     let lines = vec![
-        Line::from("Are you sure?"),
-        Line::from(""),
-        Line::from("Results will be printed to stdout."),
-        Line::from(""),
+        Line::from(" Are you sure? "),
+        Line::from("  "),
+        Line::from(" Results will be printed to stdout. "),
+        Line::from("  "),
         Line::from(vec![
+            Span::raw(" "),
             Span::styled("y", Style::default().fg(Color::Green)),
-            Span::raw(" / "),
-            Span::styled("Enter", Style::default().fg(Color::Green)),
             Span::raw(" confirm   "),
             Span::styled("n", Style::default().fg(Color::Red)),
-            Span::raw(" / "),
-            Span::styled("Esc", Style::default().fg(Color::Red)),
             Span::raw(" cancel"),
+            Span::raw(" "),
         ]),
     ];
 

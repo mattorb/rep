@@ -6,9 +6,9 @@ expression: render(&mut app)
 ┌ Help ────────────────────────────────────────────────────────────────┐
 │                                                                      │
 │  Navigate                                                            │
-│  j, Down, Right, k, Up, Left    next/prev unit                       │
-│  Space, Backspace    next/prev selection unit                        │
+│  j, k    next/prev unit                                              │
 │  i, o    finer/coarser units                                         │
+│                                                                      │
 │  Annotate                                                            │
 │  c       change (literal)                                            │
 │  f       feedback (intent)                                           │

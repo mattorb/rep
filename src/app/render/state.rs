@@ -35,47 +35,25 @@ pub(crate) struct RenderState<'a> {
 impl RenderState<'_> {
     pub(crate) fn input_popup_spec(
         &self,
-    ) -> Option<(&'static str, &'static str, &'static str, &str)> {
+    ) -> Option<(&'static str, Option<&'static str>, &'static str, &str)> {
         match self.input_mode {
-            InputMode::Change => Some((
-                " Change ",
-                "Change mode: Enter save | Esc cancel",
-                "Change> ",
-                self.change_buffer,
-            )),
-            InputMode::EditChange(..) => Some((
-                " Edit Change ",
-                "Edit mode: Enter save | Esc cancel",
-                "Change> ",
-                self.change_buffer,
-            )),
-            InputMode::Feedback => Some((
-                " Feedback ",
-                "Feedback mode: Enter save | Esc cancel",
-                "Feedback> ",
-                self.feedback_buffer,
-            )),
-            InputMode::EditFeedback(..) => Some((
-                " Edit Feedback ",
-                "Edit mode: Enter save | Esc cancel",
-                "Feedback> ",
-                self.feedback_buffer,
-            )),
-            InputMode::InsertBefore => Some((
-                " Insert Before ",
-                "Insert before: Enter save | Esc cancel",
-                "Before> ",
-                self.insert_buffer,
-            )),
-            InputMode::InsertAfter => Some((
-                " Insert After ",
-                "Insert after: Enter save | Esc cancel",
-                "After> ",
-                self.insert_buffer,
-            )),
+            InputMode::Change => Some((" Change (literal) ", None, "> ", self.change_buffer)),
+            InputMode::EditChange(..) => {
+                Some((" Edit Change (literal) ", None, "> ", self.change_buffer))
+            }
+            InputMode::Feedback => Some((" Feedback (Intent) ", None, "> ", self.feedback_buffer)),
+            InputMode::EditFeedback(..) => {
+                Some((" Edit Feedback (Intent) ", None, "> ", self.feedback_buffer))
+            }
+            InputMode::InsertBefore => {
+                Some((" Insert Before (literal) ", None, "> ", self.insert_buffer))
+            }
+            InputMode::InsertAfter => {
+                Some((" Insert After (literal) ", None, "> ", self.insert_buffer))
+            }
             InputMode::Search => Some((
                 " Search ",
-                "Search: Enter jump | Esc cancel | n/N next/prev",
+                Some("Search: Enter jump | Esc cancel | n/N next/prev"),
                 "/",
                 self.search_buffer,
             )),
