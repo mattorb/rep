@@ -3,18 +3,18 @@
 
 # Rep
 
-A human in the loop TUI to revise markdown plan files quickly in collaboration with an LLM. It is primarily **made for use inside a tmux session** wrapping an agent tool like Claude Code or Codex. This is the way.
+A human in the loop TUI to review and revise markdown plan files quickly in collaboration with an LLM. It is primarily **made for use inside a tmux session**, wrapping an agent tool like Claude Code or Codex. This is the way.
 
 ![Rep TUI demo](docs/rep-demo.gif)
 
 ## Overview
 
-`rep` opens a markdown file in an interactive terminal UI optimized for providing feedback and requesting changes from an LLM. On quit of the app, it prints out list a [changes requested](#emitted-annotations-example), for an AI agent.
+`rep` opens a markdown file in an interactive TUI optimized for providing feedback and requesting changes from an LLM. On quit of the app, it prints out list a [changes requested](#emitted-annotations-example), for an AI agent to process.
 
-For a seamless experience, launch Codex or Claude Code inside a tmux session, which allows rep to launch as modal and automatically pass the results into the agentic loop.
+For a seamless experience, launch Codex or Claude Code inside a tmux session, which allows rep to launch as modal from a skill and automatically pass the revisions you ask it for back into the agentic loop.
 
 * Why not just talk to the LLM asking for the changes I want? *
-To really target your changes and apply a whole series of them in one shot, you have to provide lots of context. Rep automatically includes context of _where_ in the plan you are requesting any given change.
+To really target your changes and apply a whole series of them in one shot, you have to provide lots of context. Rep automatically includes context of _where_ in the plan you are requesting any given change. Have a line highlight you can step through the plan with also helps you keep yourself on track reading through an entire markdown plan before kicking off long running work. 
 
 ## Installation
 
@@ -84,16 +84,6 @@ $ claude
 
 Note: rep _can_ also be executed directly against a plan file outside of an agentic loop, but you'll have copy/paste the annotation output back to an LLM and give it a hint on how to proceed.
 
-## Troubleshooting
-
-Print launch diagnostics without opening the TUI:
-
-```sh
-rep --debug plan.md
-```
-
-The diagnostics report the source path, terminal availability, tmux and SSH environment detection, and whether rep would try tmux or terminal-window fallback launch paths.
-
 ## Keybindings
 
 | Key | Action |
@@ -128,9 +118,6 @@ The diagnostics report the source path, terminal availability, tmux and SSH envi
 | --- | --- | --- | --- |
 | macOS x86_64 | `x86_64-apple-darwin` | Build and tests on GitHub-hosted macOS | Supported |
 | macOS arm64 | `aarch64-apple-darwin` | Cross-target release build on GitHub-hosted macOS | Supported |
-| Linux x86_64 | none | Build and tests on GitHub-hosted Ubuntu | Not currently released |
-| Linux arm64 | none | none | Not currently released |
-| Windows | none | none | Not currently supported |
 
 ## Emitted Annotations Example
 On exit, something like this prints to stdout, for the LLM agent to consume and make modifications to the markdown plan file.
