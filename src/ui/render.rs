@@ -1,11 +1,217 @@
+use std::ops::Range;
+
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::{RenderState, truncate_to_columns};
+use crate::document_view::{CodeBlockStyleRequest, DisplaySpanStyleRequest};
 use crate::output::keybinding_doc_rows;
 
 use super::wrap_styled_spans;
+
+pub(crate) struct RenderedDocument {
+    pub(crate) rows: Vec<Vec<RenderedDisplayRow>>,
+    pub(crate) node_heights: Vec<u16>,
+}
+
+pub(crate) struct RenderedDisplayRow {
+    pub(crate) line: Line<'static>,
+    pub(crate) byte_range: Range<usize>,
+}
+
+impl RenderedDisplayRow {
+    fn spacer() -> Self {
+        Self {
+            line: Line::from(""),
+            byte_range: 0..0,
+        }
+    }
+}
+
+pub(crate) fn document_block_title(state: &RenderState<'_>) -> String {
+    let filename = state
+        .source_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("markdown");
+    let (change_count, feedback_count, insert_count, strike_count) = state.annotation_counts();
+    if change_count == 0 && feedback_count == 0 && insert_count == 0 && strike_count == 0 {
+        format!(" {filename} ")
+    } else {
+        let mut parts = Vec::new();
+        if change_count > 0 {
+            parts.push(format!("{change_count}C"));
+        }
+        if feedback_count > 0 {
+            parts.push(format!("{feedback_count}F"));
+        }
+        if insert_count > 0 {
+            parts.push(format!("{insert_count}I"));
+        }
+        if strike_count > 0 {
+            parts.push(format!("{strike_count}X"));
+        }
+        format!(" {filename}  {} ", parts.join(" · "))
+    }
+}
+
+pub(crate) fn build_document_rows(
+    state: &RenderState<'_>,
+    wrapped_text_width: usize,
+) -> RenderedDocument {
+    let node_count = state.view.node_count();
+    let mut node_heights: Vec<u16> = Vec::with_capacity(node_count);
+    let rows = (0..node_count)
+        .map(|node_idx| {
+            let (indicator, indicator_style) = node_indicator(state, node_idx);
+            let add_spacer_after =
+                node_idx + 1 < node_count && state.view.is_block_start(node_idx + 1);
+            let strike_units = state.strike_units_for(node_idx);
+
+            if let Some(code_rows) = state.view.styled_code_block_rows(CodeBlockStyleRequest {
+                node_idx,
+                active_anchor: state.selection_state.anchor,
+                section_highlight_active: state.section_highlight_active(node_idx),
+                strike_units: &strike_units,
+            }) {
+                let mut display_rows: Vec<RenderedDisplayRow> =
+                    Vec::with_capacity(code_rows.len() + 1);
+                for (i, mut row) in code_rows.into_iter().enumerate() {
+                    let mut spans = vec![if i == 0 {
+                        Span::styled(format!("{indicator} "), indicator_style)
+                    } else {
+                        Span::raw("  ")
+                    }];
+                    spans.append(&mut row.spans);
+                    display_rows.push(RenderedDisplayRow {
+                        line: Line::from(spans),
+                        byte_range: row.byte_range,
+                    });
+                }
+                if add_spacer_after {
+                    display_rows.push(RenderedDisplayRow::spacer());
+                }
+                let height = display_rows.len().max(1) as u16;
+                node_heights.push(height);
+                return display_rows;
+            }
+
+            let spans = render_node_spans(state, node_idx);
+            let mut display_rows: Vec<RenderedDisplayRow> = state
+                .view
+                .wrapped_display_rows(node_idx, spans, wrapped_text_width)
+                .into_iter()
+                .enumerate()
+                .map(|(seg_idx, mut row)| {
+                    let mut line_spans = Vec::new();
+                    if seg_idx == 0 {
+                        line_spans.push(Span::styled(format!("{indicator} "), indicator_style));
+                    } else {
+                        line_spans.push(Span::raw("  "));
+                    }
+                    line_spans.append(&mut row.spans);
+                    RenderedDisplayRow {
+                        line: Line::from(line_spans),
+                        byte_range: row.byte_range,
+                    }
+                })
+                .collect();
+
+            if add_spacer_after {
+                display_rows.push(RenderedDisplayRow::spacer());
+            }
+            let height = display_rows.len().max(1) as u16;
+            node_heights.push(height);
+            display_rows
+        })
+        .collect();
+
+    RenderedDocument { rows, node_heights }
+}
+
+pub(crate) fn visible_document_lines(
+    node_rows: &[Vec<RenderedDisplayRow>],
+    scroll_offset: usize,
+    inner_height: u16,
+) -> (Vec<Line<'static>>, Vec<(usize, Range<usize>)>) {
+    let mut visible = Vec::new();
+    let mut visible_row_ranges = Vec::new();
+    let mut count = 0u16;
+    'outer: for (node_idx, rows) in node_rows.iter().enumerate().skip(scroll_offset) {
+        for row in rows {
+            if count >= inner_height {
+                break 'outer;
+            }
+            visible.push(row.line.clone());
+            visible_row_ranges.push((node_idx, row.byte_range.clone()));
+            count += 1;
+        }
+    }
+    (visible, visible_row_ranges)
+}
+
+fn node_indicator(state: &RenderState<'_>, node_idx: usize) -> (&'static str, Style) {
+    let (change_count, feedback_count, insert_count, strike_count) =
+        state.annotation_counts_for(node_idx);
+
+    let total = change_count + feedback_count + insert_count + strike_count;
+    if total > 1 {
+        return (
+            "*",
+            Style::default()
+                .fg(Color::LightMagenta)
+                .add_modifier(Modifier::BOLD),
+        );
+    }
+    if change_count > 0 {
+        return (
+            "C",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
+    }
+    if feedback_count > 0 {
+        return (
+            "F",
+            Style::default()
+                .fg(Color::LightCyan)
+                .add_modifier(Modifier::BOLD),
+        );
+    }
+    if insert_count > 0 {
+        return (
+            "+",
+            Style::default()
+                .fg(Color::LightGreen)
+                .add_modifier(Modifier::BOLD),
+        );
+    }
+    if strike_count > 0 {
+        return ("X", Style::default().fg(Color::LightRed));
+    }
+    (" ", Style::default().fg(Color::DarkGray))
+}
+
+pub(crate) fn render_node_spans(state: &RenderState<'_>, node_idx: usize) -> Vec<Span<'static>> {
+    let strike_units = state.strike_units_for(node_idx);
+
+    state
+        .view
+        .styled_display_spans(DisplaySpanStyleRequest {
+            node_idx,
+            active_anchor: state.selection_state.anchor,
+            section_highlight_active: state.section_highlight_active(node_idx),
+            strike_units: &strike_units,
+        })
+        .unwrap_or_else(|| {
+            vec![Span::styled(
+                " ",
+                Style::default().add_modifier(Modifier::DIM),
+            )]
+        })
+}
 
 pub(crate) fn draw_footer(frame: &mut Frame, area: Rect, state: &RenderState<'_>) {
     let mode_text = format!(" mode: {}", state.mode_indicator);

@@ -2,7 +2,6 @@ use super::*;
 
 mod document;
 mod state;
-mod styles;
 
 pub(crate) use state::RenderState;
 

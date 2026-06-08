@@ -14,15 +14,14 @@ use unicode_width::UnicodeWidthChar;
 
 #[cfg(test)]
 use crate::document::DocNode;
-use crate::document_view::{
-    CodeBlockStyleRequest, DisplaySpanStyleRequest, DocumentView, SourceActionContext,
-};
+use crate::document_view::{DocumentView, SourceActionContext};
 use crate::output::{
     EmitAction, EmitActionContext, EmitChange, EmitFeedback, EmitInsert, EmitKeymap,
     EmitLineAnnotation, EmitLineContext, EmitModel, EmitPayload, EmitReaction, clean_context,
     render_human_output,
 };
 use crate::selection::model::{SelectionAnchor, SelectionState, SelectionUnit};
+use crate::ui::RenderCache;
 
 mod input;
 mod output;
@@ -135,7 +134,7 @@ pub struct App {
     ast_lines: Vec<String>,
     scroll_offset: usize,
     list_inner: Rect,
-    cached_node_heights: Vec<u16>,
+    render_cache: RenderCache,
     /// Timestamp + position of the most recent left-click, used to
     /// bump the click count on rapid same-cell clicks (single → double
     /// → triple). Reset on cell change or after the timeout window.
@@ -198,7 +197,7 @@ impl App {
             nav_feedback: None,
             scroll_offset: 0,
             list_inner: Rect::default(),
-            cached_node_heights: Vec::new(),
+            render_cache: RenderCache::default(),
             last_click: None,
         })
     }

@@ -115,7 +115,7 @@ fn load_initializes_app_state_from_first_content_node() {
     assert!(!app.show_help);
     assert!(app.ast_view_scroll.is_none());
     assert_eq!(app.scroll_offset, 0);
-    assert!(app.cached_node_heights.is_empty());
+    assert!(app.render_cache.node_heights.is_empty());
     assert!(app.ast_lines.iter().any(|line| line.contains("Root")));
 }
 

@@ -90,6 +90,28 @@ impl RenderState<'_> {
         let strikes: usize = self.strikes.values().map(|v| v.len()).sum();
         (changes, feedbacks, inserts, strikes)
     }
+
+    pub(crate) fn annotation_counts_for(&self, node_idx: usize) -> (usize, usize, usize, usize) {
+        let changes = self.changes.get(&node_idx).map_or(0, |v| v.len());
+        let feedbacks = self.feedbacks.get(&node_idx).map_or(0, |v| v.len());
+        let inserts = self.inserts_before.get(&node_idx).map_or(0, |v| v.len())
+            + self.inserts_after.get(&node_idx).map_or(0, |v| v.len());
+        let strikes = self.strikes.get(&node_idx).map_or(0, |v| v.len());
+        (changes, feedbacks, inserts, strikes)
+    }
+
+    pub(crate) fn strike_units_for(&self, node_idx: usize) -> Vec<(SelectionUnit, usize)> {
+        self.strikes
+            .get(&node_idx)
+            .map(|set| set.iter().copied().collect())
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn section_highlight_active(&self, node_idx: usize) -> bool {
+        self.section_highlight_range
+            .as_ref()
+            .is_some_and(|range| range.contains(&node_idx))
+    }
 }
 
 impl App {
@@ -111,7 +133,7 @@ impl App {
             feedback_buffer: &self.feedback_buffer,
             insert_buffer: &self.insert_buffer,
             search_buffer: &self.search_buffer,
-            cached_node_heights: &self.cached_node_heights,
+            cached_node_heights: &self.render_cache.node_heights,
             scroll_offset: self.scroll_offset,
             mode_indicator: self.mode_indicator(),
             changes: &self.changes,
