@@ -89,7 +89,31 @@ impl Drop for Tui {
 mod tests {
     use super::*;
     use std::io::ErrorKind;
+    use std::io::Write;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    struct SharedWriter {
+        bytes: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl SharedWriter {
+        fn contents(&self) -> Vec<u8> {
+            self.bytes.lock().unwrap().clone()
+        }
+    }
+
+    impl Write for SharedWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.bytes.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn terminal_available_when_stdout_is_terminal() {
@@ -111,10 +135,12 @@ mod tests {
     #[test]
     fn tui_output_prefers_stdout_when_it_is_terminal() {
         let tty_opened = AtomicBool::new(false);
+        let stdout = SharedWriter::default();
+        let stdout_check = stdout.clone();
 
-        let output = open_tui_output(
+        let mut output = open_tui_output(
             true,
-            || Box::new(Vec::<u8>::new()),
+            || Box::new(stdout),
             || {
                 tty_opened.store(true, Ordering::SeqCst);
                 Ok(Box::new(Vec::<u8>::new()))
@@ -123,26 +149,32 @@ mod tests {
         )
         .unwrap();
 
+        output.write_all(b"stdout").unwrap();
         assert!(!tty_opened.load(Ordering::SeqCst));
+        assert_eq!(stdout_check.contents(), b"stdout");
         drop(output);
     }
 
     #[test]
     fn tui_output_uses_tty_when_stdout_is_captured() {
         let stdout_opened = AtomicBool::new(false);
+        let tty = SharedWriter::default();
+        let tty_check = tty.clone();
 
-        let output = open_tui_output(
+        let mut output = open_tui_output(
             false,
             || {
                 stdout_opened.store(true, Ordering::SeqCst);
                 Box::new(Vec::<u8>::new())
             },
-            || Ok(Box::new(Vec::<u8>::new())),
+            || Ok(Box::new(tty)),
             "tty help",
         )
         .unwrap();
 
+        output.write_all(b"tty").unwrap();
         assert!(!stdout_opened.load(Ordering::SeqCst));
+        assert_eq!(tty_check.contents(), b"tty");
         drop(output);
     }
 
@@ -164,5 +196,28 @@ mod tests {
         };
 
         assert_eq!(err.to_string(), "tty help");
+    }
+
+    #[test]
+    fn tui_output_error_retains_tty_open_failure_as_source() {
+        let err = match open_tui_output(
+            false,
+            || Box::new(Vec::<u8>::new()),
+            || {
+                Err(io::Error::new(
+                    ErrorKind::PermissionDenied,
+                    "permission denied",
+                ))
+            },
+            "tty help",
+        ) {
+            Ok(_) => panic!("expected tty open error"),
+            Err(err) => err,
+        };
+
+        let source = err
+            .source()
+            .expect("tty open context should retain source error");
+        assert_eq!(source.to_string(), "permission denied");
     }
 }

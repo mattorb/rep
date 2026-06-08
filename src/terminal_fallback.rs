@@ -339,6 +339,17 @@ fn launch_failure(status_code: Option<i32>, stderr: &[u8], prefix: &str) -> anyh
 mod tests {
     use super::*;
 
+    fn test_bridge(name: &str) -> FallbackBridge {
+        let dir = env::temp_dir().join(format!("rep-{name}-test-{}", unique_suffix()));
+        fs::create_dir(&dir).expect("test precondition: create bridge dir");
+        FallbackBridge {
+            stdout_path: dir.join("stdout.log"),
+            stderr_path: dir.join("stderr.log"),
+            status_path: dir.join("status.code"),
+            dir,
+        }
+    }
+
     #[test]
     fn terminal_window_fallback_only_when_tmux_cannot_handle_session() {
         assert!(should_try_terminal_window(false, false, true));
@@ -390,5 +401,91 @@ mod tests {
     fn launch_failure_prefers_stderr_detail() {
         let err = launch_failure(Some(17), b"bad pane\n", "tmux fallback failed");
         assert_eq!(err.to_string(), "tmux fallback failed: bad pane");
+    }
+
+    #[test]
+    fn launch_failure_reports_unknown_status_without_code() {
+        let err = launch_failure(None, b"", "terminal fallback failed");
+        assert_eq!(
+            err.to_string(),
+            "terminal fallback failed (status: unknown)"
+        );
+    }
+
+    #[test]
+    fn wait_for_status_file_returns_when_file_exists() {
+        let bridge = test_bridge("wait-ready");
+        fs::write(&bridge.status_path, "0\n").expect("test precondition: write status");
+
+        wait_for_status_file(&bridge.status_path, Duration::from_millis(0), "test bridge").unwrap();
+
+        fs::remove_dir_all(&bridge.dir).ok();
+    }
+
+    #[test]
+    fn wait_for_status_file_times_out_with_context() {
+        let bridge = test_bridge("wait-timeout");
+
+        let err =
+            wait_for_status_file(&bridge.status_path, Duration::from_millis(0), "test bridge")
+                .unwrap_err();
+
+        let message = err.to_string();
+        assert!(message.contains("timed out waiting for rep to finish in test bridge"));
+        assert!(message.contains("status.code"));
+        fs::remove_dir_all(&bridge.dir).ok();
+    }
+
+    #[test]
+    fn read_bridge_result_reads_status_stdout_and_stderr() {
+        let bridge = test_bridge("read-result");
+        fs::write(&bridge.status_path, "7\n").expect("test precondition: write status");
+        fs::write(&bridge.stdout_path, "final output").expect("test precondition: write stdout");
+        fs::write(&bridge.stderr_path, "details").expect("test precondition: write stderr");
+
+        let result = read_bridge_result(&bridge, "test bridge").unwrap();
+
+        assert_eq!(result.status, 7);
+        assert_eq!(result.stdout, b"final output");
+        assert_eq!(result.stderr, b"details");
+        fs::remove_dir_all(&bridge.dir).ok();
+    }
+
+    #[test]
+    fn read_bridge_result_rejects_invalid_status() {
+        let bridge = test_bridge("bad-status");
+        fs::write(&bridge.status_path, "not a code\n")
+            .expect("test precondition: write bad status");
+
+        let err = match read_bridge_result(&bridge, "test bridge") {
+            Ok(_) => panic!("expected invalid status error"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("invalid exit status"));
+        fs::remove_dir_all(&bridge.dir).ok();
+    }
+
+    #[test]
+    fn complete_fallback_removes_bridge_dir_after_child_failure() {
+        let bridge = test_bridge("complete-failure");
+        let dir = bridge.dir.clone();
+        fs::write(&bridge.status_path, "2\n").expect("test precondition: write status");
+        fs::write(&bridge.stderr_path, "child failed\n").expect("test precondition: write stderr");
+
+        let err = complete_fallback(bridge, "test bridge").unwrap_err();
+
+        assert_eq!(err.to_string(), "rep exited with status 2: child failed");
+        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn complete_fallback_removes_bridge_dir_after_success() {
+        let bridge = test_bridge("complete-success");
+        let dir = bridge.dir.clone();
+        fs::write(&bridge.status_path, "0\n").expect("test precondition: write status");
+
+        assert!(complete_fallback(bridge, "test bridge").unwrap());
+        assert!(!dir.exists());
     }
 }

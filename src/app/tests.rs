@@ -98,3 +98,45 @@ fn make_insert(text: &str) -> InsertAnnotation {
         text: text.into(),
     }
 }
+
+#[test]
+fn load_initializes_app_state_from_first_content_node() {
+    let app = test_app("---\n\n# Heading\n\nBody text.\n");
+
+    assert_eq!(app.current_anchor(), (1, "Sentence", 0));
+    assert_eq!(
+        app.status,
+        "Loaded file. Press q to quit and print annotations."
+    );
+    assert!(!app.should_quit);
+    assert!(!app.silent_quit);
+    assert!(!app.quit_confirm_pending);
+    assert!(app.link_popup_urls.is_none());
+    assert!(!app.show_help);
+    assert!(app.ast_view_scroll.is_none());
+    assert_eq!(app.scroll_offset, 0);
+    assert!(app.cached_node_heights.is_empty());
+    assert!(app.ast_lines.iter().any(|line| line.contains("Root")));
+}
+
+#[test]
+fn load_reports_missing_markdown_path() {
+    let path = std::env::temp_dir().join(format!(
+        "rep_missing_{}.md",
+        FILE_SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+
+    let err = App::load(path.clone()).unwrap_err();
+
+    assert!(err.to_string().contains("failed to read markdown file"));
+    assert!(err.to_string().contains(path.to_string_lossy().as_ref()));
+}
+
+#[test]
+fn base64_encode_matches_standard_padding_vectors() {
+    assert_eq!(base64_encode(b""), "");
+    assert_eq!(base64_encode(b"f"), "Zg==");
+    assert_eq!(base64_encode(b"fo"), "Zm8=");
+    assert_eq!(base64_encode(b"foo"), "Zm9v");
+    assert_eq!(base64_encode(b"hello"), "aGVsbG8=");
+}
