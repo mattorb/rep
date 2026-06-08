@@ -9,7 +9,6 @@ fn q_requires_confirmation_then_y_quits() {
         "first q must arm the confirmation, not quit"
     );
     assert!(app.quit_confirm_pending);
-    assert!(app.status.contains("Are you sure?"));
 
     app.handle_key(key_char('y'));
     assert!(app.should_quit, "y after q must confirm the quit");

@@ -25,6 +25,10 @@ impl App {
             crate::ui::render::draw_link_popup(frame, area, &state);
         }
 
+        if state.quit_confirm_pending {
+            crate::ui::render::draw_quit_confirmation_popup(frame, area);
+        }
+
         if state.show_help {
             crate::ui::render::draw_help(frame, area);
         }

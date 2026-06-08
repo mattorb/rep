@@ -448,6 +448,57 @@ pub(crate) fn draw_help(frame: &mut Frame, area: Rect) {
     );
 }
 
+pub(crate) fn draw_quit_confirmation_popup(frame: &mut Frame, area: Rect) {
+    let lines = vec![
+        Line::from("Are you sure?"),
+        Line::from(""),
+        Line::from("Results will be printed to stdout."),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("y", Style::default().fg(Color::Green)),
+            Span::raw(" / "),
+            Span::styled("Enter", Style::default().fg(Color::Green)),
+            Span::raw(" confirm   "),
+            Span::styled("n", Style::default().fg(Color::Red)),
+            Span::raw(" / "),
+            Span::styled("Esc", Style::default().fg(Color::Red)),
+            Span::raw(" cancel"),
+        ]),
+    ];
+
+    let content_width: u16 = lines
+        .iter()
+        .map(|l| {
+            l.spans
+                .iter()
+                .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+                .sum::<usize>()
+        })
+        .max()
+        .unwrap_or(40) as u16;
+    let popup_width = (content_width + 4).max(44).min(area.width);
+    let popup_height = (lines.len() as u16 + 2).min(area.height);
+    let popup = Rect {
+        x: area.x + area.width.saturating_sub(popup_width) / 2,
+        y: area.y + area.height.saturating_sub(popup_height) / 2,
+        width: popup_width,
+        height: popup_height,
+    };
+
+    frame.render_widget(Clear, popup);
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .block(
+                Block::default()
+                    .title(" Quit ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            )
+            .wrap(Wrap { trim: false }),
+        popup,
+    );
+}
+
 pub(crate) fn draw_ast_popup(frame: &mut Frame, area: Rect, state: &RenderState<'_>) {
     let popup_width = (area.width * 4 / 5).max(40).min(area.width);
     let popup_height = (area.height * 4 / 5).max(6).min(area.height);

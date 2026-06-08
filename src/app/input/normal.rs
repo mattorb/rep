@@ -77,7 +77,6 @@ impl App {
         match key.code {
             KeyCode::Char('q') => {
                 self.quit_confirm_pending = true;
-                self.status = "Are you sure? (results go to stdout)  y / n".to_string();
             }
             KeyCode::Char('Q') => {
                 self.silent_quit = true;

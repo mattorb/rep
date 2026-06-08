@@ -9,13 +9,13 @@ expression: render(&mut app)
 │                                                                      │
 │                                                                      │
 │                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
+│             ┌ Quit ────────────────────────────────────┐             │
+│             │Are you sure?                             │             │
+│             │                                          │             │
+│             │Results will be printed to stdout.        │             │
+│             │                                          │             │
+│             │y / Enter confirm   n / Esc cancel        │             │
+│             └──────────────────────────────────────────┘             │
 │                                                                      │
 │                                                                      │
 │                                                                      │
@@ -23,4 +23,4 @@ expression: render(&mut app)
 │                                                                      │
 │                                                                      │
 └──────────────────────────────────────────────────────────────────────┘
- mode: sentence              Are you sure? (results go to stdout)  y / n
+ mode: sentence      Loaded file. Press q to quit and print annotations.
