@@ -7,6 +7,11 @@ A human in the loop TUI to review and revise markdown plan files quickly in coll
 
 ![Rep TUI demo](docs/rep-demo.gif)
 
+The direct TUI demo can be recorded with `scripts/record-demo.sh`. To record the
+agent-loop workflow, use `scripts/record-claude-rep-skill-demo.sh`; it launches
+Claude inside tmux, invokes `/rep` against a temporary copy of the demo plan, and
+writes `docs/rep-claude-skill-demo.gif`.
+
 ## Overview
 
 `rep` opens a markdown file in an interactive TUI optimized for providing feedback and requesting changes from an LLM. On quit of the app, it prints out list a [changes requested](#emitted-annotations-example), for an AI agent to process.
