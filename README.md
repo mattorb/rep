@@ -3,91 +3,37 @@
 
 # Rep
 
-A human in the loop TUI to review and revise markdown plan files quickly in collaboration with an LLM. It is primarily **made for use inside a tmux session**, wrapping an agent tool like Claude Code or Codex. This is the way.
+A human in the loop TUI to review and revise LLM generated markdown plan files quickly. 
+
+It's best to wrap your agent harness in a tmux session to allow the skill to launch the rep UI modally (see demo below).
 
 ![Rep Claude skill demo](docs/rep-claude-skill-demo.gif)
 
-The direct CLI demo can be recorded with `scripts/record-cli-demo.sh`. To record the
-agent-loop workflow, use `scripts/record-claude-rep-skill-demo.sh`; it launches
-Claude inside tmux, invokes `/rep` against a temporary copy of the demo plan, and
-writes `docs/rep-claude-skill-demo.gif`.
-
 ## Overview
 
-`rep` opens a markdown file in an interactive TUI optimized for providing feedback and requesting changes from an LLM. On quit of the app, it prints out list a [changes requested](#emitted-annotations-example), for an AI agent to process.
+`rep` opens a markdown file in an interactive TUI optimized for providing feedback and requesting changes from an LLM. 
 
-For a seamless experience, launch Codex or Claude Code inside a tmux session, which allows rep to launch as modal from a skill and automatically pass the revisions you ask it for back into the agentic loop.
+When you exit the [rep] app, it prints out a list a [changes requested](#emitted-annotations-example), for an AI agent to process and revise the markdown plan.  These changes can be a mix of deletions, additions, changes, and intent guidance.
 
-* Why not just talk to the LLM asking for the changes I want? *
-To really target your changes and apply a whole series of them in one shot, you have to provide lots of context. Rep automatically includes context of _where_ in the plan you are requesting any given change. Have a line highlight you can step through the plan with also helps you keep yourself on track reading through an entire markdown plan before kicking off long running work. 
+For the most seamless experience, launch Codex or Claude Code *inside a tmux session*, which allows rep to launch as modal from a skill and automatically pass the revisions you ask it for back into the agentic loop.
 
 ## Installation
-
-Install the latest release with:
+Install rep to ~/.local/bin, and the bundled agent skill to ~/.agents/skills/rep with this command:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mattorb/rep/main/install.sh | sh
 ```
 
-The installer:
-- Detects your platform (macOS x86\_64/aarch64)
-- Downloads the matching release archive from [GitHub Releases](https://github.com/mattorb/rep/releases)
-- Verifies SHA-256 checksum against `checksums.txt`
-- Installs `rep` to `~/.local/bin` by default
-- Installs the bundled agent skill to `~/.agents/skills/rep` by default
-
-Install locations can be changed with `REP_INSTALL_DIR` and `REP_SKILLS_DIR`.
-
-Linux release archives are not published yet, so `install.sh` exits with build-from-source guidance on Linux.
-
 ## Usage
 
-Open a markdown file directly:
+### Preferred
+Use the rep skill to launch in the agentic loop: `/rep` in Claude Code or `$rep` in Codex.
 
+### Fallback Manually run
+If you execute it manually like this, you'll have to copy and paste results back to agent.
 ```sh
 rep plan.md
 ```
-
-Annotate the file in the TUI, then press `q` to quit and print the requested changes to stdout.
-
-Try the built-in sample file:
-
-```sh
-rep --demo
-```
-
-The BEST way to use this TUI tool is in the agentic loop, with a skill, immediately after you ask AI to help generate a plan (to a file) to accomplish a goal. This allows you to tap a few keys, put some feedback and requests in context quickly.
-
-1. Ensure `rep` is on your PATH
-2. Install the agent skill from a source checkout: `./install-skills.sh`. The script symlinks bundled skills into supported agent skill directories and asks before each link is created or updated.
-3. Launch tmux, and then launch your Agentic coding tool inside of that tmux session. Wrapping the agent in a tmux session is what allows rep to present modally and automatically feed its results into the agentic loop.
-```
-$ tmux new-session -t tryrep
-$ claude
-```
-4.  Invoke the skill after generating a markdown plan file:
-
-**Claude Code**
-```
-) generate a plan to accomplish [goal] and write it to a plan.md
-...ai creates plan.md...
-) /rep plan.md
-...you 'mark up' the mark down file :), then 'q'uit rep.
-...ai applies edits/feedback...
-) 
-```
-
-**Codex**
-```
-> generate a plan to accomplish [goal] and write it to a plan.md
-...ai creates plan.md...
-> $rep plan.md
-...you 'mark up' the mark down file :), then 'q'uit rep.
-...ai applies edits/feedback...
->
-```
-
-Note: rep _can_ also be executed directly against a plan file outside of an agentic loop, but you'll have copy/paste the annotation output back to an LLM and give it a hint on how to proceed.
 
 ## Keybindings
 
