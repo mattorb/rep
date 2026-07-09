@@ -5,6 +5,7 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 DEMO_CACHE_DIR="${REP_DEMO_CACHE_DIR:-${TMPDIR:-/tmp}/rep-demo-tools}"
+POSTPROCESS_FPS="${REP_DEMO_POSTPROCESS_FPS:-}"
 LOCAL_MISE_DATA_DIR="${MISE_DATA_DIR:-$DEMO_CACHE_DIR/.mise}"
 LOCAL_PKGX_DIR="${PKGX_DIR:-$DEMO_CACHE_DIR/.pkgx}"
 PKGX_VERSION="2.10.3"
@@ -22,6 +23,7 @@ DEMO_REP_SKILL_SRC=""
 created_skill_link=0
 replaced_skill_link=0
 rendered_tape=""
+output_file=""
 
 cleanup() {
   tmux kill-session -t "$TMUX_SESSION" >/dev/null 2>&1 || true
@@ -107,6 +109,11 @@ require_tool tmux
 prepare_demo_skill
 ensure_claude_skill
 
+if [[ -n "$POSTPROCESS_FPS" && ! "$POSTPROCESS_FPS" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  printf 'error: REP_DEMO_POSTPROCESS_FPS must be numeric, got: %s\n' "$POSTPROCESS_FPS" >&2
+  exit 2
+fi
+
 if command -v mise >/dev/null 2>&1; then
   recorder_cmd=(
     env
@@ -116,6 +123,14 @@ if command -v mise >/dev/null 2>&1; then
     pkgx "+ttyd@${TTYD_VERSION}" "+libwebsockets.org@${LIBWEBSOCKETS_VERSION}" "+ffmpeg@${FFMPEG_VERSION}" "+tmux@${TMUX_VERSION}" --
     env "LD_LIBRARY_PATH=${LOCAL_PKGX_DIR}/libwebsockets.org/v${LIBWEBSOCKETS_VERSION}/lib"
     vhs
+  )
+  ffmpeg_cmd=(
+    env
+    "MISE_DATA_DIR=${LOCAL_MISE_DATA_DIR}"
+    "PKGX_DIR=${LOCAL_PKGX_DIR}"
+    mise x "aqua:pkgxdev/pkgx@${PKGX_VERSION}" --
+    pkgx "+ffmpeg@${FFMPEG_VERSION}" --
+    ffmpeg
   )
 else
   missing_tools=()
@@ -130,11 +145,17 @@ else
     exit 1
   fi
   recorder_cmd=(vhs)
+  ffmpeg_cmd=(ffmpeg)
 fi
 
 run_cmd cargo build --release
 mkdir -p docs
 render_tape
+output_file="$(awk '$1 == "Output" { print $2; exit }' "$rendered_tape")"
+if [[ -z "$output_file" ]]; then
+  printf 'error: rendered tape does not declare an Output: %s\n' "$rendered_tape" >&2
+  exit 1
+fi
 
 (
   unset NO_COLOR
@@ -142,3 +163,18 @@ render_tape
     COLORTERM=truecolor \
     "${recorder_cmd[@]}" "$rendered_tape"
 )
+
+if [[ -n "$POSTPROCESS_FPS" ]]; then
+  tmp_output="${output_file%.gif}.tmp.gif"
+  if [[ "$tmp_output" == "$output_file" ]]; then
+    tmp_output="${output_file}.tmp"
+  fi
+
+  "${ffmpeg_cmd[@]}" \
+    -y \
+    -i "$output_file" \
+    -filter_complex "[0:v] fps=${POSTPROCESS_FPS},split [a][b];[a] palettegen [p];[b][p] paletteuse" \
+    -loop 0 \
+    "$tmp_output"
+  mv "$tmp_output" "$output_file"
+fi
