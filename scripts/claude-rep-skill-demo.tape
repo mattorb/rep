@@ -35,7 +35,9 @@ Type "clear"
 Enter
 Sleep 200ms
 Show
+Set TypingSpeed 0.035
 Type "tmux new-session -A -s rep-claude-skill-demo"
+Set TypingSpeed 0.057
 Sleep 500ms
 Hide
 Enter
@@ -52,9 +54,11 @@ Enter
 Sleep 200ms
 Show
 Sleep 500ms
+Set TypingSpeed 0.035
 Type "claude --model opus --permission-mode bypassPermissions"
 Enter
-Sleep 9000ms
+Set TypingSpeed 0.057
+Sleep 5000ms
 
 Type "Create a concise markdown rollout plan for checkout recovery and write it to /tmp/rep-claude-skill-demo-plan.md."
 Enter
@@ -123,9 +127,12 @@ Sleep 420ms
 Type "x"
 Sleep 700ms
 
-Type "/internal status names"
-Enter
-Sleep 500ms
+Type "j"
+Sleep 420ms
+Type "j"
+Sleep 420ms
+Type "j"
+Sleep 420ms
 Type "f"
 Sleep 450ms
 Type "use customer-safe labels and document the mapping for support"
