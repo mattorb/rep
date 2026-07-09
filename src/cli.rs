@@ -20,7 +20,7 @@ pub struct CliArgs {
 #[derive(Debug, Clone)]
 pub enum CliCommand {
     Run(CliArgs),
-    Demo { debug: bool },
+    Demo { debug: bool, show_keys: bool },
     Help(String),
     Version(String),
 }
@@ -66,7 +66,10 @@ where
 {
     let raw_args = std::iter::once(OsString::from("rep")).chain(args.into_iter().map(Into::into));
     match RawCliArgs::try_parse_from(raw_args) {
-        Ok(args) if args.demo => Ok(CliCommand::Demo { debug: args.debug }),
+        Ok(args) if args.demo => Ok(CliCommand::Demo {
+            debug: args.debug,
+            show_keys: args.show_keys,
+        }),
         Ok(args) => Ok(CliCommand::Run(CliArgs {
             source_path: args
                 .source_path
@@ -187,7 +190,23 @@ mod tests {
         let command = parse(&["--demo"]).unwrap();
 
         match command {
-            CliCommand::Demo { debug } => assert!(!debug),
+            CliCommand::Demo { debug, show_keys } => {
+                assert!(!debug);
+                assert!(!show_keys);
+            }
+            other => panic!("expected demo command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_hidden_show_keys_flag_with_demo() {
+        let command = parse(&["--show-keys", "--demo"]).unwrap();
+
+        match command {
+            CliCommand::Demo { debug, show_keys } => {
+                assert!(!debug);
+                assert!(show_keys);
+            }
             other => panic!("expected demo command, got {other:?}"),
         }
     }
@@ -197,7 +216,10 @@ mod tests {
         let command = parse(&["--debug", "--demo"]).unwrap();
 
         match command {
-            CliCommand::Demo { debug } => assert!(debug),
+            CliCommand::Demo { debug, show_keys } => {
+                assert!(debug);
+                assert!(!show_keys);
+            }
             other => panic!("expected demo command, got {other:?}"),
         }
     }

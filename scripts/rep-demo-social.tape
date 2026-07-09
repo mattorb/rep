@@ -17,7 +17,7 @@ Env TERM "xterm-256color"
 Env COLORTERM "truecolor"
 
 Hide
-Type "REP_KEY_HUD=1 ./target/release/rep --demo"
+Type "./target/release/rep --show-keys --demo"
 Enter
 Sleep 520ms
 Show

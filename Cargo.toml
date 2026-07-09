@@ -17,6 +17,8 @@ exclude = [
     "CLAUDE.md",
     "CONTRIBUTING.md",
     "SECURITY.md",
+    "docs/*.gif",
+    "docs/*.mp4",
     "plans/",
     "implementation.md",
 ]

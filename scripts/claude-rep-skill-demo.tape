@@ -46,7 +46,7 @@ Sleep 900ms
 Type "tmux set-option -g status-left '[rep-demo]' && tmux set-option -g status-right rep-demo && tmux set-option -g status-left-length 20 && tmux set-option -g status-right-length 10"
 Enter
 Sleep 200ms
-Type "export USER=demo LOGNAME=demo HOST=demo HOSTNAME=demo REP_SHOW_KEYS=1; unset RPROMPT; precmd_functions=(); preexec_functions=(); alias claude='command claude --settings /tmp/rep-claude-skill-demo-claude-settings.json'; PROMPT='rep-demo % '; PS1='rep-demo $ '"
+Type "export USER=demo LOGNAME=demo HOST=demo HOSTNAME=demo; unset RPROMPT; precmd_functions=(); preexec_functions=(); alias claude='command claude --settings /tmp/rep-claude-skill-demo-claude-settings.json'; PROMPT='rep-demo % '; PS1='rep-demo $ '"
 Enter
 Sleep 200ms
 Type "clear"

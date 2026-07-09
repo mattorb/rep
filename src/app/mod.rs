@@ -204,7 +204,7 @@ impl App {
             ast_lines,
             notification: None,
             nav_feedback: None,
-            show_key_cues: env_flag_enabled("REP_SHOW_KEYS") || env_flag_enabled("REP_KEY_HUD"),
+            show_key_cues: false,
             key_hud: None,
             scroll_offset: 0,
             list_inner: Rect::default(),
@@ -233,15 +233,6 @@ impl App {
             });
         }
     }
-}
-
-fn env_flag_enabled(name: &str) -> bool {
-    std::env::var(name).is_ok_and(|value| {
-        matches!(
-            value.to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        )
-    })
 }
 
 fn format_key_cue(key: KeyEvent) -> String {

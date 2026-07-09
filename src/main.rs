@@ -47,10 +47,10 @@ where
             return Ok(Some(text));
         }
         CliCommand::Run(cli) => cli,
-        CliCommand::Demo { debug } => CliArgs {
+        CliCommand::Demo { debug, show_keys } => CliArgs {
             source_path: write_demo_source()?,
             debug,
-            show_keys: false,
+            show_keys,
         },
     };
     if cli_args.debug {
@@ -208,6 +208,22 @@ mod tests {
                         .starts_with("rep-demo-")
                 );
                 assert!(!args.show_keys);
+                Ok(Some("demo output".to_string()))
+            },
+        )
+        .unwrap();
+
+        assert_eq!(output.as_deref(), Some("demo output"));
+    }
+
+    #[test]
+    fn demo_passes_show_keys_to_interactive_session() {
+        let output = real_main_with(
+            vec![OsString::from("--show-keys"), OsString::from("--demo")],
+            || true,
+            |_| panic!("fallback should not run when terminal is available"),
+            |args| {
+                assert!(args.show_keys);
                 Ok(Some("demo output".to_string()))
             },
         )
