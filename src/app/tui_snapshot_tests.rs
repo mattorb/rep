@@ -87,6 +87,17 @@ fn feedback_input_state_snapshot() {
 }
 
 #[test]
+fn key_hud_renders_when_enabled() {
+    let mut app = test_app("key_hud", "# Release Plan\n\nShip the binary installer.\n");
+    app.show_key_cues = true;
+    app.handle_key(key(KeyCode::Char('f')));
+
+    let output = render(&mut app);
+    assert!(output.contains("╔"));
+    assert!(output.contains("F"));
+}
+
+#[test]
 fn insert_before_input_state_snapshot() {
     let mut app = test_app(
         "insert_before_input",

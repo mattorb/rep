@@ -1,10 +1,10 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::env;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use rep::cli::{CliCommand, parse_cli_args_from, run_interactive};
+use rep::cli::{CliArgs, CliCommand, parse_cli_args_from, run_interactive};
 use rep::ui;
 
 mod terminal_fallback;
@@ -40,27 +40,41 @@ fn real_main_with<TerminalAvailable, TryFallback, RunInteractive>(
 where
     TerminalAvailable: FnOnce() -> bool,
     TryFallback: FnMut(&[OsString]) -> Result<bool>,
-    RunInteractive: FnMut(PathBuf) -> Result<Option<String>>,
+    RunInteractive: FnMut(CliArgs) -> Result<Option<String>>,
 {
-    let (source_path, debug) = match parse_cli_args_from(raw_args.iter().cloned())? {
+    let cli_args = match parse_cli_args_from(raw_args.iter().cloned())? {
         CliCommand::Help(text) | CliCommand::Version(text) => {
             return Ok(Some(text));
         }
-        CliCommand::Run(cli) => (cli.source_path, cli.debug),
-        CliCommand::Demo { debug } => (write_demo_source()?, debug),
+        CliCommand::Run(cli) => cli,
+        CliCommand::Demo { debug } => CliArgs {
+            source_path: write_demo_source()?,
+            debug,
+            show_keys: false,
+        },
     };
-    if debug {
+    if cli_args.debug {
         let terminal_available = terminal_available();
         return Ok(Some(render_debug_diagnostics(
-            &source_path,
+            &cli_args.source_path,
             &terminal_fallback::diagnostics(terminal_available),
         )));
     }
-    if !terminal_available() && try_fallback(&raw_args)? {
-        return Ok(None);
+    let terminal_available = terminal_available();
+    if !terminal_available {
+        validate_source_readable(&cli_args.source_path)?;
+        if try_fallback(&raw_args)? {
+            return Ok(None);
+        }
     }
 
-    run_interactive(source_path)
+    run_interactive(cli_args)
+}
+
+fn validate_source_readable(source_path: &Path) -> Result<()> {
+    fs::read_to_string(source_path)
+        .with_context(|| format!("failed to read markdown file: {}", source_path.display()))?;
+    Ok(())
 }
 
 fn write_demo_source() -> Result<PathBuf> {
@@ -105,6 +119,12 @@ mod tests {
     use super::*;
     use anyhow::bail;
 
+    fn temp_markdown(name: &str) -> PathBuf {
+        let path = env::temp_dir().join(format!("rep-main-test-{name}-{}.md", std::process::id()));
+        fs::write(&path, "# Test Plan\n").unwrap();
+        path
+    }
+
     #[test]
     fn help_returns_text_without_touching_terminal_or_tui() {
         let output = real_main_with(
@@ -144,8 +164,9 @@ mod tests {
             vec![OsString::from("plan.md")],
             || true,
             |_| panic!("fallback should not run when terminal is available"),
-            |source_path| {
-                assert_eq!(source_path, PathBuf::from("plan.md"));
+            |args| {
+                assert_eq!(args.source_path, PathBuf::from("plan.md"));
+                assert!(!args.show_keys);
                 Ok(Some("final output".to_string()))
             },
         )
@@ -176,16 +197,17 @@ mod tests {
             vec![OsString::from("--demo")],
             || true,
             |_| panic!("fallback should not run when terminal is available"),
-            |source_path| {
-                let contents = std::fs::read_to_string(&source_path).unwrap();
+            |args| {
+                let contents = std::fs::read_to_string(&args.source_path).unwrap();
                 assert!(contents.contains("Checkout Cleanup Plan"));
                 assert!(
-                    source_path
+                    args.source_path
                         .file_name()
                         .unwrap()
                         .to_string_lossy()
                         .starts_with("rep-demo-")
                 );
+                assert!(!args.show_keys);
                 Ok(Some("demo output".to_string()))
             },
         )
@@ -196,11 +218,12 @@ mod tests {
 
     #[test]
     fn unavailable_terminal_returns_when_fallback_launches() {
+        let source_path = temp_markdown("fallback-launches");
         let output = real_main_with(
-            vec![OsString::from("plan.md")],
+            vec![source_path.clone().into_os_string()],
             || false,
             |raw_args| {
-                assert_eq!(raw_args, [OsString::from("plan.md")]);
+                assert_eq!(raw_args, [source_path.clone().into_os_string()]);
                 Ok(true)
             },
             |_| panic!("interactive TUI should not run after fallback launches"),
@@ -212,12 +235,14 @@ mod tests {
 
     #[test]
     fn unavailable_terminal_runs_interactive_when_fallback_declines() {
+        let source_path = temp_markdown("fallback-declines");
         let output = real_main_with(
-            vec![OsString::from("plan.md")],
+            vec![source_path.clone().into_os_string()],
             || false,
             |_| Ok(false),
-            |source_path| {
-                assert_eq!(source_path, PathBuf::from("plan.md"));
+            |args| {
+                assert_eq!(args.source_path, source_path);
+                assert!(!args.show_keys);
                 Ok(None)
             },
         )
@@ -228,8 +253,9 @@ mod tests {
 
     #[test]
     fn propagates_fallback_errors() {
+        let source_path = temp_markdown("fallback-error");
         let err = real_main_with(
-            vec![OsString::from("plan.md")],
+            vec![source_path.into_os_string()],
             || false,
             |_| bail!("fallback exploded"),
             |_| panic!("interactive TUI should not run after fallback error"),
@@ -237,5 +263,20 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(err.to_string(), "fallback exploded");
+    }
+
+    #[test]
+    fn unavailable_terminal_missing_file_errors_without_fallback() {
+        let missing_path =
+            env::temp_dir().join(format!("rep-main-missing-test-{}.md", std::process::id()));
+        let err = real_main_with(
+            vec![missing_path.into_os_string()],
+            || false,
+            |_| panic!("fallback should not run for an unreadable source file"),
+            |_| panic!("interactive TUI should not run for an unreadable source file"),
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("failed to read markdown file"));
     }
 }

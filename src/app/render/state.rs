@@ -3,6 +3,7 @@ use std::ops::Range;
 use std::path::Path;
 
 use super::*;
+use crate::app::KeyHud;
 
 pub(crate) struct RenderState<'a> {
     pub(crate) source_path: &'a Path,
@@ -13,6 +14,7 @@ pub(crate) struct RenderState<'a> {
     pub(crate) status: &'a str,
     pub(crate) notification: Option<&'a str>,
     pub(crate) nav_feedback: Option<&'a str>,
+    pub(crate) key_hud: Option<&'a KeyHud>,
     pub(crate) quit_confirm_pending: bool,
     pub(crate) show_help: bool,
     pub(crate) ast_view_scroll: Option<u16>,
@@ -104,6 +106,7 @@ impl App {
             status: &self.status,
             notification: self.notification.as_deref(),
             nav_feedback: self.nav_feedback.as_deref(),
+            key_hud: self.key_hud.as_ref(),
             quit_confirm_pending: self.quit_confirm_pending,
             show_help: self.show_help,
             ast_view_scroll: self.ast_view_scroll,

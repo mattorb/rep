@@ -18,6 +18,7 @@ CLAUDE_SKILLS_DIR="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
 REP_SKILL_SRC="$ROOT_DIR/.agents/skills/rep"
 REP_SKILL_LINK="$CLAUDE_SKILLS_DIR/rep"
 REP_SKILL_BACKUP="$CLAUDE_SKILLS_DIR/rep.rep-demo-backup-$$"
+DEMO_REP_SKILL_SRC=""
 created_skill_link=0
 replaced_skill_link=0
 rendered_tape=""
@@ -32,6 +33,9 @@ cleanup() {
     mv "$REP_SKILL_BACKUP" "$REP_SKILL_LINK"
   elif [[ "$created_skill_link" == 1 ]]; then
     rm -f "$REP_SKILL_LINK"
+  fi
+  if [[ -n "$DEMO_REP_SKILL_SRC" ]]; then
+    rm -rf "$DEMO_REP_SKILL_SRC"
   fi
 }
 trap cleanup EXIT
@@ -52,8 +56,27 @@ require_tool() {
   fi
 }
 
+prepare_demo_skill() {
+  DEMO_REP_SKILL_SRC="$(mktemp -d "${TMPDIR:-/tmp}/rep-demo-skill.XXXXXX")"
+  cp -R "$REP_SKILL_SRC"/. "$DEMO_REP_SKILL_SRC"/
+
+  local runner="$DEMO_REP_SKILL_SRC/scripts/run_rep_and_capture.sh"
+  local patched_runner="$runner.tmp"
+  while IFS= read -r line; do
+    if [[ "$line" == '"$script_dir/rep.sh" "$@" | tee "$capture_file"' ]]; then
+      printf '%s\n' '"$script_dir/rep.sh" "$@" --show-keys | tee "$capture_file"'
+    else
+      printf '%s\n' "$line"
+    fi
+  done <"$runner" >"$patched_runner"
+  mv "$patched_runner" "$runner"
+  chmod +x "$runner"
+}
+
 ensure_claude_skill() {
-  if [[ -L "$REP_SKILL_LINK" ]] && [[ "$(readlink "$REP_SKILL_LINK")" == "$REP_SKILL_SRC" ]]; then
+  local skill_target="${DEMO_REP_SKILL_SRC:-$REP_SKILL_SRC}"
+
+  if [[ -L "$REP_SKILL_LINK" ]] && [[ "$(readlink "$REP_SKILL_LINK")" == "$skill_target" ]]; then
     return 0
   fi
 
@@ -63,7 +86,7 @@ ensure_claude_skill() {
     replaced_skill_link=1
   fi
 
-  ln -s "$REP_SKILL_SRC" "$REP_SKILL_LINK"
+  ln -s "$skill_target" "$REP_SKILL_LINK"
   if [[ "$replaced_skill_link" == 0 ]]; then
     created_skill_link=1
   fi
@@ -81,6 +104,7 @@ render_tape() {
 
 require_tool claude
 require_tool tmux
+prepare_demo_skill
 ensure_claude_skill
 
 if command -v mise >/dev/null 2>&1; then

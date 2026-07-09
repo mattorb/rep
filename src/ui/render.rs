@@ -1,7 +1,8 @@
 use std::ops::Range;
+use std::time::Duration;
 
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap};
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::{RenderState, truncate_to_columns};
@@ -9,6 +10,10 @@ use crate::document_view::{CodeBlockStyleRequest, DisplaySpanStyleRequest};
 use crate::output::keybinding_doc_rows;
 
 use super::wrap_styled_spans;
+
+const KEY_HUD_TTL: Duration = Duration::from_millis(5000);
+const KEY_HUD_FADE_IN_TTL: Duration = Duration::from_millis(120);
+const KEY_HUD_SOLID_TTL: Duration = Duration::from_millis(900);
 
 pub(crate) struct RenderedDocument {
     pub(crate) rows: Vec<Vec<RenderedDisplayRow>>,
@@ -238,6 +243,65 @@ pub(crate) fn draw_footer(frame: &mut Frame, area: Rect, state: &RenderState<'_>
         Span::styled(right_str, right_text.1),
     ]);
     frame.render_widget(Paragraph::new(footer_line), area);
+}
+
+pub(crate) fn draw_key_hud(frame: &mut Frame, area: Rect, state: &RenderState<'_>) {
+    let Some(hud) = state.key_hud else {
+        return;
+    };
+    let age = hud.shown_at.elapsed();
+    if age >= KEY_HUD_TTL || area.width < 12 || area.height < 5 {
+        return;
+    }
+
+    let text_width = hud.text.chars().count() as u16;
+    let width = (text_width + 10).clamp(16, area.width.min(40));
+    let height = 3;
+    let x = area.x + area.width.saturating_sub(width) / 2;
+    let y = area.y + area.height.saturating_sub(height) * 3 / 4;
+    let hud_area = Rect::new(x, y, width, height);
+    let (text_style, border_style) = if age < KEY_HUD_FADE_IN_TTL {
+        (
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::DarkGray),
+        )
+    } else if age < KEY_HUD_SOLID_TTL {
+        (
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else if age < Duration::from_millis(1550) {
+        (
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::Yellow),
+        )
+    } else {
+        (
+            Style::default().fg(Color::DarkGray),
+            Style::default().fg(Color::DarkGray),
+        )
+    };
+
+    frame.render_widget(Clear, hud_area);
+    frame.render_widget(
+        Paragraph::new(Span::styled(hud.text.clone(), text_style))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Double)
+                    .border_style(border_style),
+            )
+            .alignment(Alignment::Center),
+        hud_area,
+    );
 }
 
 pub(crate) fn draw_active_input_popup(

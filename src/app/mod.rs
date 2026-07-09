@@ -4,6 +4,7 @@ use std::fmt::Write;
 use std::fs;
 use std::ops::Range;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -51,6 +52,12 @@ const EMIT_CONTEXT_MAX_CHARS: usize = 140;
 /// `INSERT:`). Wider than the target/context — the user types these
 /// so they tend to be longer.
 const EMIT_PAYLOAD_MAX_CHARS: usize = 220;
+
+#[derive(Debug, Clone)]
+pub(crate) struct KeyHud {
+    pub(crate) text: String,
+    pub(crate) shown_at: Instant,
+}
 
 /// Truncate `s` to fit within `max_cols` terminal columns, accounting for
 /// wide-width characters (CJK, emoji). Wraps zero-width chars (combining
@@ -112,6 +119,8 @@ pub struct App {
     /// at the top of `handle_normal_key` so the message is shown for exactly
     /// one keypress before being overwritten or cleared.
     nav_feedback: Option<String>,
+    show_key_cues: bool,
+    key_hud: Option<KeyHud>,
     pub should_quit: bool,
     pub silent_quit: bool,
     /// True after `q` is pressed but before the user has confirmed or
@@ -195,6 +204,8 @@ impl App {
             ast_lines,
             notification: None,
             nav_feedback: None,
+            show_key_cues: env_flag_enabled("REP_SHOW_KEYS"),
+            key_hud: None,
             scroll_offset: 0,
             list_inner: Rect::default(),
             render_cache: RenderCache::default(),
@@ -209,6 +220,76 @@ impl App {
         let a = &self.selection_state.anchor;
         (a.node_idx, a.unit.as_str(), a.unit_idx)
     }
+
+    pub fn enable_key_cues(&mut self) {
+        self.show_key_cues = true;
+    }
+
+    fn capture_key_cue(&mut self, key: KeyEvent) {
+        if self.show_key_cues {
+            self.key_hud = Some(KeyHud {
+                text: format_key_cue(key),
+                shown_at: Instant::now(),
+            });
+        }
+    }
+}
+
+fn env_flag_enabled(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
+fn format_key_cue(key: KeyEvent) -> String {
+    let mut parts = Vec::new();
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        parts.push("⌃".to_string());
+    }
+    if key.modifiers.contains(KeyModifiers::ALT) {
+        parts.push("⌥".to_string());
+    }
+    if key.modifiers.contains(KeyModifiers::SHIFT) {
+        parts.push("⇧".to_string());
+    }
+    if key.modifiers.contains(KeyModifiers::SUPER) {
+        parts.push("⌘".to_string());
+    }
+    parts.push(match key.code {
+        KeyCode::Backspace => "⌫".to_string(),
+        KeyCode::Enter => "↩".to_string(),
+        KeyCode::Left => "←".to_string(),
+        KeyCode::Right => "→".to_string(),
+        KeyCode::Up => "↑".to_string(),
+        KeyCode::Down => "↓".to_string(),
+        KeyCode::Home => "Home".to_string(),
+        KeyCode::End => "End".to_string(),
+        KeyCode::PageUp => "Page Up".to_string(),
+        KeyCode::PageDown => "Page Down".to_string(),
+        KeyCode::Tab => "Tab".to_string(),
+        KeyCode::BackTab => "⇤".to_string(),
+        KeyCode::Delete => "⌦".to_string(),
+        KeyCode::Insert => "Insert".to_string(),
+        KeyCode::F(n) => format!("F{n}"),
+        KeyCode::Char(' ') => "Space".to_string(),
+        KeyCode::Char(ch) if ch.is_ascii_alphabetic() => ch.to_ascii_uppercase().to_string(),
+        KeyCode::Char(ch) => ch.to_string(),
+        KeyCode::Esc => "Esc".to_string(),
+        KeyCode::Null => "Null".to_string(),
+        KeyCode::CapsLock => "Caps Lock".to_string(),
+        KeyCode::ScrollLock => "Scroll Lock".to_string(),
+        KeyCode::NumLock => "Num Lock".to_string(),
+        KeyCode::PrintScreen => "Print Screen".to_string(),
+        KeyCode::Pause => "Pause".to_string(),
+        KeyCode::Menu => "Menu".to_string(),
+        KeyCode::KeypadBegin => "Keypad Begin".to_string(),
+        KeyCode::Media(media) => format!("{media:?}"),
+        KeyCode::Modifier(modifier) => format!("{modifier:?}"),
+    });
+    parts.join(" ")
 }
 
 // ── Clipboard ─────────────────────────────────────────────────────────────────

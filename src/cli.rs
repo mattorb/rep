@@ -14,6 +14,7 @@ use crate::ui::Tui;
 pub struct CliArgs {
     pub source_path: PathBuf,
     pub debug: bool,
+    pub show_keys: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +42,10 @@ struct RawCliArgs {
     #[arg(long)]
     debug: bool,
 
+    /// Show a transient keypress HUD in the TUI.
+    #[arg(long, hide = true)]
+    show_keys: bool,
+
     /// Open a built-in sample Markdown file
     #[arg(long, conflicts_with = "source_path")]
     demo: bool,
@@ -67,6 +72,7 @@ where
                 .source_path
                 .expect("required input group guarantees a source path unless --demo was used"),
             debug: args.debug,
+            show_keys: args.show_keys,
         })),
         Err(err) if err.kind() == ErrorKind::DisplayHelp => {
             let mut command = RawCliArgs::command();
@@ -94,8 +100,11 @@ fn strip_error_prefix(message: String) -> String {
 ///
 /// Returns `Some(output)` when the session should print the human-readable
 /// action block after exit, or `None` for silent quit.
-pub fn run_interactive(source_path: PathBuf) -> Result<Option<String>> {
-    let mut app = App::load(source_path)?;
+pub fn run_interactive(args: CliArgs) -> Result<Option<String>> {
+    let mut app = App::load(args.source_path)?;
+    if args.show_keys {
+        app.enable_key_cues();
+    }
     run_tui(&mut app)?;
     let output = if app.silent_quit {
         None
@@ -153,6 +162,21 @@ mod tests {
             CliCommand::Run(args) => {
                 assert_eq!(args.source_path, PathBuf::from("notes.md"));
                 assert!(args.debug);
+                assert!(!args.show_keys);
+            }
+            other => panic!("expected run command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_hidden_show_keys_flag() {
+        let command = parse(&["--show-keys", "notes.md"]).unwrap();
+
+        match command {
+            CliCommand::Run(args) => {
+                assert_eq!(args.source_path, PathBuf::from("notes.md"));
+                assert!(!args.debug);
+                assert!(args.show_keys);
             }
             other => panic!("expected run command, got {other:?}"),
         }

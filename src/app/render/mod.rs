@@ -36,5 +36,7 @@ impl App {
         if state.ast_view_scroll.is_some() {
             crate::ui::render::draw_ast_popup(frame, area, &state);
         }
+
+        crate::ui::render::draw_key_hud(frame, layout[0], &state);
     }
 }

@@ -21,5 +21,6 @@ impl App {
                 self.handle_edit_feedback_key(key, node_idx, feedback_idx);
             }
         }
+        self.capture_key_cue(key);
     }
 }
