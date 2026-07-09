@@ -11,7 +11,7 @@ Set LetterSpacing 0
 Set Width 1280
 Set Height 760
 Set Padding 12
-Set Framerate 24
+Set Framerate 12
 Set PlaybackSpeed 1.0
 Set TypingSpeed 0.057
 
