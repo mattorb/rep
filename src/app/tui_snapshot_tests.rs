@@ -98,6 +98,24 @@ fn key_hud_renders_when_enabled() {
 }
 
 #[test]
+fn key_hud_suppresses_text_entry_keys() {
+    let mut app = test_app(
+        "key_hud_text",
+        "# Release Plan\n\nShip the binary installer.\n",
+    );
+    app.show_key_cues = true;
+
+    app.handle_key(key(KeyCode::Char('f')));
+    assert_eq!(app.key_hud.as_ref().map(|hud| hud.text.as_str()), Some("F"));
+
+    app.handle_key(key(KeyCode::Char('a')));
+    assert!(app.key_hud.is_none());
+
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.key_hud.as_ref().map(|hud| hud.text.as_str()), Some("↩"));
+}
+
+#[test]
 fn insert_before_input_state_snapshot() {
     let mut app = test_app(
         "insert_before_input",

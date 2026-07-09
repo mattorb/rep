@@ -7,7 +7,8 @@ mod text;
 
 impl App {
     pub fn handle_key(&mut self, key: KeyEvent) {
-        match self.input_mode.clone() {
+        let input_mode = self.input_mode.clone();
+        match input_mode.clone() {
             InputMode::Normal => self.handle_normal_key(key),
             InputMode::Change => self.handle_change_key(key),
             InputMode::Feedback => self.handle_feedback_key(key),
@@ -21,6 +22,23 @@ impl App {
                 self.handle_edit_feedback_key(key, node_idx, feedback_idx);
             }
         }
-        self.capture_key_cue(key);
+        if should_capture_key_cue(&input_mode, key) {
+            self.capture_key_cue(key);
+        } else {
+            self.key_hud = None;
+        }
+    }
+}
+
+fn should_capture_key_cue(input_mode: &InputMode, key: KeyEvent) -> bool {
+    match input_mode {
+        InputMode::Normal => true,
+        InputMode::Change
+        | InputMode::Feedback
+        | InputMode::InsertBefore
+        | InputMode::InsertAfter
+        | InputMode::Search
+        | InputMode::EditChange(..)
+        | InputMode::EditFeedback(..) => matches!(key.code, KeyCode::Enter | KeyCode::Esc),
     }
 }
