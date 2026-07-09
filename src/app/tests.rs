@@ -140,3 +140,16 @@ fn base64_encode_matches_standard_padding_vectors() {
     assert_eq!(base64_encode(b"foo"), "Zm9v");
     assert_eq!(base64_encode(b"hello"), "aGVsbG8=");
 }
+
+#[test]
+fn key_cue_formats_keys_like_social_demo_overlay() {
+    let shift_space = format_key_cue(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::SHIFT));
+    let ctrl_c = format_key_cue(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+    let tab = format_key_cue(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    let enter = format_key_cue(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(shift_space, "Shift Space");
+    assert_eq!(ctrl_c, "^ C");
+    assert_eq!(tab, "Tab");
+    assert_eq!(enter, "Enter");
+}

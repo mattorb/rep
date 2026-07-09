@@ -112,7 +112,10 @@ fn key_hud_suppresses_text_entry_keys() {
     assert!(app.key_hud.is_none());
 
     app.handle_key(key(KeyCode::Enter));
-    assert_eq!(app.key_hud.as_ref().map(|hud| hud.text.as_str()), Some("↩"));
+    assert_eq!(
+        app.key_hud.as_ref().map(|hud| hud.text.as_str()),
+        Some("Enter")
+    );
 }
 
 #[test]

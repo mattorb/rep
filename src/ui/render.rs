@@ -11,7 +11,7 @@ use crate::output::keybinding_doc_rows;
 
 use super::wrap_styled_spans;
 
-const KEY_HUD_TTL: Duration = Duration::from_millis(5000);
+const KEY_HUD_TTL: Duration = Duration::from_millis(2200);
 const KEY_HUD_FADE_IN_TTL: Duration = Duration::from_millis(120);
 const KEY_HUD_SOLID_TTL: Duration = Duration::from_millis(900);
 
@@ -254,7 +254,7 @@ pub(crate) fn draw_key_hud(frame: &mut Frame, area: Rect, state: &RenderState<'_
         return;
     }
 
-    let text_width = hud.text.chars().count() as u16;
+    let text_width = UnicodeWidthStr::width(hud.text.as_str()) as u16;
     let width = (text_width + 10).clamp(16, area.width.min(40));
     let height = 3;
     let x = area.x + area.width.saturating_sub(width) / 2;

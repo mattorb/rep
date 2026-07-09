@@ -204,7 +204,7 @@ impl App {
             ast_lines,
             notification: None,
             nav_feedback: None,
-            show_key_cues: env_flag_enabled("REP_SHOW_KEYS"),
+            show_key_cues: env_flag_enabled("REP_SHOW_KEYS") || env_flag_enabled("REP_KEY_HUD"),
             key_hud: None,
             scroll_offset: 0,
             list_inner: Rect::default(),
@@ -247,31 +247,31 @@ fn env_flag_enabled(name: &str) -> bool {
 fn format_key_cue(key: KeyEvent) -> String {
     let mut parts = Vec::new();
     if key.modifiers.contains(KeyModifiers::CONTROL) {
-        parts.push("⌃".to_string());
+        parts.push("^".to_string());
     }
     if key.modifiers.contains(KeyModifiers::ALT) {
-        parts.push("⌥".to_string());
+        parts.push("Alt".to_string());
     }
     if key.modifiers.contains(KeyModifiers::SHIFT) {
-        parts.push("⇧".to_string());
+        parts.push("Shift".to_string());
     }
     if key.modifiers.contains(KeyModifiers::SUPER) {
-        parts.push("⌘".to_string());
+        parts.push("Cmd".to_string());
     }
     parts.push(match key.code {
-        KeyCode::Backspace => "⌫".to_string(),
-        KeyCode::Enter => "↩".to_string(),
-        KeyCode::Left => "←".to_string(),
-        KeyCode::Right => "→".to_string(),
-        KeyCode::Up => "↑".to_string(),
-        KeyCode::Down => "↓".to_string(),
+        KeyCode::Backspace => "Backspace".to_string(),
+        KeyCode::Enter => "Enter".to_string(),
+        KeyCode::Left => "Left".to_string(),
+        KeyCode::Right => "Right".to_string(),
+        KeyCode::Up => "Up".to_string(),
+        KeyCode::Down => "Down".to_string(),
         KeyCode::Home => "Home".to_string(),
         KeyCode::End => "End".to_string(),
         KeyCode::PageUp => "Page Up".to_string(),
         KeyCode::PageDown => "Page Down".to_string(),
         KeyCode::Tab => "Tab".to_string(),
-        KeyCode::BackTab => "⇤".to_string(),
-        KeyCode::Delete => "⌦".to_string(),
+        KeyCode::BackTab => "Back Tab".to_string(),
+        KeyCode::Delete => "Delete".to_string(),
         KeyCode::Insert => "Insert".to_string(),
         KeyCode::F(n) => format!("F{n}"),
         KeyCode::Char(' ') => "Space".to_string(),

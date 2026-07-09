@@ -6,6 +6,7 @@ cd "$ROOT_DIR"
 
 DEMO_CACHE_DIR="${REP_DEMO_CACHE_DIR:-${TMPDIR:-/tmp}/rep-demo-tools}"
 POSTPROCESS_FPS="${REP_DEMO_POSTPROCESS_FPS:-}"
+MP4_CRF="${REP_DEMO_MP4_CRF:-28}"
 LOCAL_MISE_DATA_DIR="${MISE_DATA_DIR:-$DEMO_CACHE_DIR/.mise}"
 LOCAL_PKGX_DIR="${PKGX_DIR:-$DEMO_CACHE_DIR/.pkgx}"
 PKGX_VERSION="2.10.3"
@@ -24,6 +25,7 @@ created_skill_link=0
 replaced_skill_link=0
 rendered_tape=""
 output_file=""
+mp4_output_file=""
 demo_plan_path="$ROOT_DIR/demo-plan.md"
 demo_plan_ready_path="$ROOT_DIR/tmp-demo-plan.ready"
 demo_plan_backup=""
@@ -133,6 +135,10 @@ if [[ -n "$POSTPROCESS_FPS" && ! "$POSTPROCESS_FPS" =~ ^[0-9]+([.][0-9]+)?$ ]]; 
   printf 'error: REP_DEMO_POSTPROCESS_FPS must be numeric, got: %s\n' "$POSTPROCESS_FPS" >&2
   exit 2
 fi
+if [[ ! "$MP4_CRF" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  printf 'error: REP_DEMO_MP4_CRF must be numeric, got: %s\n' "$MP4_CRF" >&2
+  exit 2
+fi
 
 if command -v mise >/dev/null 2>&1; then
   recorder_cmd=(
@@ -149,7 +155,7 @@ if command -v mise >/dev/null 2>&1; then
     "MISE_DATA_DIR=${LOCAL_MISE_DATA_DIR}"
     "PKGX_DIR=${LOCAL_PKGX_DIR}"
     mise x "aqua:pkgxdev/pkgx@${PKGX_VERSION}" --
-    pkgx "+ffmpeg@${FFMPEG_VERSION}" --
+    pkgx "+ffmpeg@${FFMPEG_VERSION}" "+mpg123.de" --
     ffmpeg
   )
 else
@@ -176,6 +182,10 @@ if [[ -z "$output_file" ]]; then
   printf 'error: rendered tape does not declare an Output: %s\n' "$rendered_tape" >&2
   exit 1
 fi
+mp4_output_file="${output_file%.gif}.mp4"
+if [[ "$mp4_output_file" == "$output_file" ]]; then
+  mp4_output_file="${output_file}.mp4"
+fi
 
 (
   unset NO_COLOR
@@ -198,3 +208,13 @@ if [[ -n "$POSTPROCESS_FPS" ]]; then
     "$tmp_output"
   mv "$tmp_output" "$output_file"
 fi
+
+"${ffmpeg_cmd[@]}" \
+  -y \
+  -i "$output_file" \
+  -movflags +faststart \
+  -pix_fmt yuv420p \
+  -c:v libx264 \
+  -crf "$MP4_CRF" \
+  -preset slow \
+  "$mp4_output_file"

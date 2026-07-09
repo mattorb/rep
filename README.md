@@ -9,6 +9,8 @@ It's best to wrap your agent harness in a tmux session to allow the skill to lau
 
 ![Rep Claude skill demo](docs/rep-claude-skill-demo.gif)
 
+[Watch the smaller MP4 version](docs/rep-claude-skill-demo.mp4).
+
 ## Overview
 
 `rep` opens a markdown file in an interactive TUI optimized for providing feedback and requesting changes from an LLM. 
