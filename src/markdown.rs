@@ -220,6 +220,10 @@ impl MarkdownLineRenderer {
             MdTag::Emphasis => self.emphasis_depth += 1,
             MdTag::Strong => self.strong_depth += 1,
             MdTag::Strikethrough => self.strike_depth += 1,
+            // These extensions remain disabled in `markdown_options`, so they
+            // should not normally be emitted. Handle their wrappers explicitly
+            // to stay compatible with pulldown-cmark 0.13.
+            MdTag::Superscript | MdTag::Subscript => {}
             MdTag::Table(_)
             | MdTag::TableHead
             | MdTag::TableRow
@@ -270,6 +274,7 @@ impl MarkdownLineRenderer {
             TagEnd::Emphasis => self.emphasis_depth = self.emphasis_depth.saturating_sub(1),
             TagEnd::Strong => self.strong_depth = self.strong_depth.saturating_sub(1),
             TagEnd::Strikethrough => self.strike_depth = self.strike_depth.saturating_sub(1),
+            TagEnd::Superscript | TagEnd::Subscript => {}
             TagEnd::Paragraph
             | TagEnd::Item
             | TagEnd::DefinitionList
@@ -412,6 +417,7 @@ impl MarkdownLineRenderer {
 #[cfg(test)]
 mod tests {
     use super::render_markdown_line;
+    use ratatui::style::Modifier;
 
     #[test]
     fn renders_markdown_headings() {
@@ -431,5 +437,22 @@ mod tests {
         let rendered = render_markdown_line(line);
         assert_eq!(rendered.plain, line);
         assert_eq!(rendered.spans.len(), 1);
+    }
+
+    #[test]
+    fn superscript_stays_literal_and_single_tilde_stays_struck_out() {
+        let rendered = render_markdown_line("H^2^O and ~CO~");
+        assert_eq!(rendered.plain, "H^2^O and CO");
+        let carbon_monoxide = rendered
+            .spans
+            .iter()
+            .find(|span| span.content == "CO")
+            .expect("single-tilde content should be rendered");
+        assert!(
+            carbon_monoxide
+                .style
+                .add_modifier
+                .contains(Modifier::CROSSED_OUT)
+        );
     }
 }

@@ -31,7 +31,7 @@ unicode-width = "0.2"
 # `pulldown-cmark` renders inline markdown for terminal display, while
 # `markdown` provides the mdast/source-structure parser used by selection and
 # AST views. Keeping both is intentional until one parser can satisfy both jobs.
-pulldown-cmark = "0.12"
+pulldown-cmark = "0.13"
 markdown = "1"
 
 [dev-dependencies]
