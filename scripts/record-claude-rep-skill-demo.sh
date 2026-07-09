@@ -24,6 +24,10 @@ created_skill_link=0
 replaced_skill_link=0
 rendered_tape=""
 output_file=""
+demo_plan_path="$ROOT_DIR/demo-plan.md"
+demo_plan_ready_path="$ROOT_DIR/tmp-demo-plan.ready"
+demo_plan_backup=""
+demo_plan_existed=0
 
 cleanup() {
   tmux kill-session -t "$TMUX_SESSION" >/dev/null 2>&1 || true
@@ -39,6 +43,12 @@ cleanup() {
   if [[ -n "$DEMO_REP_SKILL_SRC" ]]; then
     rm -rf "$DEMO_REP_SKILL_SRC"
   fi
+  if [[ "$demo_plan_existed" == 1 ]]; then
+    mv "$demo_plan_backup" "$demo_plan_path"
+  else
+    rm -f "$demo_plan_path"
+  fi
+  rm -f "$demo_plan_ready_path"
 }
 trap cleanup EXIT
 
@@ -94,6 +104,15 @@ ensure_claude_skill() {
   fi
 }
 
+protect_demo_plan() {
+  if [[ -e "$demo_plan_path" || -L "$demo_plan_path" ]]; then
+    demo_plan_backup="$(mktemp "${TMPDIR:-/tmp}/rep-demo-plan-backup.XXXXXX")"
+    rm -f "$demo_plan_backup"
+    mv "$demo_plan_path" "$demo_plan_backup"
+    demo_plan_existed=1
+  fi
+}
+
 render_tape() {
   rendered_tape="$(mktemp -t rep-claude-skill-demo.XXXXXX)"
   mv "$rendered_tape" "$rendered_tape.tape"
@@ -108,6 +127,7 @@ require_tool claude
 require_tool tmux
 prepare_demo_skill
 ensure_claude_skill
+protect_demo_plan
 
 if [[ -n "$POSTPROCESS_FPS" && ! "$POSTPROCESS_FPS" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
   printf 'error: REP_DEMO_POSTPROCESS_FPS must be numeric, got: %s\n' "$POSTPROCESS_FPS" >&2

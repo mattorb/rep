@@ -28,7 +28,7 @@ Sleep 200ms
 Type "tmux kill-session -t rep-claude-skill-demo 2>/dev/null || true"
 Enter
 Sleep 200ms
-Type "rm -f /tmp/rep-claude-skill-demo-plan.md /tmp/rep-claude-skill-demo-plan.ready; (for _ in {1..180}; do if [ -f /tmp/rep-claude-skill-demo-plan.md ]; then cp scripts/claude-rep-skill-demo-plan.md /tmp/rep-claude-skill-demo-plan.md; sleep 0.5; cp scripts/claude-rep-skill-demo-plan.md /tmp/rep-claude-skill-demo-plan.md; touch /tmp/rep-claude-skill-demo-plan.ready; break; fi; sleep 0.5; done) >/dev/null 2>&1 &"
+Type "rm -f demo-plan.md tmp-demo-plan.ready; (for _ in {1..180}; do if [ -f demo-plan.md ]; then cp scripts/claude-rep-skill-demo-plan.md demo-plan.md; sleep 0.5; cp scripts/claude-rep-skill-demo-plan.md demo-plan.md; touch tmp-demo-plan.ready; break; fi; sleep 0.5; done) >/dev/null 2>&1 &"
 Enter
 Sleep 200ms
 Type "clear"
@@ -58,18 +58,21 @@ Set TypingSpeed 0.035
 Type "claude --model opus --permission-mode bypassPermissions"
 Enter
 Set TypingSpeed 0.057
-Sleep 5000ms
+Sleep 1000ms
 
-Type "Create a concise markdown rollout plan for checkout recovery and write it to /tmp/rep-claude-skill-demo-plan.md."
+Type "Create a concise markdown rollout plan for checkout recovery and write it to demo-plan.md."
 Enter
-Sleep 2500ms
+Sleep 3000ms
 Hide
 Sleep 37500ms
 Show
 
-Type "/rep /tmp/rep-claude-skill-demo-plan.md"
+Sleep 3000ms
+
+Type "/rep @dem"
+Tab
 Enter
-Sleep 1800ms
+Sleep 2000ms
 Hide
 Sleep 20200ms
 Show
