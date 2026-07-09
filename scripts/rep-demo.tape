@@ -1,4 +1,4 @@
-Output docs/rep-demo.gif
+Output docs/rep-cli-demo.gif
 
 Require ./target/release/rep
 

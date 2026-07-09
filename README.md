@@ -5,9 +5,9 @@
 
 A human in the loop TUI to review and revise markdown plan files quickly in collaboration with an LLM. It is primarily **made for use inside a tmux session**, wrapping an agent tool like Claude Code or Codex. This is the way.
 
-![Rep TUI demo](docs/rep-demo.gif)
+![Rep Claude skill demo](docs/rep-claude-skill-demo.gif)
 
-The direct TUI demo can be recorded with `scripts/record-demo.sh`. To record the
+The direct CLI demo can be recorded with `scripts/record-cli-demo.sh`. To record the
 agent-loop workflow, use `scripts/record-claude-rep-skill-demo.sh`; it launches
 Claude inside tmux, invokes `/rep` against a temporary copy of the demo plan, and
 writes `docs/rep-claude-skill-demo.gif`.

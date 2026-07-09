@@ -39,7 +39,7 @@ else
     fi
   done
   if ((${#missing_tools[@]})); then
-    printf 'error: %s are required to record docs/rep-demo.gif\n' "${missing_tools[*]}" >&2
+    printf 'error: %s are required to record docs/rep-cli-demo.gif\n' "${missing_tools[*]}" >&2
     printf 'Install the missing tools or install mise so this script can run project-local recorder tools, then rerun %s\n' "$0" >&2
     exit 1
   fi
