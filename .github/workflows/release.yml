@@ -105,14 +105,14 @@ jobs:
     strategy:
       matrix:
         include:
-          # Linux release artifacts are paused until release/install smoke tests
-          # cover the published archives.
-          # - target: x86_64-unknown-linux-musl
-          #   os: ubuntu-latest
-          #   use_cross: true
-          # - target: aarch64-unknown-linux-musl
-          #   os: ubuntu-latest
-          #   use_cross: true
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            use_cross: true
+            smoke_platform: linux/amd64
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            use_cross: true
+            smoke_platform: linux/arm64
           - target: x86_64-apple-darwin
             os: macos-latest
             use_cross: false
@@ -136,6 +136,12 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: ${{ matrix.target }}
+
+      - name: Set up QEMU
+        if: startsWith(matrix.target, 'aarch64-unknown-linux-')
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
+        with:
+          platforms: arm64
 
       - name: Install cross
         if: matrix.use_cross
@@ -172,8 +178,28 @@ jobs:
           }
 
           $sha = (Get-FileHash -Algorithm SHA256 -Path $archive).Hash.ToLowerInvariant()
+          $checksumFile = "checksums-$target.txt"
+          "$sha  $archive" | Out-File -FilePath $checksumFile -Encoding ascii
           "archive=$archive" >> $env:GITHUB_OUTPUT
           "sha256=$sha" >> $env:GITHUB_OUTPUT
+          "checksum_file=$checksumFile" >> $env:GITHUB_OUTPUT
+
+      - name: Smoke Linux release archive
+        if: startsWith(matrix.target, 'x86_64-unknown-linux-') || startsWith(matrix.target, 'aarch64-unknown-linux-')
+        run: |
+          docker run --rm \
+            --platform "${{ matrix.smoke_platform }}" \
+            --volume "${{ github.workspace }}:/work" \
+            --workdir /work \
+            alpine:latest \
+            sh -lc '
+              apk add --no-cache curl tar coreutils &&
+              scripts/smoke-release-archive.sh \
+                --archive "${{ steps.package.outputs.archive }}" \
+                --checksums "${{ steps.package.outputs.checksum_file }}" \
+                --target "${{ matrix.target }}" \
+                --version "${{ github.ref_name }}"
+            '
 
       - name: Attest build provenance
         if: ${{ github.event.repository.private == false }}
@@ -188,13 +214,10 @@ jobs:
           path: ${{ steps.package.outputs.archive }}
           if-no-files-found: error
 
-      - name: Record checksum
-        run: echo "${{ steps.package.outputs.sha256 }}  ${{ steps.package.outputs.archive }}" >> checksums-${{ matrix.target }}.txt
-
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: checksum-${{ matrix.target }}
-          path: checksums-${{ matrix.target }}.txt
+          path: ${{ steps.package.outputs.checksum_file }}
 
   release:
     name: Publish release

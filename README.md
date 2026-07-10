@@ -20,13 +20,13 @@ When you exit `rep`, it prints a list of [requested changes](#emitted-annotation
 For the most seamless experience, launch Codex or Claude Code *inside a tmux session*, which allows rep to launch as modal from a skill and automatically pass the revisions you ask it for back into the agentic loop.
 
 ## Installation
-Install the latest macOS release to `~/.local/bin`, and the bundled agent skill to `~/.agents/skills/rep`, with this command:
+Install the latest macOS or Linux release to `~/.local/bin`, and the bundled agent skill to `~/.agents/skills/rep`, with this command:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mattorb/rep/main/install.sh | sh
 ```
 
-Linux release archives are not published yet. For Linux, or to install from source on any platform with Rust available:
+To install from source on any platform with Rust available:
 
 ```sh
 cargo install --git https://github.com/mattorb/rep
@@ -77,8 +77,12 @@ rep plan.md
 
 | Platform | Release artifact | CI coverage | Support status |
 | --- | --- | --- | --- |
+| Linux x86_64 | `x86_64-unknown-linux-musl` | Build, package, archive smoke test, and installer smoke test on GitHub-hosted Ubuntu | Supported |
+| Linux arm64 | `aarch64-unknown-linux-musl` | Cross-build, package, archive smoke test, and installer smoke test on GitHub-hosted Ubuntu | Supported |
 | macOS x86_64 | `x86_64-apple-darwin` | Build and tests on GitHub-hosted macOS | Supported |
 | macOS arm64 | `aarch64-apple-darwin` | Cross-target release build on GitHub-hosted macOS | Supported |
+
+Linux release artifacts are static MUSL builds.
 
 ## Emitted Annotations Example
 On exit, something like this prints to stdout, for the LLM agent to consume and make modifications to the markdown plan file.

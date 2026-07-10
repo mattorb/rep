@@ -8,6 +8,7 @@ REPO="${REP_INSTALL_REPO:-$DEFAULT_REPO}"
 INSTALL_DIR="${REP_INSTALL_DIR:-$HOME/.local/bin}"
 SKILLS_DIR="${REP_SKILLS_DIR:-$HOME/.agents/skills}"
 VERSION="${REP_VERSION:-}"
+RELEASE_BASE_URL="${REP_RELEASE_BASE_URL:-}"
 TARGET=""
 TMP_DIR=""
 PROFILE_FILE=""
@@ -97,12 +98,13 @@ detect_target() {
 
   case "$uname_s" in
     Linux)
-      fail "Linux release archives are not published yet. Build from source with: cargo install --git https://github.com/${REPO}. You can also clone the repository and run ./build.sh."
+      os="unknown-linux-musl"
       ;;
     Darwin)
+      os="apple-darwin"
       ;;
     *)
-      fail "Unsupported OS: ${uname_s} (supported release installer OS: macOS)."
+      fail "Unsupported OS: ${uname_s} (supported release installer OS: macOS, Linux)."
       ;;
   esac
 
@@ -118,7 +120,7 @@ detect_target() {
       ;;
   esac
 
-  TARGET="${arch}-apple-darwin"
+  TARGET="${arch}-${os}"
 }
 
 detect_profile_file() {
@@ -157,7 +159,7 @@ detect_target
 resolve_version
 
 archive_name="${BIN_NAME}-${VERSION}-${TARGET}.tar.gz"
-base_url="https://github.com/${REPO}/releases/download/${VERSION}"
+base_url="${RELEASE_BASE_URL:-https://github.com/${REPO}/releases/download/${VERSION}}"
 archive_url="${base_url}/${archive_name}"
 checksums_url="${base_url}/checksums.txt"
 
@@ -170,7 +172,7 @@ printf 'Installing %s %s (%s)\n' "$BIN_NAME" "$VERSION" "$TARGET"
 download_file "$archive_url" "$archive_path"
 download_file "$checksums_url" "$checksums_path"
 
-expected_sha="$(awk -v name="$archive_name" '$2 == name {print $1; exit}' "$checksums_path")"
+expected_sha="$(awk -v name="$archive_name" '{ file = $2; sub(/\r$/, "", file); if (file == name) { print $1; exit } }' "$checksums_path")"
 if [ -z "$expected_sha" ]; then
   fail "No checksum entry found for ${archive_name}."
 fi
