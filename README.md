@@ -5,7 +5,9 @@
 
 A human in the loop TUI to review and revise LLM generated markdown plan files quickly. 
 
-It's best to wrap your agent harness in a tmux session to allow the skill to launch the rep UI modally (see demo below).
+![Rep CLI demo](docs/rep-cli-demo.gif)
+
+For agent-loop usage, wrap your agent harness in a tmux session so the skill can launch the rep UI modally.
 
 ![Rep Claude skill demo](docs/rep-claude-skill-demo.gif)
 
@@ -13,24 +15,32 @@ It's best to wrap your agent harness in a tmux session to allow the skill to lau
 
 `rep` opens a markdown file in an interactive TUI optimized for providing feedback and requesting changes from an LLM. 
 
-When you exit the [rep] app, it prints out a list a [changes requested](#emitted-annotations-example), for an AI agent to process and revise the markdown plan.  These changes can be a mix of deletions, additions, changes, and intent guidance.
+When you exit `rep`, it prints a list of [requested changes](#emitted-annotations-example) for an AI agent to process and apply to the markdown plan. These changes can be a mix of deletions, additions, changes, and intent guidance.
 
 For the most seamless experience, launch Codex or Claude Code *inside a tmux session*, which allows rep to launch as modal from a skill and automatically pass the revisions you ask it for back into the agentic loop.
 
 ## Installation
-Install rep to ~/.local/bin, and the bundled agent skill to ~/.agents/skills/rep with this command:
+Install the latest macOS release to `~/.local/bin`, and the bundled agent skill to `~/.agents/skills/rep`, with this command:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mattorb/rep/main/install.sh | sh
 ```
+
+Linux release archives are not published yet. For Linux, or to install from source on any platform with Rust available:
+
+```sh
+cargo install --git https://github.com/mattorb/rep
+```
+
+This source install path installs the `rep` binary only.
 
 ## Usage
 
 ### Preferred
 Use the rep skill to launch in the agentic loop: `/rep` in Claude Code or `$rep` in Codex.
 
-### Fallback Manually run
-If you execute it manually like this, you'll have to copy and paste results back to agent.
+### Manual fallback
+If you execute it manually like this, you'll have to copy and paste results back to the agent.
 ```sh
 rep plan.md
 ```
