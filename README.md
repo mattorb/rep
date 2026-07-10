@@ -34,12 +34,6 @@ To install or update only the skill source and optional agent symlinks later:
 curl -fsSL https://raw.githubusercontent.com/mattorb/rep/main/install.sh | sh -s -- --skills-only
 ```
 
-To install from source on any platform with Rust available:
-
-```sh
-cargo install --git https://github.com/mattorb/rep
-```
-
 This source install path installs the `rep` binary only.
 
 ## Usage
