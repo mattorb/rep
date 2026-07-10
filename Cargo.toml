@@ -1,6 +1,6 @@
 [package]
 name = "rep"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 rust-version = "1.95"
 description = "A multi-unit TUI annotation tool for Markdown files (section / paragraph / line / sentence / word), designed for human-AI review loops"
