@@ -3,6 +3,8 @@ use std::env;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use rep::cli::{CliArgs, CliCommand, parse_cli_args_from, run_interactive};
 use rep::ui;
@@ -10,6 +12,7 @@ use rep::ui;
 mod terminal_fallback;
 
 const DEMO_MARKDOWN: &str = include_str!("../examples/demo-plan.md");
+static DEMO_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn main() {
     if let Err(err) = real_main() {
@@ -79,7 +82,15 @@ fn validate_source_readable(source_path: &Path) -> Result<()> {
 
 fn write_demo_source() -> Result<PathBuf> {
     let mut path = env::temp_dir();
-    path.push(format!("rep-demo-{}.md", std::process::id()));
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let counter = DEMO_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    path.push(format!(
+        "rep-demo-{}-{timestamp}-{counter}.md",
+        std::process::id()
+    ));
     fs::write(&path, DEMO_MARKDOWN)?;
     Ok(path)
 }
