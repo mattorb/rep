@@ -20,10 +20,18 @@ When you exit `rep`, it prints a list of [requested changes](#emitted-annotation
 For the most seamless experience, launch Codex or Claude Code *inside a tmux session*, which allows rep to launch as modal from a skill and automatically pass the revisions you ask it for back into the agentic loop.
 
 ## Installation
-Install the latest macOS or Linux release to `~/.local/bin`, and the bundled agent skill to `~/.agents/skills/rep`, with this command:
+Install the latest macOS or Linux release to `~/.local/bin`, and the bundled agent skill source to `~/.agents/skills/rep`, with this command:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mattorb/rep/main/install.sh | sh
+```
+
+After installing the skill source, the installer offers to symlink it into the supported agent skill directories for Claude, Codex, Gemini, opencode, Hermes, and Droid. The prompt works with the `curl | sh` form when an interactive terminal is available.
+
+To install or update only the skill source and optional agent symlinks later:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mattorb/rep/main/install.sh | sh -s -- --skills-only
 ```
 
 To install from source on any platform with Rust available:

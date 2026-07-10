@@ -177,13 +177,35 @@ if [ "$RUN_INSTALLER" = "true" ]; then
   HOME="$TMP_DIR/home" \
     REP_INSTALL_DIR="$install_root/bin" \
     REP_SKILLS_DIR="$install_root/skills" \
+    REP_INSTALL_AGENT_SKILLS="claude,codex" \
     REP_VERSION="$VERSION" \
     REP_RELEASE_BASE_URL="file://$release_dir" \
     sh "$INSTALLER" >/dev/null
 
   [ -x "$install_root/bin/$BIN_NAME" ] || fail "Installer did not install executable $BIN_NAME"
   [ -f "$install_root/skills/rep/SKILL.md" ] || fail "Installer did not install bundled rep skill"
+  [ -L "$TMP_DIR/home/.claude/skills/rep" ] || fail "Installer did not symlink Claude rep skill"
+  [ -L "$TMP_DIR/home/.codex/skills/rep" ] || fail "Installer did not symlink Codex rep skill"
+  [ "$(readlink "$TMP_DIR/home/.claude/skills/rep")" = "$install_root/skills/rep" ] || fail "Claude rep skill symlink target is wrong"
+  [ "$(readlink "$TMP_DIR/home/.codex/skills/rep")" = "$install_root/skills/rep" ] || fail "Codex rep skill symlink target is wrong"
+  [ ! -e "$TMP_DIR/home/.gemini/skills/rep" ] || fail "Installer symlinked an unselected Gemini rep skill"
   "$install_root/bin/$BIN_NAME" --help >/dev/null
+
+  skill_only_root="$TMP_DIR/skill-only"
+  mkdir -p "$skill_only_root"
+
+  HOME="$skill_only_root/home" \
+    REP_INSTALL_DIR="$skill_only_root/bin" \
+    REP_SKILLS_DIR="$skill_only_root/skills" \
+    REP_INSTALL_AGENT_SKILLS="codex" \
+    REP_VERSION="$VERSION" \
+    REP_RELEASE_BASE_URL="file://$release_dir" \
+    sh "$INSTALLER" --skills-only >/dev/null
+
+  [ ! -e "$skill_only_root/bin/$BIN_NAME" ] || fail "Skills-only installer unexpectedly installed executable $BIN_NAME"
+  [ -f "$skill_only_root/skills/rep/SKILL.md" ] || fail "Skills-only installer did not install bundled rep skill"
+  [ -L "$skill_only_root/home/.codex/skills/rep" ] || fail "Skills-only installer did not symlink Codex rep skill"
+  [ "$(readlink "$skill_only_root/home/.codex/skills/rep")" = "$skill_only_root/skills/rep" ] || fail "Skills-only Codex rep skill symlink target is wrong"
 fi
 
 printf 'Smoke test passed for %s\n' "$actual_archive"

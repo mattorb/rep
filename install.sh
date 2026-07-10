@@ -3,15 +3,42 @@ set -eu
 
 BIN_NAME="rep"
 DEFAULT_REPO="mattorb/rep"
+AGENT_TOOLS="claude codex gemini opencode hermes droid"
 
 REPO="${REP_INSTALL_REPO:-$DEFAULT_REPO}"
 INSTALL_DIR="${REP_INSTALL_DIR:-$HOME/.local/bin}"
-SKILLS_DIR="${REP_SKILLS_DIR:-$HOME/.agents/skills}"
+if [ -n "${REP_SKILL_DIR:-}" ]; then
+  SKILL_INSTALL_DIR="$REP_SKILL_DIR"
+elif [ -n "${REP_SKILLS_DIR:-}" ]; then
+  SKILL_INSTALL_DIR="${REP_SKILLS_DIR%/}/rep"
+else
+  SKILL_INSTALL_DIR="$HOME/.agents/skills/rep"
+fi
 VERSION="${REP_VERSION:-}"
 RELEASE_BASE_URL="${REP_RELEASE_BASE_URL:-}"
 TARGET=""
 TMP_DIR=""
 PROFILE_FILE=""
+SKILLS_ONLY="false"
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  install.sh [--skills-only]
+
+Options:
+  --skills-only  Install the bundled rep skill and optional agent symlinks only.
+  -h, --help     Show this help.
+
+Environment:
+  REP_INSTALL_AGENT_SKILLS=prompt       Prompt for each supported agent. Default.
+  REP_INSTALL_AGENT_SKILLS=all          Symlink the skill into every supported agent.
+  REP_INSTALL_AGENT_SKILLS=claude,codex Symlink only the named agents.
+  REP_INSTALL_AGENT_SKILLS=none         Skip agent-specific symlinks.
+  REP_SKILL_DIR=/path/to/rep            Install the skill source at this exact path.
+  REP_SKILLS_DIR=/path/to/skills        Install the skill source at /path/to/skills/rep.
+USAGE
+}
 
 has_cmd() {
   command -v "$1" >/dev/null 2>&1
@@ -20,6 +47,24 @@ has_cmd() {
 fail() {
   printf 'Error: %s\n' "$*" >&2
   exit 1
+}
+
+parse_args() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --skills-only)
+        SKILLS_ONLY="true"
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        fail "Unknown argument: $1"
+        ;;
+    esac
+  done
 }
 
 download_file() {
@@ -147,6 +192,140 @@ detect_profile_file() {
   esac
 }
 
+tty_available() {
+  { : </dev/tty; } 2>/dev/null && { : >/dev/tty; } 2>/dev/null
+}
+
+confirm_tty() {
+  prompt="$1"
+
+  if ! tty_available; then
+    return 2
+  fi
+
+  while true; do
+    printf '%s [y/N] ' "$prompt" >/dev/tty
+    if ! IFS= read -r reply </dev/tty; then
+      printf '\n' >/dev/tty
+      return 1
+    fi
+
+    case "$reply" in
+      [Yy]|[Yy][Ee][Ss])
+        return 0
+        ;;
+      ""|[Nn]|[Nn][Oo])
+        return 1
+        ;;
+      *)
+        printf 'Please answer y or n.\n' >/dev/tty
+        ;;
+    esac
+  done
+}
+
+normalize_agent_selection() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]'
+}
+
+agent_selected() {
+  selection="$1"
+  tool="$2"
+
+  case ",${selection}," in
+    *",${tool},"*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+should_link_agent_skill() {
+  tool="$1"
+  link="$2"
+  mode="$(normalize_agent_selection "${REP_INSTALL_AGENT_SKILLS:-prompt}")"
+
+  case "$mode" in
+    ""|prompt)
+      if confirm_tty "Symlink rep skill into ${link}?"; then
+        return 0
+      fi
+      return 1
+      ;;
+    all|yes|y|true|1)
+      return 0
+      ;;
+    none|no|n|false|0|skip)
+      return 1
+      ;;
+    *)
+      agent_selected "$mode" "$tool"
+      return
+      ;;
+  esac
+}
+
+install_agent_skill_links() {
+  skill_dir="$1"
+  mode="$(normalize_agent_selection "${REP_INSTALL_AGENT_SKILLS:-prompt}")"
+
+  if { [ -z "$mode" ] || [ "$mode" = "prompt" ]; } && ! tty_available; then
+    printf 'Skipped optional agent skill symlinks because no interactive terminal was available.\n'
+    printf 'To install them later, run this installer with --skills-only or set REP_INSTALL_AGENT_SKILLS.\n'
+    return
+  fi
+
+  printf '\nSupported agent skill symlink targets:\n'
+  for tool in $AGENT_TOOLS; do
+    printf '  %s -> %s/.%s/skills/rep\n' "$tool" "$HOME" "$tool"
+  done
+  printf '\n'
+
+  for tool in $AGENT_TOOLS; do
+    dest_dir="$HOME/.${tool}/skills"
+    link="$dest_dir/rep"
+
+    if should_link_agent_skill "$tool" "$link"; then
+      if [ -e "$link" ] && [ ! -L "$link" ]; then
+        printf 'Skipped %s: non-symlink path already exists.\n' "$link"
+        continue
+      fi
+
+      mkdir -p "$dest_dir"
+      ln -sfn "$skill_dir" "$link"
+      printf 'Linked %s -> %s\n' "$link" "$skill_dir"
+    else
+      printf 'Skipped %s\n' "$link"
+    fi
+  done
+}
+
+install_bundled_skill() {
+  source_dir="$1"
+
+  if [ ! -d "$source_dir" ]; then
+    if [ "$SKILLS_ONLY" = "true" ]; then
+      fail "No bundled agent skill found in archive."
+    fi
+    printf 'No bundled agent skill found in archive; skipped skill install.\n'
+    return
+  fi
+
+  parent_dir="${SKILL_INSTALL_DIR%/*}"
+  if [ "$parent_dir" = "$SKILL_INSTALL_DIR" ]; then
+    parent_dir="."
+  fi
+
+  mkdir -p "$parent_dir"
+  rm -rf "$SKILL_INSTALL_DIR"
+  cp -R "$source_dir" "$SKILL_INSTALL_DIR"
+  printf 'Installed agent skill source to %s\n' "$SKILL_INSTALL_DIR"
+
+  install_agent_skill_links "$SKILL_INSTALL_DIR"
+}
+
 cleanup() {
   if [ -n "${TMP_DIR:-}" ] && [ -d "$TMP_DIR" ]; then
     rm -rf "$TMP_DIR"
@@ -155,6 +334,7 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
+parse_args "$@"
 detect_target
 resolve_version
 
@@ -185,38 +365,38 @@ fi
 printf 'Checksum verified.\n'
 
 tar -xzf "$archive_path" -C "$TMP_DIR"
-if [ ! -f "${TMP_DIR}/${BIN_NAME}" ]; then
-  fail "Archive did not contain expected binary: ${BIN_NAME}."
+
+if [ "$SKILLS_ONLY" = "false" ]; then
+  if [ ! -f "${TMP_DIR}/${BIN_NAME}" ]; then
+    fail "Archive did not contain expected binary: ${BIN_NAME}."
+  fi
+
+  mkdir -p "$INSTALL_DIR"
+  if has_cmd install; then
+    install -m 0755 "${TMP_DIR}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
+  else
+    cp "${TMP_DIR}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
+    chmod 0755 "${INSTALL_DIR}/${BIN_NAME}"
+  fi
+
+  printf 'Installed binary to %s/%s\n' "$INSTALL_DIR" "$BIN_NAME"
 fi
 
-mkdir -p "$INSTALL_DIR"
-if has_cmd install; then
-  install -m 0755 "${TMP_DIR}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
+install_bundled_skill "${TMP_DIR}/.agents/skills/rep"
+
+if [ "$SKILLS_ONLY" = "false" ]; then
+  case ":$PATH:" in
+    *":${INSTALL_DIR}:"*)
+      printf "Run \`%s --help\` to get started.\n" "$BIN_NAME"
+      ;;
+    *)
+      detect_profile_file
+      printf '\n%s is not currently on your PATH.\n' "$INSTALL_DIR"
+      printf 'Add this line to %s:\n' "$PROFILE_FILE"
+      printf '  export PATH="%s:%s"\n' "$INSTALL_DIR" "\$PATH"
+      printf 'Then restart your shell.\n'
+      ;;
+  esac
 else
-  cp "${TMP_DIR}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
-  chmod 0755 "${INSTALL_DIR}/${BIN_NAME}"
+  printf 'Skill-only install complete.\n'
 fi
-
-printf 'Installed to %s/%s\n' "$INSTALL_DIR" "$BIN_NAME"
-
-if [ -d "${TMP_DIR}/.agents/skills/rep" ]; then
-  mkdir -p "$SKILLS_DIR"
-  rm -rf "${SKILLS_DIR}/rep"
-  cp -R "${TMP_DIR}/.agents/skills/rep" "${SKILLS_DIR}/rep"
-  printf 'Installed agent skill to %s/rep\n' "$SKILLS_DIR"
-else
-  printf 'No bundled agent skill found in archive; skipped skill install.\n'
-fi
-
-case ":$PATH:" in
-  *":${INSTALL_DIR}:"*)
-    printf "Run \`%s --help\` to get started.\n" "$BIN_NAME"
-    ;;
-  *)
-    detect_profile_file
-    printf '\n%s is not currently on your PATH.\n' "$INSTALL_DIR"
-    printf 'Add this line to %s:\n' "$PROFILE_FILE"
-    printf '  export PATH="%s:%s"\n' "$INSTALL_DIR" "\$PATH"
-    printf 'Then restart your shell.\n'
-    ;;
-esac
