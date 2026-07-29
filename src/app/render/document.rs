@@ -55,17 +55,17 @@ impl App {
         let n = heights.len();
         self.scroll_offset = self.scroll_offset.min(n.saturating_sub(1));
 
-        if self.selection_state.anchor.node_idx < self.scroll_offset {
-            self.scroll_offset = self.selection_state.anchor.node_idx;
+        if self.review.selection_state.anchor.node_idx < self.scroll_offset {
+            self.scroll_offset = self.review.selection_state.anchor.node_idx;
             return;
         }
 
         let cursor_height = heights
-            .get(self.selection_state.anchor.node_idx)
+            .get(self.review.selection_state.anchor.node_idx)
             .copied()
             .unwrap_or(1);
         let rows_before: u16 = heights
-            .get(self.scroll_offset..self.selection_state.anchor.node_idx)
+            .get(self.scroll_offset..self.review.selection_state.anchor.node_idx)
             .map_or(0, |s| s.iter().copied().sum());
 
         // Cursor is fully visible — nothing to do.
@@ -78,9 +78,9 @@ impl App {
         // cursor lines shown. If the cursor is taller than the screen, put it at top.
         let target_start = inner_height.saturating_sub(cursor_height);
 
-        let mut new_offset = self.selection_state.anchor.node_idx;
+        let mut new_offset = self.review.selection_state.anchor.node_idx;
         let mut cum: u16 = 0;
-        for i in (0..self.selection_state.anchor.node_idx).rev() {
+        for i in (0..self.review.selection_state.anchor.node_idx).rev() {
             let h = heights.get(i).copied().unwrap_or(0);
             if cum + h > target_start {
                 break;
@@ -119,7 +119,7 @@ impl App {
             _ => return,
         };
 
-        if partial_idx <= self.selection_state.anchor.node_idx {
+        if partial_idx <= self.review.selection_state.anchor.node_idx {
             return; // cursor-based logic already handles this
         }
 
@@ -132,7 +132,7 @@ impl App {
 
         // Try to advance scroll_offset by `needed` rows, while keeping cursor visible.
         let cursor_h = heights
-            .get(self.selection_state.anchor.node_idx)
+            .get(self.review.selection_state.anchor.node_idx)
             .copied()
             .unwrap_or(1);
         let mut skipped: u16 = 0;
@@ -144,11 +144,11 @@ impl App {
             }
             // Verify cursor stays visible after advancing past item i.
             let candidate = i + 1;
-            if candidate > self.selection_state.anchor.node_idx {
+            if candidate > self.review.selection_state.anchor.node_idx {
                 break; // would push cursor above offset
             }
             let rows_before_cursor: u16 = heights
-                .get(candidate..self.selection_state.anchor.node_idx)
+                .get(candidate..self.review.selection_state.anchor.node_idx)
                 .map_or(0, |s| s.iter().copied().sum());
             if rows_before_cursor + cursor_h > inner_height {
                 break; // cursor would go off-screen

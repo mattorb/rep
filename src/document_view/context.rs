@@ -55,7 +55,6 @@ impl DocumentView {
     ) -> AnnotationTargetCapture {
         let target = self.target_capture(anchor);
         AnnotationTargetCapture {
-            sentence_index: target.as_ref().map(|(idx, _)| *idx),
             sentence_text: target.map(|(_, text)| text),
             source_line: self.source_line_for_anchor(anchor),
         }
@@ -69,64 +68,6 @@ impl DocumentView {
         target_text: Option<&str>,
     ) -> SourceActionContext {
         self.action_context_for(node_idx, target_unit, unit_idx, target_text)
-    }
-
-    pub(crate) fn strike_action_context(
-        &self,
-        node_idx: usize,
-        unit: SelectionUnit,
-        unit_idx: usize,
-    ) -> (String, SourceActionContext) {
-        let target_text = self
-            .target_text_for_unit(node_idx, unit, unit_idx)
-            .unwrap_or_default();
-        let context_target = (!target_text.is_empty()).then_some(target_text.as_str());
-        let context = self.action_context_for(node_idx, unit, Some(unit_idx), context_target);
-        (target_text, context)
-    }
-
-    fn target_text_for_unit(
-        &self,
-        node_idx: usize,
-        unit: SelectionUnit,
-        unit_idx: usize,
-    ) -> Option<String> {
-        let node = self.selection_index.nodes.get(node_idx)?;
-        match unit {
-            SelectionUnit::Sentence => {
-                let r = node.sentence_ranges.get(unit_idx)?;
-                Some(node.selection_plain_text.get(r.clone())?.trim().to_string())
-            }
-            SelectionUnit::Word => {
-                let r = node.word_ranges.get(unit_idx)?;
-                Some(node.selection_plain_text.get(r.clone())?.to_string())
-            }
-            SelectionUnit::Line => {
-                if let DocNode::ListItem { .. } = self.document.nodes.get(node_idx)? {
-                    Some(node.selection_plain_text.clone())
-                } else {
-                    let (line, _) = node.source_line_ranges.get(unit_idx)?.clone();
-                    Some(self.source_lines.get(line)?.clone())
-                }
-            }
-            SelectionUnit::Paragraph => Some(node.selection_plain_text.replace('\n', " ")),
-            SelectionUnit::Section => {
-                let section = self
-                    .selection_index
-                    .sections
-                    .iter()
-                    .find(|s| s.start_node_idx == node_idx)?;
-                let mut parts: Vec<String> = Vec::new();
-                for i in section.start_node_idx..=section.end_node_idx {
-                    if let Some(n) = self.selection_index.nodes.get(i)
-                        && !n.selection_plain_text.is_empty()
-                    {
-                        parts.push(n.selection_plain_text.replace('\n', " "));
-                    }
-                }
-                Some(parts.join(" "))
-            }
-        }
     }
 
     pub(crate) fn node_line_context(&self, node_idx: usize) -> SourceLineContext {

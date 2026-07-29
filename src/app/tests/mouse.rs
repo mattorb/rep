@@ -23,7 +23,7 @@ fn single_click_selects_word_at_cursor() {
     // "alpha bravo " = 12 bytes; "charlie" starts at col 14 (gutter + 12).
     // Click on the 'h' in "charlie" at col 15.
     render_then_click(&mut app, 1, 15);
-    let anchor = app.selection_state.anchor;
+    let anchor = app.review.selection_state.anchor;
     assert_eq!(anchor.unit, SelectionUnit::Word, "single click → Word");
     // Word index of "charlie" should be 2 (0=alpha, 1=bravo, 2=charlie).
     let rn = &app.view.rendered_nodes()[anchor.node_idx];
@@ -44,7 +44,7 @@ fn double_click_selects_sentence() {
     let mut app = test_app("Alpha bravo. Charlie delta echo fox.\n");
     render_then_click(&mut app, 1, 4);
     render_then_click(&mut app, 1, 4);
-    let anchor = app.selection_state.anchor;
+    let anchor = app.review.selection_state.anchor;
     assert_eq!(
         anchor.unit,
         SelectionUnit::Sentence,
@@ -59,7 +59,7 @@ fn triple_click_selects_paragraph() {
     render_then_click(&mut app, 1, 4);
     render_then_click(&mut app, 1, 4);
     render_then_click(&mut app, 1, 4);
-    let anchor = app.selection_state.anchor;
+    let anchor = app.review.selection_state.anchor;
     assert_eq!(anchor.unit, SelectionUnit::Paragraph);
     assert_eq!(anchor.unit_idx, 0);
 }
@@ -72,7 +72,7 @@ fn double_click_in_codeblock_selects_line() {
     // Code block fence starts at row 1; "second line" is on inner row 2.
     render_then_click(&mut app, 3, 5);
     render_then_click(&mut app, 3, 5);
-    let anchor = app.selection_state.anchor;
+    let anchor = app.review.selection_state.anchor;
     assert_eq!(
         anchor.unit,
         SelectionUnit::Line,
@@ -91,7 +91,7 @@ fn click_count_resets_on_position_change() {
     render_then_click(&mut app, 1, 4);
     // Different cell — should reset to single click.
     render_then_click(&mut app, 1, 12);
-    let anchor = app.selection_state.anchor;
+    let anchor = app.review.selection_state.anchor;
     assert_eq!(
         anchor.unit,
         SelectionUnit::Word,
@@ -102,10 +102,10 @@ fn click_count_resets_on_position_change() {
 #[test]
 fn click_outside_list_inner_is_noop() {
     let mut app = test_app("Body.\n");
-    let before = app.selection_state.anchor;
+    let before = app.review.selection_state.anchor;
     // Click on the footer row (row 23 in an 80x24 backend).
     render_then_click(&mut app, 23, 10);
-    let after = app.selection_state.anchor;
+    let after = app.review.selection_state.anchor;
     assert_eq!(
         before, after,
         "click outside list_inner must not move selection"
@@ -117,9 +117,9 @@ fn click_during_input_mode_is_swallowed() {
     let mut app = test_app("alpha bravo charlie.\n");
     // Enter Change input mode.
     app.handle_key(key_char('c'));
-    let before = app.selection_state.anchor;
+    let before = app.review.selection_state.anchor;
     render_then_click(&mut app, 1, 8);
-    let after = app.selection_state.anchor;
+    let after = app.review.selection_state.anchor;
     assert_eq!(
         before, after,
         "click in input mode must not move the underlying selection"
@@ -196,7 +196,7 @@ fn single_click_on_wrapped_line_picks_clicked_word() {
         column: click_col,
         modifiers: KeyModifiers::NONE,
     });
-    let anchor = app.selection_state.anchor;
+    let anchor = app.review.selection_state.anchor;
     assert_eq!(anchor.unit, SelectionUnit::Word);
     let rn = &app.view.rendered_nodes()[anchor.node_idx];
     let selected = &rn.plain[rn.display_word_ranges[anchor.unit_idx].clone()];
@@ -267,7 +267,7 @@ fn click_on_word_with_smart_apostrophe_picks_whole_contraction() {
         column: click_col,
         modifiers: KeyModifiers::NONE,
     });
-    let anchor = app.selection_state.anchor;
+    let anchor = app.review.selection_state.anchor;
     assert_eq!(anchor.unit, SelectionUnit::Word);
     let selected = &app.view.rendered_nodes()[anchor.node_idx].plain
         [app.view.rendered_nodes()[anchor.node_idx].display_word_ranges[anchor.unit_idx].clone()];
@@ -325,7 +325,7 @@ fn click_on_trailing_space_does_not_jump_to_last_word() {
         column: click_col,
         modifiers: KeyModifiers::NONE,
     });
-    let anchor = app.selection_state.anchor;
+    let anchor = app.review.selection_state.anchor;
     let selected = &app.view.rendered_nodes()[anchor.node_idx].plain
         [app.view.rendered_nodes()[anchor.node_idx].display_word_ranges[anchor.unit_idx].clone()];
     assert_eq!(
@@ -399,7 +399,7 @@ fn click_words_in_real_markdown_file() {
                     column: click_col,
                     modifiers: KeyModifiers::NONE,
                 });
-                let anchor = app.selection_state.anchor;
+                let anchor = app.review.selection_state.anchor;
                 let actual = app.view.rendered_nodes()[anchor.node_idx]
                     .plain
                     .get(

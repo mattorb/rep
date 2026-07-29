@@ -3,7 +3,12 @@ use super::*;
 #[test]
 fn gutter_shows_c_after_change() {
     let mut app = test_app("A sentence here.\n");
-    app.changes.entry(0).or_default().push(make_change("x"));
+    app.review
+        .annotations
+        .changes
+        .entry(0)
+        .or_default()
+        .push(make_change("x"));
     let t = render(&mut app);
     assert_eq!(cell(&t, 1, 1), 'C', "expected change indicator 'C'");
 }
@@ -11,7 +16,9 @@ fn gutter_shows_c_after_change() {
 #[test]
 fn gutter_shows_x_after_strike() {
     let mut app = test_app("A sentence here.\n");
-    app.strikes
+    app.review
+        .annotations
+        .strikes
         .entry(0)
         .or_default()
         .insert((SelectionUnit::Sentence, 0));
@@ -22,7 +29,12 @@ fn gutter_shows_x_after_strike() {
 #[test]
 fn gutter_shows_f_after_feedback() {
     let mut app = test_app("A sentence here.\n");
-    app.feedbacks.entry(0).or_default().push(make_feedback("x"));
+    app.review
+        .annotations
+        .feedbacks
+        .entry(0)
+        .or_default()
+        .push(make_feedback("x"));
     let t = render(&mut app);
     assert_eq!(cell(&t, 1, 1), 'F', "expected feedback indicator 'F'");
 }
@@ -30,7 +42,9 @@ fn gutter_shows_f_after_feedback() {
 #[test]
 fn gutter_shows_plus_after_insert_before() {
     let mut app = test_app("A sentence here.\n");
-    app.inserts_before
+    app.review
+        .annotations
+        .inserts_before
         .entry(0)
         .or_default()
         .push(make_insert("new text"));
@@ -41,7 +55,9 @@ fn gutter_shows_plus_after_insert_before() {
 #[test]
 fn gutter_shows_plus_after_insert_after() {
     let mut app = test_app("A sentence here.\n");
-    app.inserts_after
+    app.review
+        .annotations
+        .inserts_after
         .entry(0)
         .or_default()
         .push(make_insert("new text"));
@@ -52,8 +68,15 @@ fn gutter_shows_plus_after_insert_after() {
 #[test]
 fn gutter_shows_star_for_both() {
     let mut app = test_app("A sentence.\n");
-    app.changes.entry(0).or_default().push(make_change("x"));
-    app.strikes
+    app.review
+        .annotations
+        .changes
+        .entry(0)
+        .or_default()
+        .push(make_change("x"));
+    app.review
+        .annotations
+        .strikes
         .entry(0)
         .or_default()
         .insert((SelectionUnit::Sentence, 0));
@@ -64,8 +87,18 @@ fn gutter_shows_star_for_both() {
 #[test]
 fn gutter_shows_star_for_two_changes_on_same_node() {
     let mut app = test_app("A sentence.\n");
-    app.changes.entry(0).or_default().push(make_change("x"));
-    app.changes.entry(0).or_default().push(make_change("y"));
+    app.review
+        .annotations
+        .changes
+        .entry(0)
+        .or_default()
+        .push(make_change("x"));
+    app.review
+        .annotations
+        .changes
+        .entry(0)
+        .or_default()
+        .push(make_change("y"));
     let t = render(&mut app);
     assert_eq!(
         cell(&t, 1, 1),
@@ -77,8 +110,18 @@ fn gutter_shows_star_for_two_changes_on_same_node() {
 #[test]
 fn gutter_shows_star_for_two_feedbacks_on_same_node() {
     let mut app = test_app("A sentence.\n");
-    app.feedbacks.entry(0).or_default().push(make_feedback("x"));
-    app.feedbacks.entry(0).or_default().push(make_feedback("y"));
+    app.review
+        .annotations
+        .feedbacks
+        .entry(0)
+        .or_default()
+        .push(make_feedback("x"));
+    app.review
+        .annotations
+        .feedbacks
+        .entry(0)
+        .or_default()
+        .push(make_feedback("y"));
     let t = render(&mut app);
     assert_eq!(
         cell(&t, 1, 1),
@@ -90,7 +133,9 @@ fn gutter_shows_star_for_two_feedbacks_on_same_node() {
 #[test]
 fn pressing_c_with_existing_change_enters_edit_mode() {
     let mut app = test_app("A sentence here.\n");
-    app.changes
+    app.review
+        .annotations
+        .changes
         .entry(0)
         .or_default()
         .push(make_change("prior change"));
@@ -102,7 +147,9 @@ fn pressing_c_with_existing_change_enters_edit_mode() {
 #[test]
 fn pressing_f_with_existing_feedback_enters_edit_mode() {
     let mut app = test_app("A sentence here.\n");
-    app.feedbacks
+    app.review
+        .annotations
+        .feedbacks
         .entry(0)
         .or_default()
         .push(make_feedback("prior feedback"));
@@ -123,7 +170,9 @@ fn pressing_c_without_existing_change_starts_new() {
 fn pressing_c_on_other_sentence_does_not_edit_neighbor() {
     let mut app = test_app("First sentence. Second sentence.\n");
     // change is on sentence 0
-    app.changes
+    app.review
+        .annotations
+        .changes
         .entry(0)
         .or_default()
         .push(make_change("for first"));
@@ -165,9 +214,21 @@ fn block_title_shows_filename() {
 #[test]
 fn block_title_shows_annotation_counts() {
     let mut app = test_app("A sentence.\n");
-    app.changes.entry(0).or_default().push(make_change("x"));
-    app.feedbacks.entry(0).or_default().push(make_feedback("y"));
-    app.strikes
+    app.review
+        .annotations
+        .changes
+        .entry(0)
+        .or_default()
+        .push(make_change("x"));
+    app.review
+        .annotations
+        .feedbacks
+        .entry(0)
+        .or_default()
+        .push(make_feedback("y"));
+    app.review
+        .annotations
+        .strikes
         .entry(0)
         .or_default()
         .insert((SelectionUnit::Sentence, 0));
@@ -221,20 +282,23 @@ fn section_boundary_keypress_keeps_highlight_on_current_section() {
     app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
     app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
     app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Section);
+    assert_eq!(
+        app.review.selection_state.anchor.unit,
+        SelectionUnit::Section
+    );
     assert!(
-        app.section_highlight_range.is_some(),
+        app.review.section_highlight_range.is_some(),
         "highlight set on entry to Section mode"
     );
     // Push past the only section's end.
     app.handle_key(key_char('j'));
     assert_eq!(
-        app.nav_feedback.as_deref(),
+        app.review.nav_feedback.as_deref(),
         Some("at end"),
         "boundary feedback expected"
     );
     assert!(
-        app.section_highlight_range.is_some(),
+        app.review.section_highlight_range.is_some(),
         "highlight should NOT be cleared on a boundary in Section mode"
     );
 }
@@ -250,17 +314,17 @@ fn section_nav_on_zero_section_doc_is_silent_no_op() {
     // pre-heading section, so clamp returns a valid Section anchor).
     // To exercise the truly-zero-anchor case, force-set an empty unit
     // and confirm move_active_unit doesn't write feedback.
-    app.selection_state.anchor = SelectionAnchor::new(0, SelectionUnit::Word, 999);
+    app.review.selection_state.anchor = SelectionAnchor::new(0, SelectionUnit::Word, 999);
     // Reach a definitively-empty unit by force-setting an anchor whose
     // unit doesn't have entries. Use Section on a doc-with-only-prose
     // — there IS one PreHeading entry, but words give us 6 entries
     // and pre-conditions are tricky to engineer. Instead, build
     // directly on a one-code-block doc which has zero sentence anchors.
     let mut app2 = test_app("```\nfn x() {}\n```");
-    app2.selection_state.anchor = SelectionAnchor::new(0, SelectionUnit::Sentence, 0);
+    app2.review.selection_state.anchor = SelectionAnchor::new(0, SelectionUnit::Sentence, 0);
     app2.handle_key(key_char('j'));
     assert_eq!(
-        app2.nav_feedback, None,
+        app2.review.nav_feedback, None,
         "zero-anchor unit must not write feedback"
     );
 }
@@ -294,17 +358,24 @@ fn input_mode_space_and_backspace_are_literal_chars() {
     assert_eq!(app.change_buffer, "a ");
     // Active selection unit must still be the pre-input Sentence (not
     // re-anchored by Space/Backspace as if they were mode-cycle keys).
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Sentence);
+    assert_eq!(
+        app.review.selection_state.anchor.unit,
+        SelectionUnit::Sentence
+    );
 }
 
 #[test]
 fn block_title_shows_insert_count() {
     let mut app = test_app("A sentence.\n");
-    app.inserts_before
+    app.review
+        .annotations
+        .inserts_before
         .entry(0)
         .or_default()
         .push(make_insert("x"));
-    app.inserts_after
+    app.review
+        .annotations
+        .inserts_after
         .entry(0)
         .or_default()
         .push(make_insert("y"));
@@ -316,11 +387,15 @@ fn block_title_shows_insert_count() {
 #[test]
 fn agent_output_includes_inserts_before_and_after() {
     let mut app = test_app("First. Second.\n");
-    app.inserts_before
+    app.review
+        .annotations
+        .inserts_before
         .entry(0)
         .or_default()
         .push(make_insert("pre"));
-    app.inserts_after
+    app.review
+        .annotations
+        .inserts_after
         .entry(0)
         .or_default()
         .push(make_insert("post"));
@@ -337,7 +412,7 @@ fn agent_output_includes_inserts_before_and_after() {
 #[test]
 fn emit_model_actions_capture_human_output_fields() {
     let mut app = test_app("Intro.\nTarget sentence.\nAfter.\n");
-    app.selection_state.anchor.unit_idx = 1;
+    app.review.selection_state.anchor.unit_idx = 1;
     app.handle_key(key_char('c'));
     for ch in "tighten wording".chars() {
         app.handle_key(key_char(ch));
@@ -367,7 +442,12 @@ fn b_key_enters_insert_before_mode_and_saves() {
     }
     app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(app.input_mode, InputMode::Normal);
-    let bucket = app.inserts_before.get(&0).expect("bucket should exist");
+    let bucket = app
+        .review
+        .annotations
+        .inserts_before
+        .get(&0)
+        .expect("bucket should exist");
     assert_eq!(bucket.len(), 1);
     assert_eq!(bucket[0].text, "hello");
 }
@@ -382,7 +462,12 @@ fn a_key_enters_insert_after_mode_and_saves() {
     }
     app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(app.input_mode, InputMode::Normal);
-    let bucket = app.inserts_after.get(&0).expect("bucket should exist");
+    let bucket = app
+        .review
+        .annotations
+        .inserts_after
+        .get(&0)
+        .expect("bucket should exist");
     assert_eq!(bucket.len(), 1);
     assert_eq!(bucket[0].text, "post");
 }
@@ -396,7 +481,7 @@ fn insert_mode_esc_cancels_without_saving() {
     }
     app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert_eq!(app.input_mode, InputMode::Normal);
-    assert!(app.inserts_before.is_empty());
+    assert!(app.review.annotations.inserts_before.is_empty());
 }
 
 // ── Search ────────────────────────────────────────────────────────────────

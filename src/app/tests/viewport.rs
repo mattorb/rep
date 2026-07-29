@@ -126,7 +126,7 @@ fn move_sentence_to_tall_node_bottom_aligns_it() {
         .collect();
 
     assert_eq!(
-        app.selection_state.anchor.node_idx, 1,
+        app.review.selection_state.anchor.node_idx, 1,
         "cursor should be on the tall node"
     );
     assert!(
@@ -199,7 +199,7 @@ fn line_mode_emphasis_paragraph_highlights_full_display() {
         .iter()
         .position(|rn| rn.plain.contains("working the plan."))
         .expect("paragraph node");
-    app.selection_state.anchor = SelectionAnchor {
+    app.review.selection_state.anchor = SelectionAnchor {
         node_idx: para_idx,
         unit: SelectionUnit::Line,
         unit_idx: 0,

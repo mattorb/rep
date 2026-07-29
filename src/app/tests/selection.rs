@@ -8,10 +8,12 @@ fn strike_in_word_mode_records_word_unit_strike() {
     // surrounding sentence.
     let mut app = test_app("alpha beta gamma\n");
     app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
-    let word_idx = app.selection_state.anchor.unit_idx;
+    assert_eq!(app.review.selection_state.anchor.unit, SelectionUnit::Word);
+    let word_idx = app.review.selection_state.anchor.unit_idx;
     app.handle_key(key_char('x'));
     let strikes = app
+        .review
+        .annotations
         .strikes
         .get(&0)
         .expect("strike entry created on first x");
@@ -22,7 +24,7 @@ fn strike_in_word_mode_records_word_unit_strike() {
     // Toggle: a second `x` removes it.
     app.handle_key(key_char('x'));
     assert!(
-        !app.strikes.contains_key(&0),
+        !app.review.annotations.strikes.contains_key(&0),
         "second x should remove the word-unit strike"
     );
 }
@@ -34,19 +36,19 @@ fn arrow_keys_preserve_active_unit_in_word_mode() {
     // walks word anchors but keeps the unit at Word.
     let mut app = test_app("alpha beta gamma delta epsilon\n");
     app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
-    let start = app.selection_state.anchor.unit_idx;
+    assert_eq!(app.review.selection_state.anchor.unit, SelectionUnit::Word);
+    let start = app.review.selection_state.anchor.unit_idx;
     app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     assert_eq!(
-        app.selection_state.anchor.unit,
+        app.review.selection_state.anchor.unit,
         SelectionUnit::Word,
         "Right must not change unit"
     );
-    assert_eq!(app.selection_state.anchor.unit_idx, start + 2);
+    assert_eq!(app.review.selection_state.anchor.unit_idx, start + 2);
     app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
-    assert_eq!(app.selection_state.anchor.unit_idx, start + 1);
+    assert_eq!(app.review.selection_state.anchor.unit, SelectionUnit::Word);
+    assert_eq!(app.review.selection_state.anchor.unit_idx, start + 1);
 }
 
 #[test]
@@ -54,7 +56,7 @@ fn change_status_reports_per_unit_source_line() {
     // Multi-line paragraph; cursor on sentence 1 (second sentence).
     // Status after `c X Enter` should mention line 2, not line 1.
     let mut app = test_app("First sentence.\nSecond sentence.\n");
-    app.selection_state.anchor.unit_idx = 1;
+    app.review.selection_state.anchor.unit_idx = 1;
     app.handle_key(key_char('c'));
     app.handle_key(key_char('X'));
     app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -70,13 +72,18 @@ fn word_change_repeated_word_lands_on_correct_source_line() {
     // Multi-line paragraph with the same word on both lines.
     // Word 0 = "the" on line 1; word 3 = "the" on line 2.
     let mut app = test_app("the cat sat\nthe mat slept\n");
-    app.changes.entry(0).or_default().push(ChangeAnnotation {
-        created_at: "2026-01-01T00:00:00Z".into(),
-        target_unit: SelectionUnit::Word,
-        sentence_index: Some(3),
-        sentence_text: Some("the".into()),
-        change: "Initial".into(),
-    });
+    app.review
+        .annotations
+        .changes
+        .entry(0)
+        .or_default()
+        .push(ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Word,
+            sentence_index: Some(3),
+            sentence_text: Some("the".into()),
+            change: "Initial".into(),
+        });
     let out = app.to_human_output();
     assert!(
         out.contains("WHERE: line 2\n"),
@@ -122,14 +129,19 @@ fn word_change_uses_word_source_line_in_multi_line_paragraph() {
     // Multi-line paragraph: word on second line should emit
     // `WHERE: line 2`, not the paragraph's first line.
     let mut app = test_app("First line.\nSecond line.\n");
-    app.changes.entry(0).or_default().push(ChangeAnnotation {
-        created_at: "2026-01-01T00:00:00Z".into(),
-        target_unit: SelectionUnit::Word,
-        sentence_index: Some(2), // word_idx; "Second" is index 2 in
-        // [First, line, Second, line]
-        sentence_text: Some("Second".into()),
-        change: "Initial".into(),
-    });
+    app.review
+        .annotations
+        .changes
+        .entry(0)
+        .or_default()
+        .push(ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Word,
+            sentence_index: Some(2), // word_idx; "Second" is index 2 in
+            // [First, line, Second, line]
+            sentence_text: Some("Second".into()),
+            change: "Initial".into(),
+        });
     let out = app.to_human_output();
     assert!(
         out.contains("WHERE: line 2\n"),
@@ -143,13 +155,18 @@ fn sentence_change_uses_sentence_source_line_in_multi_line_paragraph() {
     // "Second sentence.". A change captured on sentence 1 must emit
     // `WHERE: line 2`, not the paragraph's first line.
     let mut app = test_app("First sentence.\nSecond sentence.\n");
-    app.changes.entry(0).or_default().push(ChangeAnnotation {
-        created_at: "2026-01-01T00:00:00Z".into(),
-        target_unit: SelectionUnit::Sentence,
-        sentence_index: Some(1),
-        sentence_text: Some("Second sentence.".into()),
-        change: "Rewrite second".into(),
-    });
+    app.review
+        .annotations
+        .changes
+        .entry(0)
+        .or_default()
+        .push(ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Sentence,
+            sentence_index: Some(1),
+            sentence_text: Some("Second sentence.".into()),
+            change: "Rewrite second".into(),
+        });
     let out = app.to_human_output();
     assert!(
         out.contains("WHERE: line 2\n"),
@@ -163,7 +180,9 @@ fn strike_emit_uses_struck_sentence_source_line() {
     // line.". Striking sentence index 1 must emit `WHERE: line 2`,
     // not the paragraph's first line.
     let mut app = test_app("First line.\nSecond line.\n");
-    app.strikes
+    app.review
+        .annotations
+        .strikes
         .entry(0)
         .or_default()
         .insert((SelectionUnit::Sentence, 1));
@@ -179,13 +198,18 @@ fn strike_emit_uses_struck_sentence_source_line() {
 #[test]
 fn agent_output_sentence_index_is_one_based() {
     let mut app = test_app("First. Second.\n");
-    app.changes.entry(0).or_default().push(ChangeAnnotation {
-        created_at: "2026-01-01T00:00:00Z".into(),
-        target_unit: SelectionUnit::Sentence,
-        sentence_index: Some(1), // 0-based: second sentence
-        sentence_text: Some("Second.".into()),
-        change: "Fix this".into(),
-    });
+    app.review
+        .annotations
+        .changes
+        .entry(0)
+        .or_default()
+        .push(ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Sentence,
+            sentence_index: Some(1), // 0-based: second sentence
+            sentence_text: Some("Second.".into()),
+            change: "Fix this".into(),
+        });
     let out = app.to_output();
     assert_eq!(out.annotations.len(), 1);
     assert_eq!(
@@ -198,7 +222,9 @@ fn agent_output_sentence_index_is_one_based() {
 #[test]
 fn edit_key_enters_feedback_edit_mode_when_feedback_exists() {
     let mut app = test_app("A sentence here.\n");
-    app.feedbacks
+    app.review
+        .annotations
+        .feedbacks
         .entry(0)
         .or_default()
         .push(make_feedback("make this clearer"));
@@ -212,24 +238,28 @@ fn edit_key_enters_feedback_edit_mode_when_feedback_exists() {
 #[test]
 fn x_key_removes_change_before_striking() {
     let mut app = test_app("A sentence here.\n");
-    app.changes
+    app.review
+        .annotations
+        .changes
         .entry(0)
         .or_default()
         .push(make_change("rewrite"));
 
     app.handle_key(key_char('x'));
     assert!(
-        !app.changes.contains_key(&0),
+        !app.review.annotations.changes.contains_key(&0),
         "first x should remove the existing change"
     );
     assert!(
-        !app.strikes.contains_key(&0),
+        !app.review.annotations.strikes.contains_key(&0),
         "first x should not strike when removing a change"
     );
 
     app.handle_key(key_char('x'));
     assert!(
-        app.strikes
+        app.review
+            .annotations
+            .strikes
             .get(&0)
             .is_some_and(|set| set.contains(&(SelectionUnit::Sentence, 0))),
         "second x should strike once no change/feedback remains"
@@ -239,18 +269,20 @@ fn x_key_removes_change_before_striking() {
 #[test]
 fn x_key_removes_feedback_before_striking() {
     let mut app = test_app("A sentence here.\n");
-    app.feedbacks
+    app.review
+        .annotations
+        .feedbacks
         .entry(0)
         .or_default()
         .push(make_feedback("make this clearer"));
 
     app.handle_key(key_char('x'));
     assert!(
-        !app.feedbacks.contains_key(&0),
+        !app.review.annotations.feedbacks.contains_key(&0),
         "first x should remove the existing feedback"
     );
     assert!(
-        !app.strikes.contains_key(&0),
+        !app.review.annotations.strikes.contains_key(&0),
         "first x should not strike when removing feedback"
     );
 }
@@ -268,7 +300,7 @@ fn sentence_context_for_soft_wrapped_paragraph() {
     );
     let (_, context) = app
         .view
-        .target_capture(app.selection_state.anchor)
+        .target_capture(app.review.selection_state.anchor)
         .expect("sentence context");
     assert!(context.contains("Stabilize commands/flags"), "{context}");
     assert!(context.contains("stdin"), "{context}");
@@ -281,7 +313,7 @@ fn sentence_context_single_sentence_stops_at_node_boundary() {
     let app = test_app("First sentence ends.\nSecond sentence starts here.\n");
     let (_, context) = app
         .view
-        .target_capture(app.selection_state.anchor)
+        .target_capture(app.review.selection_state.anchor)
         .expect("sentence context");
     // Paragraph is joined → two sentences; cursor on sentence 0.
     assert!(context.contains("First sentence ends."), "{context}");
@@ -291,8 +323,8 @@ fn sentence_context_single_sentence_stops_at_node_boundary() {
 #[test]
 fn sentence_highlight_covers_full_node_when_cursor_on_it() {
     let mut app = test_app("Hello world. Goodbye world.\n");
-    app.selection_state.anchor.node_idx = 0;
-    app.selection_state.anchor.unit_idx = 0;
+    app.review.selection_state.anchor.node_idx = 0;
+    app.review.selection_state.anchor.unit_idx = 0;
     let spans = app.render_node_spans(0);
     assert!(
         has_sentence_highlight(&spans),
@@ -303,8 +335,8 @@ fn sentence_highlight_covers_full_node_when_cursor_on_it() {
 #[test]
 fn sentence_highlight_absent_on_other_nodes() {
     let mut app = test_app("Para one.\n\nPara two.\n");
-    app.selection_state.anchor.node_idx = 0;
-    app.selection_state.anchor.unit_idx = 0;
+    app.review.selection_state.anchor.node_idx = 0;
+    app.review.selection_state.anchor.unit_idx = 0;
     let spans = app.render_node_spans(1);
     assert!(
         !has_sentence_highlight(&spans),
@@ -316,7 +348,7 @@ fn sentence_highlight_absent_on_other_nodes() {
 fn word_mode_highlight_tracks_each_word_on_j_navigation() {
     let mut app = test_app("alpha beta gamma\n");
     app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+    assert_eq!(app.review.selection_state.anchor.unit, SelectionUnit::Word);
 
     let spans0 = app.render_node_spans(0);
     assert_eq!(highlighted_text(&spans0), "alpha");
@@ -339,7 +371,7 @@ fn word_mode_highlight_tracks_each_word_with_smart_apostrophe() {
     // indices (mouse-click resolution depends on that alignment).
     let mut app = test_app("we’re in an early period\n");
     app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+    assert_eq!(app.review.selection_state.anchor.unit, SelectionUnit::Word);
 
     let spans0 = app.render_node_spans(0);
     assert_eq!(highlighted_text(&spans0), "we’re");
@@ -358,34 +390,52 @@ fn i_and_o_keys_cycle_unit_finer_and_coarser() {
     // i = "in" / finer; o = "out" / coarser. They stop at the
     // ends instead of wrapping around.
     let mut app = test_app("# Heading\n\nPlain prose paragraph here.\n");
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Sentence);
+    assert_eq!(
+        app.review.selection_state.anchor.unit,
+        SelectionUnit::Sentence
+    );
     app.handle_key(key_char('i'));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+    assert_eq!(app.review.selection_state.anchor.unit, SelectionUnit::Word);
     app.handle_key(key_char('i'));
     assert_eq!(
-        app.selection_state.anchor.unit,
+        app.review.selection_state.anchor.unit,
         SelectionUnit::Word,
         "i should not wrap from Word back to Section"
     );
     app.handle_key(key_char('o'));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Sentence);
+    assert_eq!(
+        app.review.selection_state.anchor.unit,
+        SelectionUnit::Sentence
+    );
     app.handle_key(key_char('o'));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Line);
-    app.handle_key(key_char('o'));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Paragraph);
-    app.handle_key(key_char('o'));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Section);
+    assert_eq!(app.review.selection_state.anchor.unit, SelectionUnit::Line);
     app.handle_key(key_char('o'));
     assert_eq!(
-        app.selection_state.anchor.unit,
+        app.review.selection_state.anchor.unit,
+        SelectionUnit::Paragraph
+    );
+    app.handle_key(key_char('o'));
+    assert_eq!(
+        app.review.selection_state.anchor.unit,
+        SelectionUnit::Section
+    );
+    app.handle_key(key_char('o'));
+    assert_eq!(
+        app.review.selection_state.anchor.unit,
         SelectionUnit::Section,
         "o should not wrap from Section back to Word"
     );
     // Space and Backspace still wrap.
     app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Paragraph);
+    assert_eq!(
+        app.review.selection_state.anchor.unit,
+        SelectionUnit::Paragraph
+    );
     app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Section);
+    assert_eq!(
+        app.review.selection_state.anchor.unit,
+        SelectionUnit::Section
+    );
 }
 
 #[test]
@@ -419,8 +469,8 @@ fn word_mode_highlight_paints_inside_code_block_yaml_frontmatter() {
     // Cycle into Word mode (Space x1) — anchor is now on the first
     // word in the YAML CodeBlock.
     app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
-    assert_eq!(app.selection_state.anchor.node_idx, 0);
+    assert_eq!(app.review.selection_state.anchor.unit, SelectionUnit::Word);
+    assert_eq!(app.review.selection_state.anchor.node_idx, 0);
 
     let terminal = render(&mut app);
     let buf = terminal.backend().buffer();
@@ -518,16 +568,22 @@ fn cycling_out_of_section_mode_clears_section_highlight_range() {
     app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
     app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
     app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Section);
+    assert_eq!(
+        app.review.selection_state.anchor.unit,
+        SelectionUnit::Section
+    );
     assert!(
-        app.section_highlight_range.is_some(),
+        app.review.section_highlight_range.is_some(),
         "highlight set on Section-mode entry"
     );
     // Forward cycle Section -> Paragraph; expect highlight cleared.
     app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Paragraph);
+    assert_eq!(
+        app.review.selection_state.anchor.unit,
+        SelectionUnit::Paragraph
+    );
     assert!(
-        app.section_highlight_range.is_none(),
+        app.review.section_highlight_range.is_none(),
         "highlight cleared after cycling out of Section mode"
     );
 }
@@ -539,24 +595,35 @@ fn jump_to_annotation_from_section_mode_clears_section_highlight() {
     // clamp_sentence the previous Section-mode highlight stuck around
     // and the renderer kept painting the section span.
     let mut app = test_app("# A\n\nfirst.\n\n# B\n\nsecond.\n");
-    app.changes.entry(2).or_default().push(ChangeAnnotation {
-        created_at: "2026-01-01T00:00:00Z".into(),
-        target_unit: SelectionUnit::Sentence,
-        sentence_index: Some(0),
-        sentence_text: Some("first.".into()),
-        change: "x".into(),
-    });
+    app.review
+        .annotations
+        .changes
+        .entry(2)
+        .or_default()
+        .push(ChangeAnnotation {
+            created_at: "2026-01-01T00:00:00Z".into(),
+            target_unit: SelectionUnit::Sentence,
+            sentence_index: Some(0),
+            sentence_text: Some("first.".into()),
+            change: "x".into(),
+        });
     // Enter Section mode (Backspace x3 from Sentence default).
     for _ in 0..3 {
         app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
     }
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Section);
-    assert!(app.section_highlight_range.is_some());
+    assert_eq!(
+        app.review.selection_state.anchor.unit,
+        SelectionUnit::Section
+    );
+    assert!(app.review.section_highlight_range.is_some());
     // `]` jumps forward to the next annotated node; clamp_sentence runs.
     app.handle_key(key_char(']'));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Sentence);
+    assert_eq!(
+        app.review.selection_state.anchor.unit,
+        SelectionUnit::Sentence
+    );
     assert!(
-        app.section_highlight_range.is_none(),
+        app.review.section_highlight_range.is_none(),
         "section highlight must clear when clamp_sentence forces unit -> Sentence"
     );
 }
@@ -570,7 +637,7 @@ fn current_sentence_links_isolates_links_per_sentence() {
     );
     // sentence 0: "Click here for info."  — contains first link
     // sentence 1: "Other link elsewhere." — contains second link
-    app.selection_state.anchor.unit_idx = 0;
+    app.review.selection_state.anchor.unit_idx = 0;
     let links = app.current_sentence_links();
     assert_eq!(
         links.len(),
@@ -579,7 +646,7 @@ fn current_sentence_links_isolates_links_per_sentence() {
     );
     assert!(links[0].contains("example.com"), "{links:?}");
 
-    app.selection_state.anchor.unit_idx = 1;
+    app.review.selection_state.anchor.unit_idx = 1;
     let links = app.current_sentence_links();
     assert_eq!(
         links.len(),
@@ -601,8 +668,8 @@ fn section_mode_silent_noop_in_heading_less_doc() {
     // and Section-mode entry is a silent no-op (clamp can't find a
     // target). Cursor stays in whatever unit it was before.
     let mut app = test_app("Just a paragraph. No headings.");
-    let start_node = app.selection_state.anchor.node_idx;
-    let start_unit = app.selection_state.anchor.unit;
+    let start_node = app.review.selection_state.anchor.node_idx;
+    let start_unit = app.review.selection_state.anchor.unit;
     // Try to cycle into Section. Backspace 3x from default Sentence:
     // Sentence -> Line -> Paragraph -> (no Section anchor available,
     // clamp returns the Paragraph anchor unchanged).
@@ -610,11 +677,11 @@ fn section_mode_silent_noop_in_heading_less_doc() {
         app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
     }
     assert_ne!(
-        app.selection_state.anchor.unit,
+        app.review.selection_state.anchor.unit,
         SelectionUnit::Section,
         "with no sections in the doc, Section mode must not activate"
     );
-    assert_eq!(app.selection_state.anchor.node_idx, start_node);
+    assert_eq!(app.review.selection_state.anchor.node_idx, start_node);
     // The mode-cycle still made progress — we landed on a coarser
     // unit, just not Section. Don't assume which one (Paragraph vs
     // staying put depends on whether Paragraph anchors exist).
@@ -633,6 +700,7 @@ fn section_nav_sets_highlight_range_to_section_boundary() {
     app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
     // Section 0 (PreHeading): nodes [0..0].
     let range = app
+        .review
         .section_highlight_range
         .clone()
         .expect("highlight set on Section entry");
@@ -640,14 +708,14 @@ fn section_nav_sets_highlight_range_to_section_boundary() {
     assert_eq!(range.end, 1);
 
     app.handle_key(key_char('j')); // → Heading A section
-    assert_eq!(app.selection_state.anchor.node_idx, 1);
-    let range = app.section_highlight_range.clone().expect("set");
+    assert_eq!(app.review.selection_state.anchor.node_idx, 1);
+    let range = app.review.section_highlight_range.clone().expect("set");
     assert_eq!(range.start, 1);
     assert_eq!(range.end, 3, "section A spans nodes 1..3");
 
     app.handle_key(key_char('j')); // → Heading B section
-    assert_eq!(app.selection_state.anchor.node_idx, 3);
-    let range = app.section_highlight_range.clone().expect("set");
+    assert_eq!(app.review.selection_state.anchor.node_idx, 3);
+    let range = app.review.section_highlight_range.clone().expect("set");
     assert_eq!(range.start, 3);
     assert_eq!(range.end, 5, "last section spans to end of doc");
 }

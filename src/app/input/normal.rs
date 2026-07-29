@@ -3,7 +3,7 @@ use super::*;
 impl App {
     pub(super) fn handle_normal_key(&mut self, key: KeyEvent) {
         self.notification = None;
-        self.nav_feedback = None;
+        self.review.clear_navigation_feedback();
 
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.should_quit = true;

@@ -30,6 +30,23 @@ pub(crate) struct Section {
     pub kind: SectionKind,
 }
 
+/// UI-neutral input used to build the canonical selection index.
+///
+/// Markdown adapts parsed `DocNode`s into this shape. The HTML web frontend
+/// supplies the same facts from its validated browser manifest, which keeps
+/// navigation and clamping independent from either parser or renderer.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SelectionNodeInput {
+    pub plain_text: String,
+    pub source_line_ranges: Vec<(usize, Range<usize>)>,
+    pub sentence_ranges: Vec<Range<usize>>,
+    pub word_ranges: Vec<Range<usize>>,
+    pub heading_level: Option<u8>,
+    pub list_id: Option<usize>,
+    pub is_top_level_ordered_list_item: bool,
+    pub has_content: bool,
+}
+
 /// Per-node owned cache: selection plain text and the byte-range tables
 /// (source_line, sentence, word) used by navigation, capture, and emit.
 #[derive(Debug, Clone, Default)]
@@ -60,82 +77,63 @@ pub struct SelectionIndex {
 impl SelectionIndex {
     /// Eager build at load time per Req 11.
     pub(crate) fn build(doc: &Document, source_lines: &[String]) -> Self {
-        let mut nodes: Vec<NodeIndex> = Vec::with_capacity(doc.nodes.len());
+        let inputs = doc
+            .nodes
+            .iter()
+            .map(|node| markdown_node_input(node, source_lines))
+            .collect();
+        Self::from_nodes(inputs)
+    }
+
+    /// Build from UI-neutral nodes. All ranges are expected to be byte ranges
+    /// within each node's `plain_text`; debug assertions pin those invariants
+    /// for adapters while keeping production parsing total.
+    pub(crate) fn from_nodes(inputs: Vec<SelectionNodeInput>) -> Self {
+        let mut nodes: Vec<NodeIndex> = Vec::with_capacity(inputs.len());
         let mut paragraphs: Vec<(usize, usize)> = Vec::new();
         let mut lines: Vec<(usize, usize)> = Vec::new();
         let mut sentences: Vec<(usize, usize)> = Vec::new();
         let mut words: Vec<(usize, usize)> = Vec::new();
 
-        for (node_idx, node) in doc.nodes.iter().enumerate() {
-            let plain = node_selection_plain_text(node, source_lines);
-            let source_line_ranges = node_source_line_ranges(node, source_lines, &plain);
-            // Sentence-bearing rules per modular_plan:
-            //   - Paragraph: segment with the canonical segmenter.
-            //   - Heading / ListItem: one anchor covering the full plain
-            //     text (matches today's rendered_nodes single_range count).
-            //     Multi-paragraph list items remain a known limitation; the
-            //     full item is one sentence anchor.
-            //   - CodeBlock: zero anchors (excluded from sentence-level
-            //     navigation per Pinned decisions § Movement rules).
-            //   - ThematicBreak: zero anchors.
-            let sentence_ranges: Vec<Range<usize>> = if plain.is_empty() {
-                Vec::new()
-            } else {
-                match node {
-                    DocNode::Paragraph { .. } => {
-                        crate::selection::segment::segment_sentences(&plain)
-                    }
-                    DocNode::Heading { .. } | DocNode::ListItem { .. } => {
-                        // Single full-range anchor; clippy::single_range_in_vec_init
-                        // would suggest std::iter::once but the call site wants
-                        // an owned Vec<Range<usize>>.
-                        #[allow(clippy::single_range_in_vec_init)]
-                        let v = vec![0..plain.len()];
-                        v
-                    }
-                    DocNode::CodeBlock { .. } | DocNode::ThematicBreak { .. } => Vec::new(),
-                }
-            };
-
-            // Word ranges per modular_plan: code blocks excluded from
-            // sentence-level navigation but allowed at word level (their
-            // selection plain text already excludes fence lines, so words
-            // come from the content lines). ListItem and Heading: words
-            // segmented from selection plain text. Paragraph: same.
-            // ThematicBreak: empty.
-            let word_ranges: Vec<Range<usize>> = match node {
-                DocNode::ThematicBreak { .. } => Vec::new(),
-                _ => crate::selection::segment::segment_words(&plain),
-            };
+        for (node_idx, input) in inputs.iter().enumerate() {
+            debug_assert!(ranges_are_valid(
+                &input.source_line_ranges,
+                &input.plain_text
+            ));
+            debug_assert!(byte_ranges_are_valid(
+                &input.sentence_ranges,
+                &input.plain_text
+            ));
+            debug_assert!(byte_ranges_are_valid(&input.word_ranges, &input.plain_text));
 
             // Linear-order tables.
-            if node_contributes_paragraph_anchor(node, &plain) {
+            if input.has_content && !input.plain_text.trim().is_empty() {
                 paragraphs.push((node_idx, 0));
             }
-            for li in 0..source_line_ranges.len() {
+            for li in 0..input.source_line_ranges.len() {
                 lines.push((node_idx, li));
             }
-            for si in 0..sentence_ranges.len() {
+            for si in 0..input.sentence_ranges.len() {
                 sentences.push((node_idx, si));
             }
-            for wi in 0..word_ranges.len() {
+            for wi in 0..input.word_ranges.len() {
                 words.push((node_idx, wi));
             }
 
             nodes.push(NodeIndex {
-                selection_plain_text: plain,
-                source_line_ranges,
-                sentence_ranges,
-                word_ranges,
+                selection_plain_text: input.plain_text.clone(),
+                source_line_ranges: input.source_line_ranges.clone(),
+                sentence_ranges: input.sentence_ranges.clone(),
+                word_ranges: input.word_ranges.clone(),
             });
         }
 
-        let sections = build_section_table(doc);
+        let sections = build_section_table(&inputs);
 
         debug_assert!(
             sections
                 .iter()
-                .all(|s| s.start_node_idx <= s.end_node_idx && s.end_node_idx < doc.nodes.len()),
+                .all(|s| s.start_node_idx <= s.end_node_idx && s.end_node_idx < inputs.len()),
             "section endpoints out of range"
         );
 
@@ -148,6 +146,93 @@ impl SelectionIndex {
             sections,
         }
     }
+}
+
+fn markdown_node_input(node: &DocNode, source_lines: &[String]) -> SelectionNodeInput {
+    let plain_text = node_selection_plain_text(node, source_lines);
+    let source_line_ranges = node_source_line_ranges(node, source_lines, &plain_text);
+    // Sentence-bearing rules per modular_plan:
+    //   - Paragraph: canonical segmentation.
+    //   - Heading / ListItem: one full-range anchor.
+    //   - CodeBlock / ThematicBreak: no sentence anchors.
+    let sentence_ranges = if plain_text.is_empty() {
+        Vec::new()
+    } else {
+        match node {
+            DocNode::Paragraph { .. } => crate::selection::segment::segment_sentences(&plain_text),
+            DocNode::Heading { .. } | DocNode::ListItem { .. } => {
+                std::iter::once(0..plain_text.len()).collect()
+            }
+            DocNode::CodeBlock { .. } | DocNode::ThematicBreak { .. } => Vec::new(),
+        }
+    };
+    let word_ranges = match node {
+        DocNode::ThematicBreak { .. } => Vec::new(),
+        _ => crate::selection::segment::segment_words(&plain_text),
+    };
+    let heading_level = match node {
+        DocNode::Heading { level, .. } => Some(*level),
+        _ => None,
+    };
+    let list_id = match node {
+        DocNode::ListItem { list_id, .. } => Some(*list_id),
+        _ => None,
+    };
+    let is_top_level_ordered_list_item = matches!(
+        node,
+        DocNode::ListItem {
+            ordered: true,
+            depth: 0,
+            ..
+        }
+    );
+
+    SelectionNodeInput {
+        has_content: node.has_content(),
+        plain_text,
+        source_line_ranges,
+        sentence_ranges,
+        word_ranges,
+        heading_level,
+        list_id,
+        is_top_level_ordered_list_item,
+    }
+}
+
+fn byte_ranges_are_valid(ranges: &[Range<usize>], text: &str) -> bool {
+    ranges.iter().all(|range| {
+        range.start <= range.end
+            && range.end <= text.len()
+            && text.is_char_boundary(range.start)
+            && text.is_char_boundary(range.end)
+    })
+}
+
+fn ranges_are_valid(ranges: &[(usize, Range<usize>)], text: &str) -> bool {
+    byte_ranges_are_valid(
+        &ranges
+            .iter()
+            .map(|(_, range)| range.clone())
+            .collect::<Vec<_>>(),
+        text,
+    )
+}
+
+/// Convert a UTF-8 byte range into Unicode scalar offsets for the browser
+/// protocol. JavaScript converts these scalar offsets to its UTF-16 DOM
+/// boundaries using the manifest's client-side text map.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn byte_range_to_scalar_range(text: &str, range: Range<usize>) -> Option<Range<usize>> {
+    if range.start > range.end
+        || range.end > text.len()
+        || !text.is_char_boundary(range.start)
+        || !text.is_char_boundary(range.end)
+    {
+        return None;
+    }
+    let start = text[..range.start].chars().count();
+    let end = start + text[range].chars().count();
+    Some(start..end)
 }
 
 /// Compute selection plain text for a node, stripping markers per Req 11.
@@ -354,13 +439,6 @@ fn is_table_separator_line(line: &str) -> bool {
     })
 }
 
-fn node_contributes_paragraph_anchor(node: &DocNode, plain: &str) -> bool {
-    match node {
-        DocNode::ThematicBreak { .. } => false,
-        _ => !plain.trim().is_empty(),
-    }
-}
-
 /// Build the section table per the pinned modular_plan rules.
 ///
 /// - Headings always start a section.
@@ -372,9 +450,9 @@ fn node_contributes_paragraph_anchor(node: &DocNode, plain: &str) -> bool {
 ///   in the pre-starter region has selectable content.
 /// - Section endpoints are inclusive on both ends and run contiguously over
 ///   `node_idx` values.
-fn build_section_table(doc: &Document) -> Vec<Section> {
+fn build_section_table(inputs: &[SelectionNodeInput]) -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
-    let n = doc.nodes.len();
+    let n = inputs.len();
     if n == 0 {
         return sections;
     }
@@ -388,38 +466,23 @@ fn build_section_table(doc: &Document) -> Vec<Section> {
     let mut starters: Vec<(usize, SectionKind, u8)> = Vec::new();
     let mut seen_heading = false;
     let mut current_top_ol_list_id: Option<usize> = None;
-    for (i, node) in doc.nodes.iter().enumerate() {
-        match node {
-            DocNode::Heading { level, .. } => {
-                starters.push((i, SectionKind::Heading, *level));
-                seen_heading = true;
-                current_top_ol_list_id = None;
+    for (i, input) in inputs.iter().enumerate() {
+        if let Some(level) = input.heading_level {
+            starters.push((i, SectionKind::Heading, level));
+            seen_heading = true;
+            current_top_ol_list_id = None;
+        } else if input.is_top_level_ordered_list_item {
+            let list_id = input
+                .list_id
+                .expect("top-level ordered list item must carry a list id");
+            if !seen_heading && current_top_ol_list_id != Some(list_id) {
+                starters.push((i, SectionKind::Ol, u8::MAX));
+                current_top_ol_list_id = Some(list_id);
             }
-            DocNode::ListItem {
-                ordered: true,
-                depth: 0,
-                list_id,
-                ..
-            } if !seen_heading => {
-                // Open a new OL starter only at the FIRST top-level item
-                // of a new list (different list_id). Top-level items of
-                // the same list — even with nested children sandwiched
-                // between them — fold into one section.
-                if current_top_ol_list_id != Some(*list_id) {
-                    starters.push((i, SectionKind::Ol, u8::MAX));
-                    current_top_ol_list_id = Some(*list_id);
-                }
-            }
-            DocNode::ListItem { list_id, .. } if current_top_ol_list_id == Some(*list_id) => {
-                // Nested item of the active OL list — keeps the run open.
-            }
-            _ => {
-                // Any non-list / different-list / non-heading node closes
-                // the active OL run. The next top-level OL with a fresh
-                // list_id will start a new section (still gated on
-                // !seen_heading per the pinned rule).
-                current_top_ol_list_id = None;
-            }
+        } else if input.list_id == current_top_ol_list_id {
+            // Nested item of the active ordered list keeps the run open.
+        } else {
+            current_top_ol_list_id = None;
         }
     }
 
@@ -431,13 +494,9 @@ fn build_section_table(doc: &Document) -> Vec<Section> {
     // emitting a PreHeading in that case so prose-only docs end up with
     // an empty section table.
     let first_starter = starters.first().map_or(n, |(i, _, _)| *i);
-    let pre_has_content = (0..first_starter).any(|i| match &doc.nodes[i] {
-        DocNode::ThematicBreak { .. } => false,
-        DocNode::Heading { text, .. } => !text.is_empty(),
-        DocNode::Paragraph { text, .. } => !text.is_empty(),
-        DocNode::ListItem { text, .. } => !text.is_empty(),
-        DocNode::CodeBlock { content, .. } => !content.is_empty(),
-    });
+    let pre_has_content = inputs[..first_starter]
+        .iter()
+        .any(|input| input.has_content && !input.plain_text.is_empty());
     let has_real_starters = !starters.is_empty();
     if first_starter > 0 && pre_has_content && has_real_starters {
         sections.push(Section {
@@ -474,6 +533,28 @@ mod tests {
     use crate::document::Document;
     use crate::selection::build_test_index as build;
 
+    fn neutral_node(
+        text: &str,
+        heading_level: Option<u8>,
+        source_line: usize,
+    ) -> SelectionNodeInput {
+        let sentence_ranges = crate::selection::segment::segment_sentences(text);
+        let word_ranges = crate::selection::segment::segment_words(text);
+        SelectionNodeInput {
+            plain_text: text.to_string(),
+            source_line_ranges: (!text.is_empty())
+                .then_some((source_line, 0..text.len()))
+                .into_iter()
+                .collect(),
+            sentence_ranges,
+            word_ranges,
+            heading_level,
+            list_id: None,
+            is_top_level_ordered_list_item: false,
+            has_content: !text.is_empty(),
+        }
+    }
+
     #[test]
     fn empty_doc_index_is_empty() {
         let idx = build("");
@@ -489,6 +570,71 @@ mod tests {
         assert_eq!(idx.nodes.len(), 1);
         assert_eq!(idx.nodes[0].sentence_ranges.len(), 2);
         assert_eq!(idx.sentences.len(), 2);
+    }
+
+    #[test]
+    fn neutral_nodes_build_all_linear_tables_and_nested_sections() {
+        let inputs = vec![
+            neutral_node("Preface.", None, 0),
+            neutral_node("Top", Some(1), 1),
+            neutral_node("First sentence. Second sentence.", None, 2),
+            neutral_node("Nested", Some(2), 3),
+            neutral_node("Nested body.", None, 4),
+            neutral_node("Next", Some(1), 5),
+        ];
+
+        let idx = SelectionIndex::from_nodes(inputs);
+
+        assert_eq!(idx.nodes.len(), 6);
+        assert_eq!(idx.paragraphs.len(), 6);
+        assert_eq!(idx.lines.len(), 6);
+        assert_eq!(idx.sentences.len(), 7);
+        assert!(idx.words.len() >= 8);
+        assert_eq!(idx.sections.len(), 4);
+        assert_eq!(idx.sections[0].kind, SectionKind::PreHeading);
+        assert_eq!(idx.sections[0].start_node_idx, 0);
+        assert_eq!(idx.sections[0].end_node_idx, 0);
+        assert_eq!(idx.sections[1].start_node_idx, 1);
+        assert_eq!(idx.sections[1].end_node_idx, 4);
+        assert_eq!(idx.sections[2].start_node_idx, 3);
+        assert_eq!(idx.sections[2].end_node_idx, 4);
+        assert_eq!(idx.sections[3].start_node_idx, 5);
+    }
+
+    #[test]
+    fn neutral_ordered_list_metadata_keeps_nested_items_in_one_section() {
+        let mut first = neutral_node("First", None, 0);
+        first.list_id = Some(7);
+        first.is_top_level_ordered_list_item = true;
+        let mut nested = neutral_node("Nested", None, 1);
+        nested.list_id = Some(7);
+        let mut second = neutral_node("Second", None, 2);
+        second.list_id = Some(7);
+        second.is_top_level_ordered_list_item = true;
+
+        let idx = SelectionIndex::from_nodes(vec![first, nested, second]);
+
+        assert_eq!(idx.sections.len(), 1);
+        assert_eq!(idx.sections[0].kind, SectionKind::Ol);
+        assert_eq!(idx.sections[0].start_node_idx, 0);
+        assert_eq!(idx.sections[0].end_node_idx, 2);
+    }
+
+    #[test]
+    fn byte_ranges_convert_to_unicode_scalar_offsets() {
+        let text = "A🚀e\u{301}Z";
+        let rocket_start = "A".len();
+        let combining_end = "A🚀e\u{301}".len();
+
+        assert_eq!(
+            byte_range_to_scalar_range(text, rocket_start..combining_end),
+            Some(1..4)
+        );
+        assert_eq!(
+            byte_range_to_scalar_range(text, (rocket_start + 1)..combining_end),
+            None,
+            "a range that splits the rocket's UTF-8 encoding must be rejected"
+        );
     }
 
     #[test]

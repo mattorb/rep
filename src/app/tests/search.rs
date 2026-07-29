@@ -15,7 +15,7 @@ fn search_jumps_cursor_to_first_match() {
     let mut app = test_app("Alpha paragraph.\n\nBeta paragraph with target here.\n\nGamma.\n");
     type_search(&mut app, "target");
     assert_eq!(
-        app.selection_state.anchor.node_idx, 1,
+        app.review.selection_state.anchor.node_idx, 1,
         "cursor should land on Beta node"
     );
     assert!(app.status.contains("Match 1/1"), "status: {}", app.status);
@@ -26,13 +26,18 @@ fn jump_to_annotation_resets_unit_to_sentence() {
     // Set up an annotation on node 1, cycle into Word mode on node 0,
     // then `]` should jump to the annotated node and reset unit.
     let mut app = test_app("First sentence.\n\nSecond paragraph.\n");
-    app.changes.entry(1).or_default().push(make_change("x"));
+    app.review
+        .annotations
+        .changes
+        .entry(1)
+        .or_default()
+        .push(make_change("x"));
     app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+    assert_eq!(app.review.selection_state.anchor.unit, SelectionUnit::Word);
     app.handle_key(key_char(']'));
-    assert_eq!(app.selection_state.anchor.node_idx, 1);
+    assert_eq!(app.review.selection_state.anchor.node_idx, 1);
     assert_eq!(
-        app.selection_state.anchor.unit,
+        app.review.selection_state.anchor.unit,
         SelectionUnit::Sentence,
         "annotation jump must re-anchor to Sentence"
     );
@@ -44,12 +49,14 @@ fn c_in_word_mode_edits_most_recent_change_on_node() {
     // `c` should still find the existing change and enter edit mode
     // (matched by node only, not by sentence_idx-as-word_idx).
     let mut app = test_app("First sentence here.\n");
-    app.changes
+    app.review
+        .annotations
+        .changes
         .entry(0)
         .or_default()
         .push(make_change("existing"));
     app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+    assert_eq!(app.review.selection_state.anchor.unit, SelectionUnit::Word);
     app.handle_key(key_char('c'));
     match app.input_mode {
         InputMode::EditChange(_, _) => {}
@@ -67,7 +74,7 @@ fn current_sentence_links_returns_all_node_links_in_word_mode() {
         "[First link](https://example.com) here. [Other link](https://other.com) there.\n",
     );
     app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+    assert_eq!(app.review.selection_state.anchor.unit, SelectionUnit::Word);
     let links = app.current_sentence_links();
     // Both URLs surface in Word mode.
     assert!(links.iter().any(|u| u.contains("example.com")), "{links:?}");
@@ -83,11 +90,11 @@ fn search_from_word_mode_resets_to_sentence_anchor() {
     // Cycle into Word mode and step through a few words.
     app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
     app.handle_key(key_char('j'));
-    assert_eq!(app.selection_state.anchor.unit, SelectionUnit::Word);
+    assert_eq!(app.review.selection_state.anchor.unit, SelectionUnit::Word);
     type_search(&mut app, "target");
-    assert_eq!(app.selection_state.anchor.node_idx, 1);
+    assert_eq!(app.review.selection_state.anchor.node_idx, 1);
     assert_eq!(
-        app.selection_state.anchor.unit,
+        app.review.selection_state.anchor.unit,
         SelectionUnit::Sentence,
         "search must re-anchor to Sentence"
     );
@@ -96,9 +103,9 @@ fn search_from_word_mode_resets_to_sentence_anchor() {
 #[test]
 fn search_no_match_leaves_cursor_in_place() {
     let mut app = test_app("Alpha.\n\nBeta.\n");
-    let node_before = app.selection_state.anchor.node_idx;
+    let node_before = app.review.selection_state.anchor.node_idx;
     type_search(&mut app, "notfound");
-    assert_eq!(app.selection_state.anchor.node_idx, node_before);
+    assert_eq!(app.review.selection_state.anchor.node_idx, node_before);
     assert!(app.status.contains("No matches"), "status: {}", app.status);
 }
 
@@ -106,7 +113,7 @@ fn search_no_match_leaves_cursor_in_place() {
 fn search_is_case_insensitive_by_default() {
     let mut app = test_app("First.\n\nthe TARGET lives here.\n");
     type_search(&mut app, "target");
-    assert_eq!(app.selection_state.anchor.node_idx, 1);
+    assert_eq!(app.review.selection_state.anchor.node_idx, 1);
 }
 
 #[test]
@@ -114,7 +121,7 @@ fn search_is_case_sensitive_when_query_has_uppercase() {
     let mut app = test_app("First has Target.\n\nSecond has target.\n");
     type_search(&mut app, "Target");
     assert_eq!(
-        app.selection_state.anchor.node_idx, 0,
+        app.review.selection_state.anchor.node_idx, 0,
         "should find capital 'Target' on first node"
     );
 }
@@ -123,14 +130,14 @@ fn search_is_case_sensitive_when_query_has_uppercase() {
 fn n_key_advances_to_next_match_and_wraps() {
     let mut app = test_app("foo one.\n\nfoo two.\n\nfoo three.\n");
     type_search(&mut app, "foo");
-    assert_eq!(app.selection_state.anchor.node_idx, 0);
+    assert_eq!(app.review.selection_state.anchor.node_idx, 0);
     app.handle_key(key_char('n'));
-    assert_eq!(app.selection_state.anchor.node_idx, 1);
+    assert_eq!(app.review.selection_state.anchor.node_idx, 1);
     app.handle_key(key_char('n'));
-    assert_eq!(app.selection_state.anchor.node_idx, 2);
+    assert_eq!(app.review.selection_state.anchor.node_idx, 2);
     app.handle_key(key_char('n'));
     assert_eq!(
-        app.selection_state.anchor.node_idx, 0,
+        app.review.selection_state.anchor.node_idx, 0,
         "n should wrap to first match"
     );
 }
@@ -140,9 +147,9 @@ fn capital_n_goes_to_previous_match() {
     let mut app = test_app("foo one.\n\nfoo two.\n\nfoo three.\n");
     type_search(&mut app, "foo");
     app.handle_key(key_char('n'));
-    assert_eq!(app.selection_state.anchor.node_idx, 1);
+    assert_eq!(app.review.selection_state.anchor.node_idx, 1);
     app.handle_key(KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT));
-    assert_eq!(app.selection_state.anchor.node_idx, 0);
+    assert_eq!(app.review.selection_state.anchor.node_idx, 0);
 }
 
 #[test]
@@ -163,7 +170,7 @@ fn search_esc_cancels_without_running() {
     app.handle_key(key_char('x'));
     app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert_eq!(app.input_mode, InputMode::Normal);
-    assert!(app.last_search.is_none());
+    assert!(app.review.last_search.is_none());
 }
 
 #[test]
@@ -178,9 +185,9 @@ fn shift_slash_still_opens_help() {
 fn search_matches_within_same_node_multiple_sentences() {
     let mut app = test_app("The foo sentence. The bar sentence.\n");
     type_search(&mut app, "foo");
-    assert_eq!(app.selection_state.anchor.node_idx, 0);
+    assert_eq!(app.review.selection_state.anchor.node_idx, 0);
     assert_eq!(
-        app.selection_state.anchor.unit_idx, 0,
+        app.review.selection_state.anchor.unit_idx, 0,
         "should land on first sentence"
     );
 }

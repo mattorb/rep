@@ -4,6 +4,7 @@ use std::path::Path;
 
 use super::*;
 use crate::app::KeyHud;
+use crate::selection::model::SelectionState;
 
 pub(crate) struct RenderState<'a> {
     pub(crate) source_path: &'a Path,
@@ -100,12 +101,12 @@ impl App {
         RenderState {
             source_path: &self.source_path,
             view: &self.view,
-            selection_state: self.selection_state,
-            section_highlight_range: self.section_highlight_range.clone(),
+            selection_state: self.review.selection_state,
+            section_highlight_range: self.review.section_highlight_range.clone(),
             input_mode: &self.input_mode,
             status: &self.status,
             notification: self.notification.as_deref(),
-            nav_feedback: self.nav_feedback.as_deref(),
+            nav_feedback: self.review.nav_feedback.as_deref(),
             key_hud: self.key_hud.as_ref(),
             quit_confirm_pending: self.quit_confirm_pending,
             show_help: self.show_help,
@@ -119,11 +120,11 @@ impl App {
             cached_node_heights: &self.render_cache.node_heights,
             scroll_offset: self.scroll_offset,
             mode_indicator: self.mode_indicator(),
-            changes: &self.changes,
-            feedbacks: &self.feedbacks,
-            inserts_before: &self.inserts_before,
-            inserts_after: &self.inserts_after,
-            strikes: &self.strikes,
+            changes: &self.review.annotations.changes,
+            feedbacks: &self.review.annotations.feedbacks,
+            inserts_before: &self.review.annotations.inserts_before,
+            inserts_after: &self.review.annotations.inserts_after,
+            strikes: &self.review.annotations.strikes,
         }
     }
 }

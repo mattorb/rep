@@ -27,7 +27,6 @@ pub(crate) struct SourceLineContext {
 
 #[derive(Debug, Clone)]
 pub(crate) struct AnnotationTargetCapture {
-    pub(crate) sentence_index: Option<usize>,
     pub(crate) sentence_text: Option<String>,
     pub(crate) source_line: usize,
 }

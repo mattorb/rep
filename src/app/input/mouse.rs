@@ -9,7 +9,7 @@ impl App {
         // "at end" / clipboard messages could linger after a click or
         // scroll.
         self.notification = None;
-        self.nav_feedback = None;
+        self.review.clear_navigation_feedback();
         // Swallow clicks when a popup is up or the user is typing into
         // an input mode — mouse activity shouldn't yank the selection
         // out from under their text entry.
@@ -36,8 +36,7 @@ impl App {
             // start fresh anyway via the cell-change reset above).
             return;
         };
-        self.selection_state.anchor = anchor;
-        self.refresh_section_highlight(anchor);
+        self.review.set_anchor(&self.view, anchor);
         self.status = format!(
             "Node {}/{}  {} {}",
             anchor.node_idx + 1,

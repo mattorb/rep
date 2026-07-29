@@ -1,8 +1,6 @@
-use std::collections::{BTreeMap, BTreeSet};
 #[cfg(test)]
 use std::fmt::Write;
 use std::fs;
-use std::ops::Range;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -15,13 +13,13 @@ use unicode_width::UnicodeWidthChar;
 
 #[cfg(test)]
 use crate::document::DocNode;
-use crate::document_view::{DocumentView, SourceActionContext};
-use crate::output::{
-    EmitAction, EmitActionContext, EmitChange, EmitFeedback, EmitInsert, EmitKeymap,
-    EmitLineAnnotation, EmitLineContext, EmitModel, EmitPayload, EmitReaction, clean_context,
-    render_human_output,
+use crate::document_view::DocumentView;
+use crate::output::{EmitModel, render_human_output};
+use crate::review::annotation::{
+    ChangeAnnotation, EditableAnnotation, FeedbackAnnotation, InsertAnnotation,
 };
-use crate::selection::model::{SelectionAnchor, SelectionState, SelectionUnit};
+use crate::review::session::ReviewSession;
+use crate::selection::model::{SelectionAnchor, SelectionUnit};
 use crate::ui::RenderCache;
 
 mod input;
@@ -31,27 +29,10 @@ mod state;
 
 pub(crate) use render::RenderState;
 
-use self::state::{
-    CLICK_DOUBLE_INTERVAL, ChangeAnnotation, EditableAnnotation, FeedbackAnnotation, InputMode,
-    InsertAnnotation, LastClick,
-};
+use self::state::{CLICK_DOUBLE_INTERVAL, InputMode, LastClick};
 
 const FOOTER_HEIGHT: u16 = 1;
 const GUTTER_WIDTH: usize = 2;
-
-/// Max char width for the `target:` quote in `to_human_output`. Long
-/// enough that typical sentences fit; short enough to keep emit
-/// blocks readable when consumed by an LLM.
-const EMIT_TARGET_MAX_CHARS: usize = 180;
-
-/// Max char width for the prev/next CONTEXT lines around `target:`.
-/// Slightly narrower than EMIT_TARGET_MAX_CHARS — they're decoration.
-const EMIT_CONTEXT_MAX_CHARS: usize = 140;
-
-/// Max char width for the action payload (`CHANGE:` / `FEEDBACK:` /
-/// `INSERT:`). Wider than the target/context — the user types these
-/// so they tend to be longer.
-const EMIT_PAYLOAD_MAX_CHARS: usize = 220;
 
 #[derive(Debug, Clone)]
 pub(crate) struct KeyHud {
@@ -89,36 +70,20 @@ pub struct App {
     source_path: PathBuf,
     /// Parsed source and derived document views.
     view: DocumentView,
-    /// Canonical selection state — `(node_idx, unit, unit_idx)` per
-    /// modular_plan §"Selection state".
-    selection_state: SelectionState,
-    /// When set on entry to Section mode (or by `move_section`), highlights
-    /// every node from the section start through `end_node_idx` inclusive.
-    /// Cleared on the next non-Section move_active_unit step.
-    section_highlight_range: Option<Range<usize>>,
-    /// Annotations keyed by node index.
-    changes: BTreeMap<usize, Vec<ChangeAnnotation>>,
-    feedbacks: BTreeMap<usize, Vec<FeedbackAnnotation>>,
-    inserts_before: BTreeMap<usize, Vec<InsertAnnotation>>,
-    inserts_after: BTreeMap<usize, Vec<InsertAnnotation>>,
-    /// Strikes are keyed by (unit, unit_idx) within each node so a single
-    /// node can carry strikes at different granularities — Sentence-unit
-    /// strikes (the original shape) and Word/Line/Paragraph/Section strikes.
-    /// BTreeSet ordering gives deterministic emit order.
-    strikes: BTreeMap<usize, BTreeSet<(SelectionUnit, usize)>>,
+    /// UI-neutral selection, search, and annotation state shared with the web
+    /// frontend.
+    review: ReviewSession,
     input_mode: InputMode,
     change_buffer: String,
     feedback_buffer: String,
     insert_buffer: String,
     search_buffer: String,
-    last_search: Option<String>,
     status: String,
     notification: Option<String>,
     /// Transient navigator feedback (e.g. `"at end"`, `"at start"`). Lives in
     /// the right zone of the two-zone footer alongside `notification`. Cleared
     /// at the top of `handle_normal_key` so the message is shown for exactly
     /// one keypress before being overwritten or cleared.
-    nav_feedback: Option<String>,
     show_key_cues: bool,
     key_hud: Option<KeyHud>,
     pub should_quit: bool,
@@ -169,31 +134,19 @@ impl App {
             |node| format!("{node:#?}"),
         );
         let ast_lines: Vec<String> = ast_text.lines().map(ToOwned::to_owned).collect();
-        let view = DocumentView::parse(&raw)?;
+        let view = DocumentView::parse_at(&raw, path.clone())?;
 
-        let initial_node = view.next_content_node(0).unwrap_or(0);
-        let selection_state = SelectionState::new(SelectionAnchor::new(
-            initial_node,
-            SelectionUnit::Sentence,
-            0,
-        ));
+        let initial_anchor = crate::review::document::ReviewDocument::initial_anchor(&view);
 
         Ok(Self {
             source_path: path,
             view,
-            selection_state,
-            section_highlight_range: None,
-            changes: BTreeMap::new(),
-            feedbacks: BTreeMap::new(),
-            inserts_before: BTreeMap::new(),
-            inserts_after: BTreeMap::new(),
-            strikes: BTreeMap::new(),
+            review: ReviewSession::new(initial_anchor),
             input_mode: InputMode::Normal,
             change_buffer: String::new(),
             feedback_buffer: String::new(),
             insert_buffer: String::new(),
             search_buffer: String::new(),
-            last_search: None,
             status: "Loaded file. Press q to quit and print annotations.".to_string(),
             should_quit: false,
             silent_quit: false,
@@ -203,7 +156,6 @@ impl App {
             ast_view_scroll: None,
             ast_lines,
             notification: None,
-            nav_feedback: None,
             show_key_cues: false,
             key_hud: None,
             scroll_offset: 0,
@@ -217,7 +169,7 @@ impl App {
     /// `(node_idx, unit, unit_idx)` shape, used by the transcript harness.
     #[cfg(test)]
     pub const fn current_anchor(&self) -> (usize, &'static str, usize) {
-        let a = &self.selection_state.anchor;
+        let a = &self.review.selection_state.anchor;
         (a.node_idx, a.unit.as_str(), a.unit_idx)
     }
 
