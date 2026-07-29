@@ -22,6 +22,24 @@ export function extractReviewUrl(diagnostics) {
   return diagnostics.match(/^Review URL: (http:\/\/127\.0\.0\.1:\d+\/[^\s]+)$/m)?.[1];
 }
 
+export function browserOverlayOffsetSeconds(timing, visibleLeadMs) {
+  const values = [
+    timing?.browserStartEpochMs,
+    timing?.planReadyEpochMs,
+    visibleLeadMs,
+  ];
+  if (values.some((value) => !Number.isFinite(value))) {
+    throw new Error("Browser overlay timing values must be finite numbers");
+  }
+  return Math.max(
+    0,
+    (visibleLeadMs +
+      timing.browserStartEpochMs -
+      timing.planReadyEpochMs) /
+      1000,
+  );
+}
+
 export function validateOriginalHtml(html) {
   const failures = [];
   for (const [description, present] of [
@@ -89,6 +107,10 @@ async function main() {
     process.env.REP_CLAUDE_DEMO_VHS_DRIVER_DELAY_MS || "1650",
     "REP_CLAUDE_DEMO_VHS_DRIVER_DELAY_MS",
   );
+  const visibleLead = parsePositiveInteger(
+    process.env.REP_CLAUDE_DEMO_VHS_VISIBLE_LEAD_MS || "4000",
+    "REP_CLAUDE_DEMO_VHS_VISIBLE_LEAD_MS",
+  );
   const model = process.env.REP_CLAUDE_DEMO_MODEL || "sonnet";
   const timeout = parsePositiveInteger(
     process.env.REP_CLAUDE_DEMO_TIMEOUT_MS || "300000",
@@ -129,11 +151,20 @@ async function main() {
         `When every file edit is complete, run: touch ${shellQuote(readyMarker)}`,
       ].join(" "),
     );
-    await waitForFile(readyMarker, timeout, "Claude plan creation marker");
+    await waitForClaudePlanMarker({
+      file: readyMarker,
+      session,
+      timeout,
+      tmux,
+      tmuxSocket,
+    });
     await waitForClaudePrompt({ session, timeout, tmux, tmuxSocket });
     const original = await readFile(plan, "utf8");
     validateOriginalHtml(original);
 
+    const planReadyEpochMs = Date.now();
+    setDemoStage({ session, tmux, tmuxSocket }, "plan-ready");
+    await pause(1_200);
     sendToClaude({ session, tmux, tmuxSocket }, "/rep @demo-plan.html");
     const url = await waitForReviewUrl({
       diagnosticsPath,
@@ -145,7 +176,16 @@ async function main() {
 
     browser = await chromium.launch({ headless: true });
     context = await browser.newContext({
-      recordVideo: { dir: videoDirectory, size: { width: 1120, height: 700 } },
+      recordVideo: {
+        dir: videoDirectory,
+        size: { width: 1120, height: 700 },
+        showActions: {
+          cursor: "pointer",
+          duration: 1_400,
+          fontSize: 22,
+          position: "bottom-right",
+        },
+      },
       viewport: { width: 1120, height: 700 },
     });
     const browserStartEpochMs = Date.now();
@@ -157,9 +197,15 @@ async function main() {
     );
     await pause(1_000);
 
-    await page.keyboard.press("I");
-    await pause(1_200);
-    await page.keyboard.press("I");
+    await page.keyboard.press("?");
+    await pause(2_800);
+    await page.keyboard.press("?");
+    await pause(600);
+    for (const key of ["j", "j", "Space", "j", "Backspace"]) {
+      await page.keyboard.press(key);
+      await pause(800);
+    }
+
     await focusPlanElement(page, "#launch-gate");
     await page.keyboard.press("c");
     await page.locator("#modal-input").fill(REQUIRED_GATE);
@@ -192,12 +238,26 @@ async function main() {
     await rename(await video.path(), browserVideo);
     await writeFile(
       timingFile,
-      `${JSON.stringify({ browserEndEpochMs, browserStartEpochMs }, null, 2)}\n`,
+      `${JSON.stringify(
+        {
+          browserEndEpochMs,
+          browserStartEpochMs,
+          browserOverlayOffsetSeconds: browserOverlayOffsetSeconds(
+            { browserStartEpochMs, planReadyEpochMs },
+            visibleLead,
+          ),
+          planReadyEpochMs,
+        },
+        null,
+        2,
+      )}\n`,
     );
 
+    setDemoStage({ session, tmux, tmuxSocket }, "apply-running");
     const revised = await waitForRevision(plan, original, timeout);
     await waitForClaudePrompt({ session, timeout, tmux, tmuxSocket });
     validateRevisedHtml(original, revised);
+    setDemoStage({ session, tmux, tmuxSocket }, "revision-ready");
     await pause(3_500);
     sendToClaude({ session, tmux, tmuxSocket }, "/quit");
     await waitForCompletionMarker({ session, timeout, tmux, tmuxSocket });
@@ -285,7 +345,7 @@ async function waitForClaudePrompt({ session, timeout, tmux, tmuxSocket }) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     const pane = captureClaude({ session, tmux, tmuxSocket });
-    if (pane.split("\n").some((line) => line.trim() === "❯")) return;
+    if (claudeAtPrompt(pane)) return;
     if (!tmuxSessionExists({ session, tmux, tmuxSocket })) {
       throw new Error(`Claude Code exited before returning to its prompt:\n${pane}`);
     }
@@ -300,6 +360,36 @@ async function waitForClaudePrompt({ session, timeout, tmux, tmuxSocket }) {
   );
 }
 
+async function waitForClaudePlanMarker({
+  file,
+  session,
+  timeout,
+  tmux,
+  tmuxSocket,
+}) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    try {
+      await access(file);
+      return;
+    } catch {
+      const pane = captureClaude({ session, tmux, tmuxSocket });
+      if (claudeAtPrompt(pane) && pane.includes("API Error:")) {
+        throw new Error(`Claude Code could not create the demo plan:\n${pane}`);
+      }
+      if (!tmuxSessionExists({ session, tmux, tmuxSocket })) {
+        throw new Error(`Claude Code exited before creating the demo plan:\n${pane}`);
+      }
+      await pause(100);
+    }
+  }
+  throw new Error(`Timed out waiting for Claude plan creation after ${timeout}ms`);
+}
+
+function claudeAtPrompt(pane) {
+  return pane.split("\n").some((line) => line.trim() === "❯");
+}
+
 function sendToClaude({ session, tmux, tmuxSocket }, text) {
   runTmux(tmux, tmuxSocket, ["load-buffer", "-b", "rep-demo-input", "-"], text);
   runTmux(tmux, tmuxSocket, [
@@ -311,6 +401,15 @@ function sendToClaude({ session, tmux, tmuxSocket }, text) {
     session,
   ]);
   runTmux(tmux, tmuxSocket, ["send-keys", "-t", session, "Enter"]);
+}
+
+function setDemoStage({ session, tmux, tmuxSocket }, stage) {
+  runTmux(tmux, tmuxSocket, [
+    "rename-window",
+    "-t",
+    session,
+    stage,
+  ]);
 }
 
 function captureClaude({ session, tmux, tmuxSocket }) {

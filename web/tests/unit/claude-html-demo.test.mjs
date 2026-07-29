@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  browserOverlayOffsetSeconds,
   extractReviewUrl,
   validateOriginalHtml,
   validateRevisedHtml,
@@ -35,6 +36,33 @@ test("Claude HTML demo accepts only loopback Rep review URLs", () => {
   assert.equal(
     extractReviewUrl("Review URL: https://example.com/not-local\n"),
     undefined,
+  );
+});
+
+test("Claude HTML demo maps browser time onto the cropped VHS timeline", () => {
+  assert.equal(
+    browserOverlayOffsetSeconds(
+      {
+        browserStartEpochMs: 75_000,
+        planReadyEpochMs: 60_000,
+      },
+      4_000,
+    ),
+    19,
+  );
+  assert.equal(
+    browserOverlayOffsetSeconds(
+      {
+        browserStartEpochMs: 59_000,
+        planReadyEpochMs: 60_000,
+      },
+      500,
+    ),
+    0,
+  );
+  assert.throws(
+    () => browserOverlayOffsetSeconds({}, 4_000),
+    /must be finite numbers/,
   );
 });
 

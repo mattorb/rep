@@ -29,5 +29,16 @@ Enter
 Sleep 1s
 Show
 
+Sleep 4s
+Hide
+Wait+Screen@300s /plan-ready/
+Show
+
+Wait+Screen@300s /apply-running/
+Sleep 4s
+Hide
+Wait+Screen@300s /revision-ready/
+Show
+
 Wait+Screen@300s /REP_HTML_DEMO_COMPLETE/
 Sleep 2s

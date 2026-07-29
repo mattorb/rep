@@ -71,8 +71,8 @@ TTYD_VERSION="1.7.7"
 FFMPEG_VERSION="8.1.1"
 PKGX_VERSION="2.11.0"
 LIBWEBSOCKETS_VERSION="4.3.6"
-VHS_CAPTURE_DELAY_MS=1100
 VHS_DRIVER_DELAY_MS=1650
+VHS_VISIBLE_LEAD_MS=4000
 
 find_tool() {
   local root="$1"
@@ -98,6 +98,22 @@ for resolved in "$VHS_BIN" "$TMUX_BIN"; do
     exit 1
   fi
 done
+
+BROWSER_FONT_FILE="${REP_DEMO_BROWSER_FONT_FILE:-}"
+if [[ -z "$BROWSER_FONT_FILE" ]]; then
+  for candidate in \
+    /System/Library/Fonts/SFNS.ttf \
+    /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf; do
+    if [[ -f "$candidate" ]]; then
+      BROWSER_FONT_FILE="$candidate"
+      break
+    fi
+  done
+fi
+if [[ ! -f "$BROWSER_FONT_FILE" ]]; then
+  printf 'error: set REP_DEMO_BROWSER_FONT_FILE to a readable TrueType font\n' >&2
+  exit 1
+fi
 
 CLAUDE_SKILLS_DIR="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
 REP_SKILL_SRC="$ROOT_DIR/.agents/skills/rep"
@@ -194,6 +210,7 @@ printf '%s\n' \
   "set -g status-left-length 24" \
   "set -g status-right 'Claude Code + Rep'" \
   "set -g status-right-length 24" \
+  "set -g window-status-current-format ' demo:#{window_name} '" \
   >"$DEMO_TEMP_DIR/tmux.conf"
 render_tape
 
@@ -206,6 +223,7 @@ REP_CLAUDE_DEMO_BROWSER_VIDEO="$DEMO_TEMP_DIR/browser.webm" \
 REP_CLAUDE_DEMO_TIMING_FILE="$DEMO_TEMP_DIR/timing.json" \
 REP_CLAUDE_DEMO_VHS_START_FILE="$DEMO_TEMP_DIR/vhs-start-ms" \
 REP_CLAUDE_DEMO_VHS_DRIVER_DELAY_MS="$VHS_DRIVER_DELAY_MS" \
+REP_CLAUDE_DEMO_VHS_VISIBLE_LEAD_MS="$VHS_VISIBLE_LEAD_MS" \
 REP_CLAUDE_DEMO_MODEL="${REP_CLAUDE_DEMO_MODEL:-sonnet}" \
 REP_CLAUDE_DEMO_TIMEOUT_MS="${REP_CLAUDE_DEMO_TIMEOUT_MS:-300000}" \
 REP_CLAUDE_DEMO_PLAN="$demo_plan_path" \
@@ -265,12 +283,11 @@ done
 overlay_offset="$(
   mise exec -- node --input-type=module -e '
     import { readFileSync } from "node:fs";
-    const marker = Number(readFileSync(process.argv[1], "utf8"));
-    const timing = JSON.parse(readFileSync(process.argv[2], "utf8"));
-    const delay = Number(process.argv[3]);
-    const offset = Math.max(0, (timing.browserStartEpochMs - marker - delay) / 1000);
-    process.stdout.write(offset.toFixed(3));
-  ' "$DEMO_TEMP_DIR/vhs-start-ms" "$DEMO_TEMP_DIR/timing.json" "$VHS_CAPTURE_DELAY_MS"
+    import { browserOverlayOffsetSeconds } from "./web/tests/record-claude-html-demo.mjs";
+    const timing = JSON.parse(readFileSync(process.argv[1], "utf8"));
+    const visibleLead = Number(process.argv[2]);
+    process.stdout.write(browserOverlayOffsetSeconds(timing, visibleLead).toFixed(3));
+  ' "$DEMO_TEMP_DIR/timing.json" "$VHS_VISIBLE_LEAD_MS"
 )"
 
 mp4_tmp="$DEMO_TEMP_DIR/composite.mp4"
@@ -284,7 +301,7 @@ media_cmd=(
   -i "$DEMO_TEMP_DIR/terminal.mp4" \
   -i "$DEMO_TEMP_DIR/browser.webm" \
   -filter_complex \
-  "[0:v]fps=24,format=yuv420p[terminal];[1:v]setpts=PTS-STARTPTS+${overlay_offset}/TB,scale=940:-2:flags=lanczos,pad=iw+12:ih+12:6:6:color=white[browser];[terminal][browser]overlay=x=W-w-24:y=24:eof_action=pass:repeatlast=0:shortest=0,format=yuv420p[out]" \
+  "[0:v]fps=24,format=yuv420p[terminal];[1:v]setpts=PTS-STARTPTS+${overlay_offset}/TB,scale=940:-2:flags=lanczos,pad=iw+12:ih+96:6:90:color=#f8fafc,drawbox=x=6:y=6:w=iw-12:h=84:color=#dfe3e8:t=fill,drawbox=x=20:y=18:w=10:h=10:color=#ff5f57:t=fill,drawbox=x=38:y=18:w=10:h=10:color=#febc2e:t=fill,drawbox=x=56:y=18:w=10:h=10:color=#28c840:t=fill,drawbox=x=80:y=10:w=300:h=32:color=#ffffff:t=fill,drawbox=x=20:y=50:w=iw-40:h=30:color=#ffffff:t=fill,drawtext=fontfile=${BROWSER_FONT_FILE}:text='Rep HTML Review':fontcolor=#202124:fontsize=16:x=96:y=18,drawtext=fontfile=${BROWSER_FONT_FILE}:text='127.0.0.1  /  local Rep review':fontcolor=#3c4043:fontsize=15:x=38:y=56[browser];[terminal][browser]overlay=x=W-w-24:y=24:eof_action=pass:repeatlast=0:shortest=0,format=yuv420p[out]" \
   -map "[out]" \
   -movflags +faststart \
   -c:v libx264 \

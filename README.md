@@ -73,9 +73,11 @@ dependencies and Chromium are installed.
 For the complete agent loop, `scripts/record-claude-rep-html-demo.sh` records
 the actual interactive Claude Code terminal through VHS while Playwright
 records the live Rep browser review. The browser recording is timestamped and
-overlaid on the still-active Claude terminal, then Claude's unmodified terminal
-session remains visible while it applies the fresh review actions to the HTML
-it created. No synthetic terminal screen or fixture replacement is used.
+overlaid in a recognizable browser frame on the still-active Claude terminal.
+The recording opens Rep's keyboard help, shows the pressed keys and pointer,
+and crops long Claude generation/application waits with VHS before showing
+Claude apply the fresh review actions to the HTML it created. No synthetic
+terminal screen or fixture replacement is used.
 
 The recorder requires an installed, authenticated Claude Code CLI and the
 locked web dependencies; pinned VHS, tmux, ttyd, and ffmpeg tooling is resolved
