@@ -6,8 +6,9 @@ import {
   browserOverlayOffsetSeconds,
   browserProcessId,
   extractReviewUrl,
-  nativeRecorderTerminalCommand,
+  nativeRecorderArguments,
   parseNativeBrowserCapture,
+  shouldConfirmRepSuggestions,
   validateOriginalHtml,
   validateRevisedHtml,
 } from "../record-claude-html-demo.mjs";
@@ -108,30 +109,38 @@ test("Claude HTML demo identifies its native Chromium process and window", () =>
   );
 });
 
-test("Claude HTML demo safely launches the built-in macOS recorder", () => {
-  assert.equal(
-    nativeRecorderTerminalCommand({
+test("Claude HTML demo safely builds the macOS recorder arguments", () => {
+  assert.deepEqual(
+    nativeRecorderArguments({
       displayNumber: 1,
-      errorLog: "/tmp/browser.error.log",
       output: "/tmp/browser.mov",
       ready: "/tmp/browser.ready",
-      recorder: "/tmp/rep recorder",
-      status: "/tmp/browser.status",
       stop: "/tmp/browser.stop",
     }),
-    "'/tmp/rep recorder' '1' '/tmp/browser.mov' '/tmp/browser.ready' '/tmp/browser.stop' >/dev/null 2>'/tmp/browser.error.log'; recorder_status=$?; printf '%s\\n' \"$recorder_status\" >'/tmp/browser.status'",
+    ["1", "/tmp/browser.mov", "/tmp/browser.ready", "/tmp/browser.stop"],
   );
-  assert.match(
-    nativeRecorderTerminalCommand({
-      displayNumber: 2,
-      errorLog: "/tmp/error",
-      output: "/tmp/browser's.mov",
-      ready: "/tmp/ready",
-      recorder: "/tmp/recorder",
-      status: "/tmp/status",
-      stop: "/tmp/stop",
-    }),
-    /'\/tmp\/browser'\\''s\.mov'/,
+  assert.throws(
+    () =>
+      nativeRecorderArguments({
+        displayNumber: 0,
+        output: "/tmp/browser.mov",
+        ready: "/tmp/browser.ready",
+        stop: "/tmp/browser.stop",
+      }),
+    /display number/,
+  );
+});
+
+test("Claude HTML demo confirms intentional Rep changes when Claude asks", () => {
+  assert.equal(
+    shouldConfirmRepSuggestions(
+      "Would you like me to apply these rep suggestions, or keep the plan as-is?\n❯ Keep the original text.",
+    ),
+    true,
+  );
+  assert.equal(
+    shouldConfirmRepSuggestions("Applying the captured Rep suggestions."),
+    false,
   );
 });
 

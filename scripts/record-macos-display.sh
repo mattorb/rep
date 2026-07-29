@@ -41,6 +41,7 @@ if [[ "${1:-}" == "--preflight" ]]; then
   require_active_desktop
   probe="$(mktemp "${TMPDIR:-/tmp}/rep-screencapture-probe.XXXXXX.png")"
   trap 'rm -f "$probe"' EXIT
+  rm -f "$probe"
   /usr/sbin/screencapture -x -D "$display_number" "$probe"
   if [[ ! -s "$probe" ]]; then
     printf 'error: screencapture produced an empty display probe\n' >&2
@@ -58,13 +59,19 @@ display_number="$1"
 output="$2"
 ready_file="$3"
 stop_file="$4"
+status_file="${output}.status"
 if [[ ! "$display_number" =~ ^[1-9][0-9]*$ ]]; then
   printf 'error: display number must be a positive integer: %s\n' "$display_number" >&2
   exit 2
 fi
 
 require_active_desktop
-rm -f "$output" "$ready_file" "$stop_file"
+rm -f "$output" "$ready_file" "$stop_file" "$status_file"
+write_status() {
+  local capture_status=$?
+  printf '%s\n' "$capture_status" >"$status_file"
+}
+trap write_status EXIT
 /usr/sbin/screencapture \
   -x \
   -v \

@@ -44,6 +44,8 @@ Sleep 800ms
 Set TypingSpeed 0.07
 Type "/rep @demo-plan.html"
 Enter
+Sleep 400ms
+Enter
 Set TypingSpeed 0.001
 Wait+Screen@300s /apply-running/
 Sleep 4s

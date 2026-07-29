@@ -83,10 +83,10 @@ replacement is used.
 
 The recorder requires an installed, authenticated Claude Code CLI and the
 locked web dependencies. Grant Screen & System Audio Recording permission to
-Terminal, restart Terminal if macOS requests it, and keep the logged-in desktop
-unlocked during capture. The script keeps the display awake while recording;
-pinned VHS, tmux, ttyd, and ffmpeg tooling is resolved through mise/pkgx. It
-produces
+the app running the script, restart that app if macOS requests it, and keep the
+logged-in desktop unlocked during capture. The script keeps the display awake
+while recording; pinned VHS, tmux, ttyd, and ffmpeg tooling is resolved through
+mise/pkgx. It produces
 [`docs/rep-claude-html-skill-demo.mp4`](docs/rep-claude-html-skill-demo.mp4)
 and [`docs/rep-claude-html-skill-demo.gif`](docs/rep-claude-html-skill-demo.gif).
 

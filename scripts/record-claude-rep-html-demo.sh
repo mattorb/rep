@@ -17,15 +17,14 @@ outputs are:
   docs/rep-claude-html-skill-demo.gif
 
 Claude Code must be installed and authenticated. Grant Screen & System Audio
-Recording permission to Terminal, restart Terminal if macOS requests it, and
-keep the macOS desktop unlocked. The script installs pinned VHS, tmux, ttyd,
-and ffmpeg tooling through mise/pkgx when needed.
+Recording permission to the app running this script, restart it if macOS
+requests it, and keep the macOS desktop unlocked. The script installs pinned
+VHS, tmux, ttyd, and ffmpeg tooling through mise/pkgx when needed.
 
 Environment:
   REP_CLAUDE_DEMO_MODEL       Claude model alias (default: sonnet)
   REP_CLAUDE_DEMO_TIMEOUT_MS  Per-stage timeout (default: 300000)
   REP_DEMO_MP4_CRF            H.264 quality setting (default: 24)
-  CLAUDE_SKILLS_DIR           Claude skill directory override
 USAGE
 }
 
@@ -108,17 +107,18 @@ for resolved in "$VHS_BIN" "$TMUX_BIN"; do
   fi
 done
 
-CLAUDE_SKILLS_DIR="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
 REP_SKILL_SRC="$ROOT_DIR/.agents/skills/rep"
-REP_SKILL_LINK="$CLAUDE_SKILLS_DIR/rep"
-REP_SKILL_BACKUP="$CLAUDE_SKILLS_DIR/rep.rep-html-vhs-demo-backup-$$"
+PROJECT_SKILLS_LINK="$ROOT_DIR/.claude/skills"
+PROJECT_SKILLS_BACKUP="$ROOT_DIR/.claude/skills.rep-html-vhs-demo-backup-$$"
 DEMO_REP_SKILL_SRC=""
+DEMO_PROJECT_SKILLS_ROOT=""
 DEMO_TEMP_DIR=""
 TMUX_SOCKET="rep-claude-html-vhs-$$"
-created_skill_link=0
-replaced_skill_link=0
+project_skills_existed=0
+project_skills_installed=0
 orchestrator_pid=""
 caffeinate_pid=""
+preflight_pid=""
 demo_plan_path="$ROOT_DIR/demo-plan.html"
 demo_plan_backup=""
 demo_plan_existed=0
@@ -139,12 +139,19 @@ cleanup() {
   if [[ -n "$caffeinate_pid" ]]; then
     kill "$caffeinate_pid" >/dev/null 2>&1 || true
   fi
+  if [[ -n "$preflight_pid" ]]; then
+    kill "$preflight_pid" >/dev/null 2>&1 || true
+  fi
   TMUX="" "$TMUX_BIN" -L "$TMUX_SOCKET" kill-server >/dev/null 2>&1 || true
-  if [[ "$replaced_skill_link" == 1 ]]; then
-    rm -rf "$REP_SKILL_LINK"
-    mv "$REP_SKILL_BACKUP" "$REP_SKILL_LINK"
-  elif [[ "$created_skill_link" == 1 ]]; then
-    rm -f "$REP_SKILL_LINK"
+  if [[ "$project_skills_installed" == 1 ]]; then
+    rm -f "$PROJECT_SKILLS_LINK"
+  fi
+  if [[ "$project_skills_existed" == 1 ]] &&
+    [[ -e "$PROJECT_SKILLS_BACKUP" || -L "$PROJECT_SKILLS_BACKUP" ]]; then
+    mv "$PROJECT_SKILLS_BACKUP" "$PROJECT_SKILLS_LINK"
+  fi
+  if [[ -n "$DEMO_PROJECT_SKILLS_ROOT" ]]; then
+    rm -rf "$DEMO_PROJECT_SKILLS_ROOT"
   fi
   if [[ -n "$DEMO_REP_SKILL_SRC" ]]; then
     rm -rf "$DEMO_REP_SKILL_SRC"
@@ -177,14 +184,15 @@ prepare_demo_skill() {
   chmod +x "$runner"
 }
 
-ensure_claude_skill() {
-  mkdir -p "$CLAUDE_SKILLS_DIR"
-  if [[ -e "$REP_SKILL_LINK" || -L "$REP_SKILL_LINK" ]]; then
-    mv "$REP_SKILL_LINK" "$REP_SKILL_BACKUP"
-    replaced_skill_link=1
+install_demo_project_skill() {
+  DEMO_PROJECT_SKILLS_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/rep-html-vhs-project-skills.XXXXXX")"
+  ln -s "$DEMO_REP_SKILL_SRC" "$DEMO_PROJECT_SKILLS_ROOT/rep"
+  if [[ -e "$PROJECT_SKILLS_LINK" || -L "$PROJECT_SKILLS_LINK" ]]; then
+    mv "$PROJECT_SKILLS_LINK" "$PROJECT_SKILLS_BACKUP"
+    project_skills_existed=1
   fi
-  ln -s "$DEMO_REP_SKILL_SRC" "$REP_SKILL_LINK"
-  created_skill_link=1
+  ln -s "$DEMO_PROJECT_SKILLS_ROOT" "$PROJECT_SKILLS_LINK"
+  project_skills_installed=1
 }
 
 protect_demo_plan() {
@@ -208,7 +216,7 @@ render_tape() {
 }
 
 prepare_demo_skill
-ensure_claude_skill
+install_demo_project_skill
 protect_demo_plan
 DEMO_TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/rep-claude-html-vhs.XXXXXX")"
 mkdir -p "$DEMO_TEMP_DIR/captures" "$(dirname -- "$OUTPUT_PREFIX")"
@@ -236,43 +244,31 @@ if [[ "$desktop_state" != ready ]]; then
   exit 1
 fi
 display_recorder="$ROOT_DIR/scripts/record-macos-display.sh"
-preflight_command="'$display_recorder' --preflight 1 > '"$DEMO_TEMP_DIR"/capture-preflight.log' 2> '"$DEMO_TEMP_DIR"/capture-preflight.error'; recorder_status=\$?; printf '%s\\n' \"\$recorder_status\" > '"$DEMO_TEMP_DIR"/capture-preflight.status'"
-preflight_tty="$(
-  /usr/bin/osascript \
-    -e 'on run argv' \
-    -e 'tell application "Terminal"' \
-    -e 'set captureTab to do script (item 1 of argv)' \
-    -e 'delay 0.2' \
-    -e 'return tty of captureTab' \
-    -e 'end tell' \
-    -e 'end run' \
-    "$preflight_command"
-)"
+"$display_recorder" --preflight 1 \
+  >"$DEMO_TEMP_DIR/capture-preflight.log" \
+  2>"$DEMO_TEMP_DIR/capture-preflight.error" &
+preflight_pid=$!
+preflight_status=""
 for _ in {1..300}; do
-  if [[ -e "$DEMO_TEMP_DIR/capture-preflight.status" ]]; then
+  if ! kill -0 "$preflight_pid" >/dev/null 2>&1; then
+    set +e
+    wait "$preflight_pid"
+    preflight_status=$?
+    set -e
     break
   fi
   sleep 0.1
 done
-preflight_status="$(cat "$DEMO_TEMP_DIR/capture-preflight.status" 2>/dev/null || true)"
-/usr/bin/osascript \
-  -e 'on run argv' \
-  -e 'tell application "Terminal"' \
-  -e 'repeat with terminalWindow in windows' \
-  -e 'repeat with terminalTab in tabs of terminalWindow' \
-  -e 'if tty of terminalTab is item 1 of argv then' \
-  -e 'close terminalTab' \
-  -e 'return' \
-  -e 'end if' \
-  -e 'end repeat' \
-  -e 'end repeat' \
-  -e 'end tell' \
-  -e 'end run' \
-  "$preflight_tty" >/dev/null 2>&1 || true
+if [[ -z "$preflight_status" ]]; then
+  kill -TERM "$preflight_pid" >/dev/null 2>&1 || true
+  wait "$preflight_pid" >/dev/null 2>&1 || true
+  preflight_status=124
+fi
+preflight_pid=""
 if [[ "$preflight_status" != 0 ]]; then
   printf '%s\n' \
     'error: macOS is not ready for native browser capture.' \
-    'Grant Screen & System Audio Recording permission to Terminal, restart Terminal if requested,' \
+    'Grant Screen & System Audio Recording permission to the app running this script, restart it if requested,' \
     'and keep the logged-in macOS desktop unlocked while recording.' >&2
   sed -n '1,20p' "$DEMO_TEMP_DIR/capture-preflight.error" >&2
   exit 1

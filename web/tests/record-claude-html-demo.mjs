@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   access,
   readFile,
@@ -354,7 +354,14 @@ async function main() {
     );
 
     setDemoStage({ session, tmux, tmuxSocket }, "apply-running");
-    const revised = await waitForRevision(plan, original, timeout);
+    const revised = await waitForRevision({
+      original,
+      plan,
+      session,
+      timeout,
+      tmux,
+      tmuxSocket,
+    });
     await waitForClaudePrompt({ session, timeout, tmux, tmuxSocket });
     validateRevisedHtml(original, revised);
     setDemoStage({ session, tmux, tmuxSocket }, "revision-ready");
@@ -400,6 +407,8 @@ function startClaudeSession({
     "bypassPermissions",
     "--settings",
     settings,
+    "--setting-sources",
+    "project",
     "--no-chrome",
   ]
     .map(shellQuote)
@@ -562,25 +571,23 @@ async function waitForNativeBrowserCapture(browserPid, timeout) {
   );
 }
 
-export function nativeRecorderTerminalCommand({
+export function nativeRecorderArguments({
   displayNumber,
-  errorLog,
   output,
   ready,
-  recorder,
-  status,
   stop,
 }) {
-  const recorderCommand = [
-    recorder,
-    String(displayNumber),
-    output,
-    ready,
-    stop,
-  ]
-    .map(shellQuote)
-    .join(" ");
-  return `${recorderCommand} >/dev/null 2>${shellQuote(errorLog)}; recorder_status=$?; printf '%s\\n' "$recorder_status" >${shellQuote(status)}`;
+  if (!Number.isInteger(displayNumber) || displayNumber < 1) {
+    throw new Error(`Invalid macOS display number: ${displayNumber}`);
+  }
+  return [String(displayNumber), output, ready, stop];
+}
+
+export function shouldConfirmRepSuggestions(pane) {
+  return (
+    pane.includes("Would you like me to apply these rep suggestions") &&
+    pane.split("\n").some((line) => line.trimStart().startsWith("❯"))
+  );
 }
 
 async function startNativeDisplayRecording({
@@ -589,77 +596,77 @@ async function startNativeDisplayRecording({
   recorder,
   timeout,
 }) {
+  const child = spawn(
+    recorder,
+    nativeRecorderArguments({
+      displayNumber: capture.displayNumber,
+      output,
+      ready: `${output}.ready`,
+      stop: `${output}.stop`,
+    }),
+    { stdio: ["ignore", "ignore", "pipe"] },
+  );
+  let result = null;
+  let settle;
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  const finished = new Promise((resolve) => {
+    settle = resolve;
+  });
+  const finish = (value) => {
+    if (result) return;
+    result = value;
+    settle(value);
+  };
+  child.once("error", (error) => finish({ error }));
+  child.once("exit", (code, signal) => finish({ code, signal }));
   const recording = {
+    child,
     displayNumber: capture.displayNumber,
-    errorLog: `${output}.error.log`,
+    finished,
+    get result() {
+      return result;
+    },
     output,
     ready: `${output}.ready`,
     recorder,
-    status: `${output}.status`,
+    stderr: () => stderr.trim(),
     stop: `${output}.stop`,
     startedEpochMs: Date.now(),
-    terminalTty: "",
   };
-  const command = nativeRecorderTerminalCommand(recording);
-  const result = spawnSync(
-    "/usr/bin/osascript",
-    [
-      "-e",
-      "on run argv",
-      "-e",
-      'tell application "Terminal"',
-      "-e",
-      "set captureTab to do script (item 1 of argv)",
-      "-e",
-      "delay 0.2",
-      "-e",
-      "return tty of captureTab",
-      "-e",
-      "end tell",
-      "-e",
-      "end run",
-      command,
-    ],
-    { encoding: "utf8" },
-  );
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    throw new Error(
-      `Could not launch the built-in macOS recorder through Terminal (${result.status}): ${result.stderr || result.stdout}`,
-    );
-  }
-  recording.terminalTty = result.stdout.trim();
   try {
     await waitForNativeRecordingStart(recording, Math.min(timeout, 30_000));
     return recording;
   } catch (error) {
-    closeTerminalTab(recording.terminalTty);
+    child.kill("SIGTERM");
+    await finished;
     throw error;
   }
 }
 
 async function stopNativeDisplayRecording(recording) {
   await writeFile(recording.stop, "");
-  try {
-    await waitForFile(
-      recording.status,
-      30_000,
-      "built-in macOS recorder completion",
+  const result = await Promise.race([
+    recording.finished,
+    pause(30_000).then(() => null),
+  ]);
+  if (!result) {
+    recording.child.kill("SIGTERM");
+    throw new Error("Built-in macOS browser recording did not stop within 30 seconds");
+  }
+  if (result.error || result.code !== 0) {
+    throw nativeRecordingError(
+      "Built-in macOS browser recording failed",
+      recording,
+      result,
     );
-    const exitCode = await readRecorderExitCode(recording);
-    if (exitCode !== 0) {
-      throw await nativeRecordingError(
-        "Built-in macOS browser recording failed",
-        recording,
-        exitCode,
-      );
-    }
-    const output = await stat(recording.output);
-    if (output.size === 0) {
-      throw new Error("Built-in macOS browser recording produced an empty file");
-    }
-  } finally {
-    closeTerminalTab(recording.terminalTty);
+  }
+  const output = await stat(recording.output);
+  if (output.size === 0) {
+    throw new Error("Built-in macOS browser recording produced an empty file");
   }
 }
 
@@ -667,12 +674,11 @@ async function waitForNativeRecordingStart(recording, timeout) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     if (await fileExists(recording.ready)) return;
-    if (await fileExists(recording.status)) {
-      const exitCode = await readRecorderExitCode(recording);
-      throw await nativeRecordingError(
+    if (recording.result) {
+      throw nativeRecordingError(
         "Built-in macOS browser recording exited before capture began",
         recording,
-        exitCode,
+        recording.result,
       );
     }
     await pause(100);
@@ -682,19 +688,12 @@ async function waitForNativeRecordingStart(recording, timeout) {
   );
 }
 
-async function readRecorderExitCode(recording) {
-  const value = (await readFile(recording.status, "utf8")).trim();
-  if (!/^\d+$/.test(value)) {
-    throw new Error(`Invalid macOS recorder exit status: ${value}`);
-  }
-  return Number(value);
-}
-
-async function nativeRecordingError(message, recording, exitCode) {
-  const detail = await readFile(recording.errorLog, "utf8")
-    .then((value) => value.trim())
-    .catch(() => "");
-  return new Error(`${message}: ${detail || `exit=${exitCode}`}`);
+function nativeRecordingError(message, recording, result) {
+  const detail =
+    result.error?.message ||
+    recording.stderr() ||
+    `exit=${result.code ?? "none"} signal=${result.signal ?? "none"}`;
+  return new Error(`${message}: ${detail}`);
 }
 
 async function fileExists(file) {
@@ -704,41 +703,6 @@ async function fileExists(file) {
   } catch {
     return false;
   }
-}
-
-function closeTerminalTab(tty) {
-  if (!tty) return;
-  spawnSync(
-    "/usr/bin/osascript",
-    [
-      "-e",
-      "on run argv",
-      "-e",
-      'tell application "Terminal"',
-      "-e",
-      "repeat with terminalWindow in windows",
-      "-e",
-      "repeat with terminalTab in tabs of terminalWindow",
-      "-e",
-      "if tty of terminalTab is item 1 of argv then",
-      "-e",
-      "close terminalTab",
-      "-e",
-      "return",
-      "-e",
-      "end if",
-      "-e",
-      "end repeat",
-      "-e",
-      "end repeat",
-      "-e",
-      "end tell",
-      "-e",
-      "end run",
-      tty,
-    ],
-    { encoding: "utf8" },
-  );
 }
 
 async function waitForCompletionMarker({
@@ -770,8 +734,16 @@ async function waitForFile(file, timeout, description) {
   throw new Error(`Timed out waiting for ${description} after ${timeout}ms`);
 }
 
-async function waitForRevision(plan, original, timeout) {
+async function waitForRevision({
+  original,
+  plan,
+  session,
+  timeout,
+  tmux,
+  tmuxSocket,
+}) {
   const deadline = Date.now() + timeout;
+  let confirmedRepSuggestions = false;
   let lastError;
   while (Date.now() < deadline) {
     const revised = await readFile(plan, "utf8");
@@ -780,6 +752,20 @@ async function waitForRevision(plan, original, timeout) {
       return revised;
     } catch (error) {
       lastError = error;
+    }
+    if (!confirmedRepSuggestions) {
+      const pane = captureClaude({ session, tmux, tmuxSocket });
+      if (shouldConfirmRepSuggestions(pane)) {
+        runTmux(tmux, tmuxSocket, [
+          "send-keys",
+          "-t",
+          session,
+          "-l",
+          "Apply both Rep suggestions exactly as captured; they intentionally supersede the original placeholder text.",
+        ]);
+        runTmux(tmux, tmuxSocket, ["send-keys", "-t", session, "Enter"]);
+        confirmedRepSuggestions = true;
+      }
     }
     await pause(200);
   }
