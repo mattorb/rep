@@ -9,7 +9,10 @@
 <body>
   <header class="toolbar">
     <div class="brand">rep</div>
-    <div class="status" id="status" role="status" aria-live="polite">Loading plan…</div>
+    <div class="review-state">
+      <span class="mode" id="mode" hidden></span>
+      <span class="status" id="status" role="status" aria-live="polite">Loading document…</span>
+    </div>
     <div class="actions">
       <button id="discard" type="button">Discard</button>
       <button id="submit" class="primary" type="button">Submit</button>
@@ -22,6 +25,6 @@
     <h1>Review complete</h1>
     <p>You can close this tab.</p>
   </section>
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

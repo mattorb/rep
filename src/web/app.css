@@ -35,6 +35,26 @@ body {
   letter-spacing: -.04em;
 }
 
+.review-state {
+  align-items: center;
+  display: flex;
+  gap: .6rem;
+  min-width: 0;
+}
+
+.mode {
+  background: color-mix(in srgb, #6366f1 15%, Canvas);
+  border: 1px solid color-mix(in srgb, #6366f1 38%, transparent);
+  border-radius: 999px;
+  color: color-mix(in srgb, #6366f1 82%, CanvasText);
+  flex: none;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  padding: .18rem .45rem;
+  text-transform: uppercase;
+}
+
 .status {
   font-size: .88rem;
   overflow: hidden;
@@ -63,6 +83,14 @@ button.primary {
   height: 100%;
   min-height: 0;
   width: 100%;
+}
+
+iframe {
+  background: Canvas;
+}
+
+iframe.empty {
+  opacity: .55;
 }
 
 .completion {

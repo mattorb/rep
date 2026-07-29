@@ -11,6 +11,7 @@ use crate::web::browser::BrowserLauncher;
 
 mod assets;
 pub(crate) mod browser;
+mod document;
 mod html_source;
 mod protocol;
 mod security;

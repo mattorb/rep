@@ -64,6 +64,9 @@ export async function openPlan(page, name) {
   const running = await launchRep(name);
   await page.goto(running.url);
   const frame = page.frameLocator("#plan");
-  await frame.locator("body").waitFor();
+  await frame.locator("body").waitFor({ state: "attached" });
+  await page.waitForFunction(() =>
+    ["ready", "empty"].includes(window.__repTest?.state?.status),
+  );
   return { frame, running };
 }
