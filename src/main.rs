@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rep::cli::{CliArgs, CliCommand, parse_cli_args_from, run_interactive};
+use rep::cli::{CliArgs, CliCommand, LaunchMode, parse_cli_args_from, run_interactive, run_web};
 use rep::ui;
 
 mod terminal_fallback;
@@ -37,13 +37,35 @@ fn real_main() -> Result<()> {
 fn real_main_with<TerminalAvailable, TryFallback, RunInteractive>(
     raw_args: Vec<OsString>,
     terminal_available: TerminalAvailable,
-    mut try_fallback: TryFallback,
-    mut run_interactive: RunInteractive,
+    try_fallback: TryFallback,
+    run_interactive: RunInteractive,
 ) -> Result<Option<String>>
 where
     TerminalAvailable: FnOnce() -> bool,
     TryFallback: FnMut(&[OsString]) -> Result<bool>,
     RunInteractive: FnMut(CliArgs) -> Result<Option<String>>,
+{
+    real_main_with_runners(
+        raw_args,
+        terminal_available,
+        try_fallback,
+        run_interactive,
+        run_web,
+    )
+}
+
+fn real_main_with_runners<TerminalAvailable, TryFallback, RunInteractive, RunWeb>(
+    raw_args: Vec<OsString>,
+    terminal_available: TerminalAvailable,
+    mut try_fallback: TryFallback,
+    mut run_interactive: RunInteractive,
+    mut run_web: RunWeb,
+) -> Result<Option<String>>
+where
+    TerminalAvailable: FnOnce() -> bool,
+    TryFallback: FnMut(&[OsString]) -> Result<bool>,
+    RunInteractive: FnMut(CliArgs) -> Result<Option<String>>,
+    RunWeb: FnMut(CliArgs) -> Result<Option<String>>,
 {
     let cli_args = match parse_cli_args_from(raw_args.iter().cloned())? {
         CliCommand::Help(text) | CliCommand::Version(text) => {
@@ -54,8 +76,19 @@ where
             source_path: write_demo_source()?,
             debug,
             show_keys,
+            launch_mode: LaunchMode::MarkdownTui,
+            no_open: false,
         },
     };
+    if cli_args.launch_mode == LaunchMode::HtmlWeb {
+        if cli_args.debug {
+            return Ok(Some(rep::cli::web_debug_diagnostics(
+                &cli_args.source_path,
+                cli_args.no_open,
+            )?));
+        }
+        return run_web(cli_args);
+    }
     if cli_args.debug {
         let terminal_available = terminal_available();
         return Ok(Some(render_debug_diagnostics(
@@ -149,7 +182,7 @@ mod tests {
         assert!(
             output
                 .unwrap()
-                .contains("Usage: rep [OPTIONS] <markdown-file|--demo>")
+                .contains("Usage: rep [OPTIONS] <plan-file|--demo>")
         );
     }
 
@@ -305,5 +338,53 @@ mod tests {
         .unwrap_err();
 
         assert!(err.to_string().contains("failed to read markdown file"));
+    }
+
+    #[test]
+    fn html_web_routes_before_terminal_detection_or_fallback() {
+        let path = env::temp_dir().join(format!("rep-main-web-{}.html", std::process::id()));
+        fs::write(&path, "<h1>Plan</h1>").unwrap();
+        let output = real_main_with_runners(
+            vec![
+                OsString::from("--web"),
+                OsString::from("--no-open"),
+                path.clone().into_os_string(),
+            ],
+            || panic!("terminal must not be queried for web mode"),
+            |_| panic!("terminal fallback must not run for web mode"),
+            |_| panic!("TUI must not run for web mode"),
+            |args| {
+                assert_eq!(args.source_path, path);
+                assert_eq!(args.launch_mode, LaunchMode::HtmlWeb);
+                assert!(args.no_open);
+                Ok(Some("web output".to_string()))
+            },
+        )
+        .unwrap();
+
+        assert_eq!(output.as_deref(), Some("web output"));
+    }
+
+    #[test]
+    fn html_web_debug_does_not_run_any_frontend_or_query_terminal() {
+        let path = env::temp_dir().join(format!("rep-main-web-debug-{}.html", std::process::id()));
+        fs::write(&path, "<h1>Plan</h1>").unwrap();
+        let output = real_main_with_runners(
+            vec![
+                OsString::from("--web"),
+                OsString::from("--debug"),
+                path.into_os_string(),
+            ],
+            || panic!("terminal must not be queried for web debug"),
+            |_| panic!("terminal fallback must not run for web debug"),
+            |_| panic!("TUI must not run for web debug"),
+            |_| panic!("web server must not run for web debug"),
+        )
+        .unwrap()
+        .unwrap();
+
+        assert!(output.contains("ui_mode: web"));
+        assert!(output.contains("source_format: html"));
+        assert!(output.contains("bind_address: 127.0.0.1"));
     }
 }

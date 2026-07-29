@@ -13,3 +13,4 @@ pub(crate) mod selection;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod ui;
+pub(crate) mod web;

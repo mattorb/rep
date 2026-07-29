@@ -102,7 +102,7 @@ fn missing_file_argument_exits_nonzero() {
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("usage") || stderr.contains("markdown"),
+        stderr.contains("Usage:") && stderr.contains("<plan-file|--demo>"),
         "got: {stderr}"
     );
 }

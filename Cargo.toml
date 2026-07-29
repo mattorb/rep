@@ -35,6 +35,9 @@ unicode-width = "0.2"
 # AST views. Keeping both is intentional until one parser can satisfy both jobs.
 pulldown-cmark = "0.13"
 markdown = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+signal-hook = "0.3"
 
 [dev-dependencies]
 insta = "1"
