@@ -25,6 +25,18 @@
     <h1>Review complete</h1>
     <p>You can close this tab.</p>
   </section>
+  <dialog id="modal" aria-labelledby="modal-title">
+    <form id="modal-form" method="dialog">
+      <h2 id="modal-title"></h2>
+      <div id="modal-content"></div>
+      <label id="modal-input-label" for="modal-input" hidden></label>
+      <textarea id="modal-input" rows="6" hidden></textarea>
+      <div class="modal-actions">
+        <button id="modal-cancel" type="button">Cancel</button>
+        <button id="modal-confirm" class="primary" type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
   <script type="module" src="app.js"></script>
 </body>
 </html>

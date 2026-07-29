@@ -7,8 +7,11 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
+use crate::output::render_human_output;
+use crate::review::annotation::EditableAnnotation;
 use crate::review::command::ReviewCommand;
 use crate::review::document::ReviewDocument;
 use crate::review::session::ReviewSession;
@@ -35,6 +38,7 @@ struct WebSession {
     document: Option<HtmlReviewDocument>,
     review: Option<ReviewSession>,
     revision: u64,
+    terminal: Option<ReviewOutcome>,
 }
 
 impl WebSession {
@@ -43,6 +47,7 @@ impl WebSession {
             document: None,
             review: None,
             revision: 0,
+            terminal: None,
         }
     }
 }
@@ -212,6 +217,7 @@ fn route(
     let state = format!("{root}api/state");
     let manifest = format!("{root}api/manifest");
     let command = format!("{root}api/command");
+    let output = format!("{root}api/output");
     let finish = format!("{root}api/finish");
     let discard = format!("{root}api/discard");
     let document = format!("{root}assets/__rep_document__.html");
@@ -268,6 +274,17 @@ fn route(
             (Response::json(200, "{\"status\":\"ok\"}"), None)
         }
         ("GET" | "HEAD", path) if path == state => (state_response(content, session), None),
+        ("GET" | "HEAD", path) if path == output => {
+            let output = current_output(session);
+            (
+                Response::json(
+                    200,
+                    &serde_json::to_string(&serde_json::json!({ "output": output }))
+                        .unwrap_or_else(|_| "{\"output\":\"\"}".to_string()),
+                ),
+                None,
+            )
+        }
         ("POST", path) if path == manifest => {
             let incoming = match parse_manifest(&request.body) {
                 Ok(manifest) => manifest,
@@ -346,6 +363,74 @@ fn route(
                         .apply(document, ReviewCommand::AdjustUnit { finer })
                         .status
                 }
+                BrowserCommand::Search {
+                    query,
+                    forward,
+                    revision: _,
+                } => {
+                    if query.len() > 1024 || query.trim().is_empty() {
+                        return (Response::text(400, "search query is invalid"), None);
+                    }
+                    review
+                        .apply(document, ReviewCommand::Search { query, forward })
+                        .status
+                }
+                BrowserCommand::JumpSearch {
+                    forward,
+                    revision: _,
+                } => {
+                    review
+                        .apply(document, ReviewCommand::JumpSearch { forward })
+                        .status
+                }
+                BrowserCommand::JumpAnnotation {
+                    forward,
+                    revision: _,
+                } => {
+                    review
+                        .apply(document, ReviewCommand::JumpAnnotation { forward })
+                        .status
+                }
+                BrowserCommand::Annotate {
+                    kind,
+                    text,
+                    revision: _,
+                } => {
+                    if text.len() > 1024 * 1024 || text.trim().is_empty() {
+                        return (Response::text(400, "annotation text is invalid"), None);
+                    }
+                    let created_at = Utc::now().to_rfc3339();
+                    match kind.as_str() {
+                        "change" => Some(review.add_change(document, created_at, text)),
+                        "feedback" => Some(review.add_feedback(document, created_at, text)),
+                        "insertBefore" => Some(review.add_insert(document, created_at, text, true)),
+                        "insertAfter" => Some(review.add_insert(document, created_at, text, false)),
+                        _ => return (Response::text(400, "invalid annotation kind"), None),
+                    }
+                }
+                BrowserCommand::Edit { text, revision: _ } => {
+                    if text.len() > 1024 * 1024 || text.trim().is_empty() {
+                        return (Response::text(400, "annotation text is invalid"), None);
+                    }
+                    let node_idx = review.anchor().node_idx;
+                    match review.editable_annotation_at_cursor(document) {
+                        Some(EditableAnnotation::Change(index)) => {
+                            review.update_change(node_idx, index, text)
+                        }
+                        Some(EditableAnnotation::Feedback(index)) => {
+                            review.update_feedback(node_idx, index, text)
+                        }
+                        None => {
+                            return (
+                                Response::text(409, "no editable annotation at selection"),
+                                None,
+                            );
+                        }
+                    }
+                }
+                BrowserCommand::Strike { revision: _ } => {
+                    Some(review.toggle_strike(document, Utc::now().to_rfc3339()))
+                }
                 BrowserCommand::Select {
                     node,
                     unit,
@@ -380,17 +465,31 @@ fn route(
                 None,
             )
         }
-        ("POST", path) if path == finish => (
-            Response::json(200, "{\"status\":\"finished\"}"),
-            Some(ReviewOutcome::Submitted("No actions.".to_string())),
-        ),
-        ("POST", path) if path == discard => (
-            Response::json(200, "{\"status\":\"discarded\"}"),
-            Some(ReviewOutcome::Discarded),
-        ),
+        ("POST", path) if path == finish => {
+            terminal_action(session, ReviewOutcome::Submitted(current_output(session)))
+        }
+        ("POST", path) if path == discard => terminal_action(session, ReviewOutcome::Discarded),
         ("GET" | "HEAD", _) => (Response::text(404, "not found"), None),
         _ => (Response::text(405, "method not allowed"), None),
     }
+}
+
+fn terminal_action(
+    session: &mut WebSession,
+    requested: ReviewOutcome,
+) -> (Response, Option<ReviewOutcome>) {
+    if session.terminal.is_some() {
+        return (
+            Response::json(200, "{\"status\":\"already-complete\"}"),
+            None,
+        );
+    }
+    let response = match requested {
+        ReviewOutcome::Submitted(_) => Response::json(200, "{\"status\":\"finished\"}"),
+        ReviewOutcome::Discarded => Response::json(200, "{\"status\":\"discarded\"}"),
+    };
+    session.terminal = Some(requested.clone());
+    (response, Some(requested))
 }
 
 #[derive(Debug, Deserialize)]
@@ -412,6 +511,31 @@ enum BrowserCommand {
         revision: u64,
         finer: bool,
     },
+    Search {
+        revision: u64,
+        query: String,
+        forward: bool,
+    },
+    JumpSearch {
+        revision: u64,
+        forward: bool,
+    },
+    JumpAnnotation {
+        revision: u64,
+        forward: bool,
+    },
+    Annotate {
+        revision: u64,
+        kind: String,
+        text: String,
+    },
+    Edit {
+        revision: u64,
+        text: String,
+    },
+    Strike {
+        revision: u64,
+    },
     Select {
         revision: u64,
         node: usize,
@@ -427,6 +551,12 @@ impl BrowserCommand {
             | Self::MoveNode { revision, .. }
             | Self::Cycle { revision, .. }
             | Self::Adjust { revision, .. }
+            | Self::Search { revision, .. }
+            | Self::JumpSearch { revision, .. }
+            | Self::JumpAnnotation { revision, .. }
+            | Self::Annotate { revision, .. }
+            | Self::Edit { revision, .. }
+            | Self::Strike { revision, .. }
             | Self::Select { revision, .. } => *revision,
         }
     }
@@ -444,6 +574,10 @@ struct StateSnapshot<'a> {
     selection: Vec<SelectionSlice>,
     message: Option<String>,
     outline: Vec<OutlineSnapshot<'a>>,
+    links: Vec<String>,
+    annotations: Vec<AnnotationSlice>,
+    annotation_count: usize,
+    editable: Option<EditableSnapshot>,
 }
 
 #[derive(Serialize)]
@@ -462,6 +596,22 @@ struct OutlineSnapshot<'a> {
     text: &'a str,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AnnotationSlice {
+    kind: &'static str,
+    node: usize,
+    start: usize,
+    end: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EditableSnapshot {
+    kind: &'static str,
+    text: String,
+}
+
 fn state_response(content: &WebContent, session: &WebSession) -> Response {
     state_response_with_status(content, session, None)
 }
@@ -471,11 +621,19 @@ fn state_response_with_status(
     session: &WebSession,
     message: Option<String>,
 ) -> Response {
-    let (status, node_count, mode, anchor, selection, outline) =
+    let (status, node_count, mode, anchor, selection, outline, links, annotations, editable) =
         match (&session.document, &session.review) {
-            (Some(document), Some(review)) if document.node_count() == 0 => {
-                ("empty", 0, None, None, Vec::new(), Vec::new())
-            }
+            (Some(document), Some(review)) if document.node_count() == 0 => (
+                "empty",
+                0,
+                None,
+                None,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                None,
+            ),
             (Some(document), Some(review)) => {
                 let anchor = review.anchor();
                 let outline_rows = document.node_outline();
@@ -487,6 +645,13 @@ fn state_response_with_status(
                         text: &row.text,
                     })
                     .collect::<Vec<_>>();
+                let links = document
+                    .links_for(anchor)
+                    .into_iter()
+                    .map(|link| link.url)
+                    .collect();
+                let annotations = annotation_slices(document, review);
+                let editable = editable_snapshot(document, review);
                 // Serialize while the owned outline rows are still alive.
                 let snapshot = StateSnapshot {
                     status: "ready",
@@ -498,10 +663,24 @@ fn state_response_with_status(
                     selection: document.selection_slices(anchor),
                     message,
                     outline,
+                    links,
+                    annotation_count: annotation_count(review),
+                    annotations,
+                    editable,
                 };
                 return json_response(&snapshot);
             }
-            _ => ("waiting", 0, None, None, Vec::new(), Vec::new()),
+            _ => (
+                "waiting",
+                0,
+                None,
+                None,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                None,
+            ),
         };
     json_response(&StateSnapshot {
         status,
@@ -513,7 +692,156 @@ fn state_response_with_status(
         selection,
         message,
         outline,
+        links,
+        annotation_count: annotations.len(),
+        annotations,
+        editable,
     })
+}
+
+fn annotation_slices(
+    document: &HtmlReviewDocument,
+    review: &ReviewSession,
+) -> Vec<AnnotationSlice> {
+    let mut slices = Vec::new();
+    let mut add =
+        |kind: &'static str, anchor: SelectionAnchor| {
+            slices.extend(document.selection_slices(anchor).into_iter().map(|slice| {
+                AnnotationSlice {
+                    kind,
+                    node: slice.node,
+                    start: slice.start,
+                    end: slice.end,
+                }
+            }));
+        };
+    for (&node, annotations) in &review.annotations.changes {
+        for annotation in annotations {
+            add(
+                "change",
+                SelectionAnchor::new(
+                    node,
+                    annotation.target_unit,
+                    annotation.sentence_index.unwrap_or(0),
+                ),
+            );
+        }
+    }
+    for (&node, annotations) in &review.annotations.feedbacks {
+        for annotation in annotations {
+            add(
+                "feedback",
+                SelectionAnchor::new(
+                    node,
+                    annotation.target_unit,
+                    annotation.sentence_index.unwrap_or(0),
+                ),
+            );
+        }
+    }
+    for (&node, annotations) in &review.annotations.inserts_before {
+        for annotation in annotations {
+            add(
+                "insertBefore",
+                SelectionAnchor::new(
+                    node,
+                    annotation.target_unit,
+                    annotation.sentence_index.unwrap_or(0),
+                ),
+            );
+        }
+    }
+    for (&node, annotations) in &review.annotations.inserts_after {
+        for annotation in annotations {
+            add(
+                "insertAfter",
+                SelectionAnchor::new(
+                    node,
+                    annotation.target_unit,
+                    annotation.sentence_index.unwrap_or(0),
+                ),
+            );
+        }
+    }
+    for (&node, strikes) in &review.annotations.strikes {
+        for &(unit, index) in strikes {
+            add("strike", SelectionAnchor::new(node, unit, index));
+        }
+    }
+    slices
+}
+
+fn annotation_count(review: &ReviewSession) -> usize {
+    review
+        .annotations
+        .changes
+        .values()
+        .map(Vec::len)
+        .sum::<usize>()
+        + review
+            .annotations
+            .feedbacks
+            .values()
+            .map(Vec::len)
+            .sum::<usize>()
+        + review
+            .annotations
+            .inserts_before
+            .values()
+            .map(Vec::len)
+            .sum::<usize>()
+        + review
+            .annotations
+            .inserts_after
+            .values()
+            .map(Vec::len)
+            .sum::<usize>()
+        + review
+            .annotations
+            .strikes
+            .values()
+            .map(std::collections::BTreeSet::len)
+            .sum::<usize>()
+}
+
+fn editable_snapshot(
+    document: &HtmlReviewDocument,
+    review: &ReviewSession,
+) -> Option<EditableSnapshot> {
+    let node = review.anchor().node_idx;
+    match review.editable_annotation_at_cursor(document)? {
+        EditableAnnotation::Change(index) => Some(EditableSnapshot {
+            kind: "change",
+            text: review
+                .annotations
+                .changes
+                .get(&node)?
+                .get(index)?
+                .change
+                .clone(),
+        }),
+        EditableAnnotation::Feedback(index) => Some(EditableSnapshot {
+            kind: "feedback",
+            text: review
+                .annotations
+                .feedbacks
+                .get(&node)?
+                .get(index)?
+                .feedback
+                .clone(),
+        }),
+    }
+}
+
+fn current_output(session: &WebSession) -> String {
+    match (&session.document, &session.review) {
+        (Some(document), Some(review)) => {
+            render_human_output(&review.emit_model(document, Utc::now().to_rfc3339()))
+                .trim_end_matches('\n')
+                .to_string()
+        }
+        _ => "No actions.".to_string(),
+    }
 }
 
 fn anchor_snapshot(anchor: SelectionAnchor) -> AnchorSnapshot {
@@ -697,6 +1025,30 @@ mod tests {
             &content,
         );
         assert_eq!(outcome, Some(ReviewOutcome::Discarded));
+    }
+
+    #[test]
+    fn first_terminal_action_wins_and_freezes_the_outcome() {
+        let address: SocketAddr = "127.0.0.1:1234".parse().unwrap();
+        let token = "9".repeat(64);
+        let content = content();
+        let root = format!("/session/{token}/");
+        let mut session = WebSession::new();
+        let finish = request("POST", &format!("{root}api/finish"), address);
+        let discard = request("POST", &format!("{root}api/discard"), address);
+
+        let (_, first) = route(&finish, address, &token, &content, &mut session);
+        let (_, second) = route(&discard, address, &token, &content, &mut session);
+
+        assert_eq!(
+            first,
+            Some(ReviewOutcome::Submitted("No actions.".to_string()))
+        );
+        assert!(second.is_none());
+        assert_eq!(
+            session.terminal,
+            Some(ReviewOutcome::Submitted("No actions.".to_string()))
+        );
     }
 
     #[test]

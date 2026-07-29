@@ -1,0 +1,44 @@
+FILE: plan.html
+FORMAT: html
+
+ACTION: change
+WHERE: line 3
+LOCATOR: #plan
+CONTEXT:
+  target: "Plan First sentence. Second target. Outcome"
+  next: "First sentence. Second target."
+CHANGE: "Rename the plan."
+
+ACTION: revise-to-incorporate-feedback
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "Second target."
+  next: "Outcome"
+FEEDBACK: "Explain the target."
+
+ACTION: insert-before
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "First"
+  next: "Outcome"
+INSERT: "Before text."
+
+ACTION: insert-after
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "First sentence. Second target."
+  next: "Outcome"
+INSERT: "After text."
+
+ACTION: delete this
+WHERE: line 9
+LOCATOR: #outcome
+CONTEXT:
+  prev: "First sentence. Second target."
+  target: "Outcome"

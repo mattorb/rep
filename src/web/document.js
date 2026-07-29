@@ -451,35 +451,58 @@ export class SelectionOverlay {
         box-sizing: border-box;
         position: fixed;
       }
+      .annotation {
+        border-bottom: 3px solid;
+        box-sizing: border-box;
+        position: fixed;
+      }
+      .change { background: rgb(34 197 94 / 15%); border-color: #16a34a; }
+      .feedback { background: rgb(234 179 8 / 15%); border-color: #ca8a04; }
+      .insertBefore, .insertAfter {
+        background: rgb(14 165 233 / 13%);
+        border-color: #0284c7;
+      }
+      .strike {
+        background:
+          linear-gradient(to bottom right, transparent 47%, #dc2626 48% 52%, transparent 53%);
+        border-color: #dc2626;
+      }
     `;
     this.layer = doc.createElement("div");
     shadow.append(style, this.layer);
     this.selection = [];
   }
 
-  paint(selection, scroll = false) {
+  paint(selection, annotations = [], scroll = false) {
     this.selection = selection;
     this.layer.replaceChildren();
+    for (const slice of annotations) this.paintSlice(slice, `annotation ${slice.kind}`);
     let firstModel = null;
     for (const slice of selection) {
       const model = this.models[slice.node];
       if (!model) continue;
       firstModel ||= model;
-      const range = domRangeForSlice(model, slice.start, slice.end);
-      if (!range) continue;
-      for (const rect of range.getClientRects()) {
-        if (!rect.width && !rect.height) continue;
-        const marker = this.doc.createElement("div");
-        marker.className = "selection";
-        marker.style.left = `${rect.left}px`;
-        marker.style.top = `${rect.top}px`;
-        marker.style.width = `${rect.width}px`;
-        marker.style.height = `${rect.height}px`;
-        this.layer.append(marker);
-      }
+      this.paintSlice(slice, "selection");
     }
     if (scroll && firstModel) {
       firstModel.owner.scrollIntoView({ block: "center", inline: "nearest" });
+    }
+  }
+
+  paintSlice(slice, className) {
+    const model = this.models[slice.node];
+    if (!model) return;
+    const range = domRangeForSlice(model, slice.start, slice.end);
+    if (!range) return;
+    for (const rect of range.getClientRects()) {
+      if (!rect.width && !rect.height) continue;
+      const marker = this.doc.createElement("div");
+      marker.className = className;
+      marker.style.left = `${rect.left}px`;
+      marker.style.top = `${rect.top}px`;
+      marker.style.width = `${rect.width}px`;
+      marker.style.height = `${rect.height}px`;
+      this.layer.append(marker);
     }
   }
 }

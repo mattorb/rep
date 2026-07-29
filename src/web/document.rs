@@ -575,6 +575,8 @@ fn closest_range(ranges: impl Iterator<Item = Range<usize>>, offset: usize) -> O
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::output::render_human_output;
+    use crate::review::session::ReviewSession;
 
     fn node(text: &str) -> HtmlManifestNode {
         HtmlManifestNode {
@@ -711,5 +713,71 @@ mod tests {
         let context = document.action_context(&target);
         assert_eq!(context.previous, "First sentence.");
         assert_eq!(context.where_line, 7);
+    }
+
+    #[test]
+    fn html_emit_golden_covers_actions_units_context_and_locators() {
+        let mut heading = node("Plan");
+        heading.source_id = 0;
+        heading.source_line = 3;
+        heading.tag = "h1".to_string();
+        heading.selector = "#plan".to_string();
+        heading.heading_level = Some(1);
+        let mut target = node("First sentence. Second target.");
+        target.source_id = 2;
+        target.source_line = 6;
+        target.selector = "#target".to_string();
+        target.text_fragment = Some(2);
+        let mut outcome = node("Outcome");
+        outcome.source_id = 3;
+        outcome.source_line = 9;
+        outcome.selector = "#outcome".to_string();
+        let document = document(vec![heading, target, outcome]);
+        let mut review = ReviewSession::new(document.initial_anchor());
+
+        review.set_anchor(
+            &document,
+            SelectionAnchor::new(0, SelectionUnit::Section, 0),
+        );
+        review.add_change(
+            &document,
+            "2026-01-01T00:00:01Z".to_string(),
+            "Rename the plan.".to_string(),
+        );
+        review.set_anchor(
+            &document,
+            SelectionAnchor::new(1, SelectionUnit::Sentence, 1),
+        );
+        review.add_feedback(
+            &document,
+            "2026-01-01T00:00:02Z".to_string(),
+            "Explain the target.".to_string(),
+        );
+        review.set_anchor(&document, SelectionAnchor::new(1, SelectionUnit::Word, 0));
+        review.add_insert(
+            &document,
+            "2026-01-01T00:00:03Z".to_string(),
+            "Before text.".to_string(),
+            true,
+        );
+        review.set_anchor(&document, SelectionAnchor::new(1, SelectionUnit::Line, 0));
+        review.add_insert(
+            &document,
+            "2026-01-01T00:00:04Z".to_string(),
+            "After text.".to_string(),
+            false,
+        );
+        review.set_anchor(
+            &document,
+            SelectionAnchor::new(2, SelectionUnit::Paragraph, 0),
+        );
+        review.toggle_strike(&document, "2026-01-01T00:00:05Z".to_string());
+
+        let output =
+            render_human_output(&review.emit_model(&document, "2026-01-01T00:01:00Z".to_string()));
+        assert_eq!(
+            output,
+            include_str!("../../tests/fixtures/web/html-actions.golden.txt")
+        );
     }
 }

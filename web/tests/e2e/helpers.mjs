@@ -17,6 +17,11 @@ export async function launchRep(name) {
     stdio: ["ignore", "pipe", "pipe"],
   });
   let diagnostics = "";
+  let output = "";
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    output += chunk;
+  });
   const url = await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error(`Timed out waiting for Rep URL. stderr:\n${diagnostics}`));
@@ -35,7 +40,22 @@ export async function launchRep(name) {
       reject(new Error(`Rep exited before launch (code ${code}). stderr:\n${diagnostics}`));
     });
   });
-  return { child, diagnostics: () => diagnostics, url };
+  return {
+    child,
+    diagnostics: () => diagnostics,
+    output: () => output,
+    url,
+  };
+}
+
+export async function waitForRep(running) {
+  if (running.child.exitCode === null) await once(running.child, "exit");
+  if (running.child.exitCode !== 0) {
+    throw new Error(
+      `Rep exited with ${running.child.exitCode}. stderr:\n${running.diagnostics()}`,
+    );
+  }
+  return running.output();
 }
 
 export async function finishRep(page, running, action = "discard") {
@@ -53,11 +73,7 @@ export async function finishRep(page, running, action = "discard") {
       await exited;
     }
   }
-  if (running.child.exitCode !== 0) {
-    throw new Error(
-      `Rep exited with ${running.child.exitCode}. stderr:\n${running.diagnostics()}`,
-    );
-  }
+  await waitForRep(running);
 }
 
 export async function openPlan(page, name) {

@@ -3,7 +3,9 @@ use crate::output::{
     EmitLineAnnotation, EmitLineContext, EmitModel, EmitPayload, EmitReaction, clean_context,
 };
 use crate::review::annotation::InsertAnnotation;
-use crate::review::document::{ActionContext, CapturedTarget, ReviewDocument};
+use crate::review::document::{
+    ActionContext, CapturedTarget, DocumentFormat, ReviewDocument, SourceLocator,
+};
 use crate::review::session::ReviewSession;
 use crate::selection::model::{SelectionAnchor, SelectionUnit};
 
@@ -21,6 +23,7 @@ impl ReviewSession {
         let mut actions = Vec::new();
 
         for node_idx in self.annotations.touched_nodes() {
+            let action_start = actions.len();
             let line_context = document.node_source_context(node_idx);
 
             let changes = self
@@ -43,6 +46,7 @@ impl ReviewSession {
                         "change",
                         "CHANGE",
                         &annotation.change,
+                        annotation.created_at.clone(),
                     ));
                     EmitChange {
                         created_at: annotation.created_at,
@@ -74,6 +78,7 @@ impl ReviewSession {
                         "revise-to-incorporate-feedback",
                         "FEEDBACK",
                         &annotation.feedback,
+                        annotation.created_at.clone(),
                     ));
                     EmitFeedback {
                         created_at: annotation.created_at,
@@ -104,6 +109,7 @@ impl ReviewSession {
                                 action,
                                 "INSERT",
                                 &annotation.text,
+                                annotation.created_at.clone(),
                             ));
                             EmitInsert {
                                 created_at: annotation.created_at,
@@ -137,6 +143,10 @@ impl ReviewSession {
                                 "delete this",
                                 document.action_context(&target),
                                 None,
+                                self.annotations
+                                    .strike_created_at
+                                    .get(&(node_idx, unit, unit_idx))
+                                    .cloned(),
                             ));
                             EmitReaction {
                                 kind: "strike".to_string(),
@@ -163,10 +173,19 @@ impl ReviewSession {
                 inserts_after,
                 reactions,
             });
+            if document.format() == DocumentFormat::Html {
+                actions[action_start..].sort_by(|left, right| {
+                    left.sort_key
+                        .as_deref()
+                        .unwrap_or("~")
+                        .cmp(right.sort_key.as_deref().unwrap_or("~"))
+                });
+            }
         }
 
         EmitModel {
             source_file: document.source_path().display().to_string(),
+            format: (document.format() == DocumentFormat::Html).then(|| "html".to_string()),
             generated_at,
             keymap: EmitKeymap::rep_defaults(),
             annotations,
@@ -193,6 +212,7 @@ fn annotation_action(
     action: &str,
     payload_key: &str,
     payload_text: &str,
+    created_at: String,
 ) -> EmitAction {
     action_model(
         action,
@@ -201,21 +221,44 @@ fn annotation_action(
             key: payload_key.to_string(),
             text: clean_context(payload_text, PAYLOAD_MAX_CHARS),
         }),
+        Some(created_at),
     )
 }
 
-fn action_model(action: &str, context: ActionContext, payload: Option<EmitPayload>) -> EmitAction {
+fn action_model(
+    action: &str,
+    context: ActionContext,
+    payload: Option<EmitPayload>,
+    sort_key: Option<String>,
+) -> EmitAction {
     let previous = clean_context(&context.previous, CONTEXT_MAX_CHARS);
     let target = clean_context(&context.target, TARGET_MAX_CHARS);
     let next = clean_context(&context.next, CONTEXT_MAX_CHARS);
     EmitAction {
         action: action.to_string(),
         where_line: context.where_line + 1,
+        locator: locator_text(&context.locator),
         context: EmitActionContext {
             previous_line: (!previous.is_empty()).then_some(previous),
             target,
             next_line: (!next.is_empty()).then_some(next),
         },
         payload,
+        sort_key,
     }
+}
+
+fn locator_text(locator: &SourceLocator) -> Option<String> {
+    let SourceLocator::Html {
+        selector,
+        text_fragment,
+        ..
+    } = locator
+    else {
+        return None;
+    };
+    Some(match text_fragment {
+        Some(fragment) => format!("{selector}::text-fragment({fragment})"),
+        None => selector.clone(),
+    })
 }

@@ -3,6 +3,7 @@
 #[derive(Debug)]
 pub struct EmitModel {
     pub source_file: String,
+    pub format: Option<String>,
     pub generated_at: String,
     pub keymap: EmitKeymap,
     pub annotations: Vec<EmitLineAnnotation>,
@@ -241,8 +242,10 @@ pub struct EmitAction {
     pub action: String,
     /// 1-based source line number for human output.
     pub where_line: usize,
+    pub locator: Option<String>,
     pub context: EmitActionContext,
     pub payload: Option<EmitPayload>,
+    pub(crate) sort_key: Option<String>,
 }
 
 #[derive(Debug)]
@@ -263,6 +266,9 @@ pub fn render_human_output(model: &EmitModel) -> String {
 
     let mut out = String::new();
     let _ = writeln!(out, "FILE: {}", model.source_file);
+    if let Some(format) = &model.format {
+        let _ = writeln!(out, "FORMAT: {format}");
+    }
 
     if model.actions.is_empty() {
         out.push_str("\nNo actions.\n");
@@ -273,6 +279,9 @@ pub fn render_human_output(model: &EmitModel) -> String {
         out.push('\n');
         let _ = writeln!(out, "ACTION: {}", action.action);
         let _ = writeln!(out, "WHERE: line {}", action.where_line);
+        if let Some(locator) = &action.locator {
+            let _ = writeln!(out, "LOCATOR: {locator}");
+        }
         out.push_str("CONTEXT:\n");
         if let Some(previous_line) = &action.context.previous_line {
             let _ = writeln!(out, "  prev: \"{previous_line}\"");
@@ -347,6 +356,7 @@ mod tests {
     fn render_human_output_reports_no_actions() {
         let model = EmitModel {
             source_file: "input.md".to_string(),
+            format: None,
             generated_at: "2026-01-01T00:00:00Z".to_string(),
             keymap: EmitKeymap::rep_defaults(),
             annotations: Vec::new(),
@@ -385,12 +395,14 @@ mod tests {
     fn render_human_output_formats_action_blocks_from_model() {
         let model = EmitModel {
             source_file: "input.md".to_string(),
+            format: None,
             generated_at: "2026-01-01T00:00:00Z".to_string(),
             keymap: EmitKeymap::rep_defaults(),
             annotations: Vec::new(),
             actions: vec![EmitAction {
                 action: "change".to_string(),
                 where_line: 12,
+                locator: None,
                 context: EmitActionContext {
                     previous_line: Some("Before.".to_string()),
                     target: "Target.".to_string(),
@@ -400,6 +412,7 @@ mod tests {
                     key: "CHANGE".to_string(),
                     text: "Rewrite it.".to_string(),
                 }),
+                sort_key: None,
             }],
         };
 
@@ -415,6 +428,43 @@ mod tests {
                 "  target: \"Target.\"\n",
                 "  next: \"After.\"\n",
                 "CHANGE: \"Rewrite it.\"\n",
+            )
+        );
+    }
+
+    #[test]
+    fn html_output_adds_format_and_locator_without_changing_action_shape() {
+        let model = EmitModel {
+            source_file: "input.html".to_string(),
+            format: Some("html".to_string()),
+            generated_at: "2026-01-01T00:00:00Z".to_string(),
+            keymap: EmitKeymap::rep_defaults(),
+            annotations: Vec::new(),
+            actions: vec![EmitAction {
+                action: "delete this".to_string(),
+                where_line: 4,
+                locator: Some("#gate::text-fragment(2)".to_string()),
+                context: EmitActionContext {
+                    previous_line: None,
+                    target: "Remove this.".to_string(),
+                    next_line: None,
+                },
+                payload: None,
+                sort_key: None,
+            }],
+        };
+
+        assert_eq!(
+            render_human_output(&model),
+            concat!(
+                "FILE: input.html\n",
+                "FORMAT: html\n",
+                "\n",
+                "ACTION: delete this\n",
+                "WHERE: line 4\n",
+                "LOCATOR: #gate::text-fragment(2)\n",
+                "CONTEXT:\n",
+                "  target: \"Remove this.\"\n",
             )
         );
     }

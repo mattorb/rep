@@ -272,7 +272,9 @@ impl App {
     }
 
     pub(super) fn toggle_strike(&mut self) {
-        self.status = self.review.toggle_strike(&self.view);
+        self.status = self
+            .review
+            .toggle_strike(&self.view, Utc::now().to_rfc3339());
     }
 
     pub(super) fn reveal_links_for_current_sentence(&mut self) -> bool {

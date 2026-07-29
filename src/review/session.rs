@@ -321,7 +321,11 @@ impl ReviewSession {
         Some(format!("Feedback updated on node {}.", node_idx + 1))
     }
 
-    pub(crate) fn toggle_strike(&mut self, document: &impl ReviewDocument) -> String {
+    pub(crate) fn toggle_strike(
+        &mut self,
+        document: &impl ReviewDocument,
+        created_at: String,
+    ) -> String {
         if let Some(status) = self.remove_selected_annotation(document) {
             return status;
         }
@@ -339,6 +343,11 @@ impl ReviewSession {
         let entry = self.annotations.strikes.entry(anchor.node_idx).or_default();
         if entry.contains(&key) {
             entry.remove(&key);
+            self.annotations.strike_created_at.remove(&(
+                anchor.node_idx,
+                anchor.unit,
+                anchor.unit_idx,
+            ));
             if entry.is_empty() {
                 self.annotations.strikes.remove(&anchor.node_idx);
             }
@@ -350,6 +359,9 @@ impl ReviewSession {
             )
         } else {
             entry.insert(key);
+            self.annotations
+                .strike_created_at
+                .insert((anchor.node_idx, anchor.unit, anchor.unit_idx), created_at);
             format!(
                 "Struck node {} ({} {}).",
                 anchor.node_idx + 1,

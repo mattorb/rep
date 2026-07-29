@@ -44,6 +44,7 @@ pub(crate) struct AnnotationStore {
     pub(crate) inserts_before: BTreeMap<usize, Vec<InsertAnnotation>>,
     pub(crate) inserts_after: BTreeMap<usize, Vec<InsertAnnotation>>,
     pub(crate) strikes: BTreeMap<usize, BTreeSet<(SelectionUnit, usize)>>,
+    pub(crate) strike_created_at: BTreeMap<(usize, SelectionUnit, usize), String>,
 }
 
 impl AnnotationStore {
