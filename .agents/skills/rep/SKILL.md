@@ -1,107 +1,105 @@
 ---
 name: rep
-description: Run rep against a Markdown plan file, interpret the emitted action list, and apply the requested edits to the plan in the same turn. Use when a user asks to run rep on a plan or roadmap file and then update that file based on rep output.
+description: Run rep against a Markdown or local HTML plan, capture the fresh review action list, and apply the requested edits to that plan in the same turn. Use when a user asks to review, annotate, or update a plan or roadmap through rep; retain the Markdown TUI and route .html/.htm plans to the browser UI.
 ---
 
 # Rep Plan Updater
 
-Run rep, capture fresh output, and apply requested edits directly to the plan file.
+Run rep, wait for the interactive review to finish, then apply only the newly
+captured actions to the source plan.
 
 ## Non-Negotiable Rules
 
-1. Execute a fresh rep run every invocation; never reuse prior conversation output.
-2. Do not edit any file unless the current turn produced a new `REP_CAPTURE_FILE=...` path.
-3. Parse only that capture file for actions.
-4. If rep fails to launch or exits non-zero, stop and report the failure instead of guessing.
-5. For tool execution, launch `run_rep_and_capture.sh` without forcing PTY so rep can trigger its own fallback launcher (tmux/new terminal window) immediately, then poll.
-6. Treat long periods of no output as expected while the user is actively editing in rep's interactive TUI; do not assume the process is hung.
-7. Keep polling until the launched rep process exits and prints `REP_CAPTURE_FILE=...`; do not stop early just because there is no stdout/stderr activity.
-8. Never manipulate spawned tmux panes/windows/sessions (no `tmux send-keys`, no pane/window kill, no forced close) to make rep exit.
-9. Do not inspect tmux panes to drive rep control flow; waiting/polling is the only allowed behavior while rep is open.
-10. After launching `run_rep_and_capture.sh`, do not end the turn with a waiting-only message; continue polling the same process until it exits and a capture file is available (or the run fails).
-11. If polling eventually returns command output that includes `REP_CAPTURE_FILE=...`, parse/apply from that capture file in the same turn immediately.
-12. In the final assistant response, include the full captured rep output from that `REP_CAPTURE_FILE` in a fenced code block (not just a summary).
+1. Execute a fresh run for every invocation. Never reuse prior output.
+2. Resolve the source as Markdown or HTML before launch:
+   - `.html` and `.htm`, case-insensitively: HTML browser review.
+   - `.md`, `.markdown`, or an extensionless filename: Markdown TUI review.
+   - any other extension or an ambiguous path: stop before launch.
+3. Do not edit unless this turn produces a new `REP_CAPTURE_FILE=...` path.
+4. Parse actions only from that capture file.
+5. Launch `run_rep_and_capture.sh` without forcing a PTY. Rep owns terminal or
+   browser launch and fallback behavior.
+6. Keep polling indefinitely until the foreground process exits. Quiet output
+   means the user is still reviewing; it is not evidence of a hang.
+7. Never inspect, drive, kill, or send keys to rep's tmux panes, windows,
+   browser, or server.
+8. If launch or rep exits non-zero, stop and report the failure.
+9. Treat an empty capture as silent discard and make no edits. Treat
+   `No actions.` as a completed review with no edits.
+10. Include the capture path and the full captured output verbatim in the
+    final response. For silent discard, explicitly state that the capture was
+    empty.
 
 ## Workflow
 
-1. Resolve the plan file path from the user request.
-2. Run (default/non-PTY):
-   - `scripts/run_rep_and_capture.sh <plan-file>`
-   - Use short initial `yield_time_ms` (around 200-500ms) so the command starts immediately.
-   - Continue polling until completion, even if repeated polls return no output. This usually means the user is still working in the interactive TUI.
-   - The user exits rep when finished; do not attempt to close rep from tmux or by sending synthetic keys.
-   - Do not stop polling after an arbitrary number of quiet polls; the run is not complete until the process exits.
-3. Read the emitted `REP_CAPTURE_FILE` path.
-4. Parse action blocks from that capture file:
-   - If file contains `No actions.`, stop and report no edits.
-   - Otherwise process each `ACTION:` block in order.
-5. Apply edits to the same plan file.
-6. Re-open and sanity-check the modified file to confirm edits landed correctly.
-7. In the response, include:
-   - the capture file path used for parsing
-   - the full captured rep output (verbatim) from the capture file
+1. Resolve the plan path.
+2. From this skill directory, run:
+   - Markdown: `scripts/run_rep_and_capture.sh <plan-file>`
+   - HTML: `scripts/run_rep_and_capture.sh <plan-file> --web`
+   - Use `scripts/plan_mode.sh <plan-file>` when deterministic format routing
+     is useful.
+3. Start with a short yield (about 200–500 ms), then poll the same process
+   until it exits and emits `REP_CAPTURE_FILE=...`.
+4. Read only that capture:
+   - empty: report silent discard;
+   - `No actions.`: report no edits;
+   - otherwise process every `ACTION:` block in emitted order.
+5. Apply edits to the original plan and re-open it to verify structure and
+   requested visible text.
+6. Return the capture path and full captured output.
 
-## Action Handling Rules
+## Common Action Semantics
 
-Use these rules for each block from rep output.
+- Treat `WHERE: line N` as a hint, never as sole identity.
+- Confirm `CONTEXT.target`; use `prev` and `next` to disambiguate.
+- `change`: replace only the target with `CHANGE`.
+- `revise-to-incorporate-feedback`: treat `FEEDBACK` as intent, not literal
+  replacement text.
+- `insert-before` / `insert-after`: insert `INSERT` at the requested side of
+  the target while preserving the surrounding structure.
+- `delete this`: remove only the selected unit.
+- Stop and ask when the locator and context do not identify one source
+  location.
 
-### `ACTION: change`
+## Markdown Rules
 
-1. Use `WHERE` line number as a hint, not the sole source of truth.
-2. Locate `CONTEXT.target` sentence text; if line hint is stale, search nearby lines.
-3. Replace only that targeted sentence/text span with the `CHANGE` value.
-4. Preserve surrounding Markdown structure, indentation, and list formatting.
-5. If target text cannot be located unambiguously, stop and ask before risky edits.
+Locate the exact target near the line hint, preserve indentation, list
+markers, numbering, fences, and surrounding Markdown, and keep neighboring
+context coherent. For section actions, respect the heading boundary described
+by the captured target and context.
 
-### `ACTION: revise-to-incorporate-feedback`
+## HTML Rules
 
-1. Use `WHERE` line number as a hint, not the sole source of truth.
-2. Locate `CONTEXT.target` sentence text; if line hint is stale, search nearby lines.
-3. Treat `FEEDBACK` as intent, not a literal replacement string.
-4. Revise the targeted sentence/text span to incorporate that feedback while preserving local structure and numbering.
-5. Keep nearby context coherent (`prev`/`next`) and preserve Markdown/list formatting.
-6. If the intended revision is ambiguous, stop and ask before risky edits.
+HTML blocks contain `FORMAT: html` and `LOCATOR:`.
 
-### `ACTION: insert-before`
-
-1. Use `WHERE` line number as a hint, not the sole source of truth.
-2. Locate `CONTEXT.target` sentence text; if line hint is stale, search nearby lines.
-3. Insert the `INSERT` value immediately before the targeted sentence/text span.
-4. Match the surrounding Markdown structure, indentation, and list formatting so the insertion reads naturally in context.
-5. If target text cannot be located unambiguously, stop and ask before risky edits.
-
-### `ACTION: insert-after`
-
-1. Use `WHERE` line number as a hint, not the sole source of truth.
-2. Locate `CONTEXT.target` sentence text; if line hint is stale, search nearby lines.
-3. Insert the `INSERT` value immediately after the targeted sentence/text span.
-4. Match the surrounding Markdown structure, indentation, and list formatting so the insertion reads naturally in context.
-5. If target text cannot be located unambiguously, stop and ask before risky edits.
-
-### `ACTION: delete this`
-
-1. Use `WHERE` line number as a hint, not the sole source of truth.
-2. Prioritize `CONTEXT.target` exact text match on that line.
-3. If line hint is stale, search nearby lines for the same `target` text.
-4. Remove only the targeted sentence/text span.
-5. Preserve surrounding Markdown structure and list formatting.
-
-If target text cannot be located unambiguously, stop and ask the user before making a risky edit.
+1. Resolve `LOCATOR` against the original HTML first:
+   - prefer its unique original `#id`;
+   - otherwise follow the tag/`:nth-of-type` path;
+   - use `::text-fragment(N)` to identify the emitted visible fragment when
+     one element owns several fragments.
+2. Confirm the exact normalized visible `CONTEXT.target`. Decode entities and
+   use neighboring visible context to disambiguate repeated text.
+3. Preserve indentation, element structure, attributes, CSS classes, and
+   unrelated inline markup.
+4. For a word or sentence spanning inline elements, edit the smallest
+   containing element necessary. Retain meaningful emphasis, link, code, and
+   other inline markup when compatible with the requested result.
+5. Delete a paragraph by removing only its owning review fragment or element.
+   Delete a section from its heading through the emitted equal-or-shallower
+   boundary, never through a nested or following sibling section.
+6. Insert structurally valid HTML for the container: list content remains in
+   `li`, and table content remains in the appropriate cell/row structure.
+7. Never search for or add transient `data-rep-*` IDs; they exist only in the
+   served review copy.
+8. If locator, target, and neighboring context do not resolve uniquely, stop
+   and ask instead of guessing.
 
 ## Runner Scripts
 
-Use these scripts from this skill directory:
+- `scripts/run_rep_and_capture.sh`: required foreground runner and fresh
+  capture writer; accepts extra rep arguments after the plan path.
+- `scripts/plan_mode.sh`: deterministic Markdown/HTML/unsupported classifier.
+- `scripts/rep.sh`: executable resolver for direct/manual debugging.
 
-- `scripts/run_rep_and_capture.sh` for normal operation (required by this skill)
-- `scripts/rep.sh` for direct/manual debugging
-
-`rep.sh` resolves rep with this precedence:
-
-1. `REP_BIN` environment variable (if executable)
-2. nearest `target/release/rep` or `target/debug/rep`
-3. `rep` found on `PATH`
-4. `cargo run -- <plan-file>` in the nearest Cargo package named `rep`
-
-Examples:
-
-- `scripts/run_rep_and_capture.sh OPENSOURCE_PLAN.md`
+`rep.sh` resolves `REP_BIN`, nearby release/debug binaries, `rep` on `PATH`,
+then a nearby Cargo package named `rep`.
