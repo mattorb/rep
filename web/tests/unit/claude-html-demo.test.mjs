@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   extractReviewUrl,
+  validateOriginalHtml,
   validateRevisedHtml,
 } from "../record-claude-html-demo.mjs";
 
@@ -38,7 +39,21 @@ test("Claude HTML demo accepts only loopback Rep review URLs", () => {
 });
 
 test("Claude HTML demo verifies both actions and preserved layout structure", () => {
+  assert.doesNotThrow(() => validateOriginalHtml(original));
+  assert.doesNotThrow(() =>
+    validateOriginalHtml(
+      original
+        .replace("<!doctype html>", "<!DOCTYPE html>")
+        .replace('class="page"', "class='page'")
+        .replace('id="ownership"', "id='ownership'")
+        .replace('id="launch-gate"', "id='launch-gate'"),
+    ),
+  );
   assert.doesNotThrow(() => validateRevisedHtml(original, revised));
+  assert.throws(
+    () => validateOriginalHtml("<html></html>"),
+    /Invalid Claude-created plan/,
+  );
   assert.throws(
     () => validateRevisedHtml(original, original),
     /did not change the plan.*launch-gate change.*ownership feedback/s,

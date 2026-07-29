@@ -70,15 +70,18 @@ The built-in `rep --demo` remains Markdown/TUI-only. An HTML example lives at
 `scripts/record-web-demo.sh` generates a browser demo video when development
 dependencies and Chromium are installed.
 
-For the complete agent loop, `scripts/record-claude-rep-html-demo.sh` records a
-real Claude Code session creating an HTML plan, invoking the bundled `/rep`
-skill, waiting while Rep collects browser annotations, applying those actions
-to the source, and showing the revised plan. It requires an installed,
-authenticated Claude Code CLI, tmux, Chromium, and the locked web dependencies;
-its deterministic source fixture and browser navigation keep the visual result
-repeatable without mocking Claude or Rep.
-The generated recording is
-[`docs/rep-claude-html-skill-demo.webm`](docs/rep-claude-html-skill-demo.webm).
+For the complete agent loop, `scripts/record-claude-rep-html-demo.sh` records
+the actual interactive Claude Code terminal through VHS while Playwright
+records the live Rep browser review. The browser recording is timestamped and
+overlaid on the still-active Claude terminal, then Claude's unmodified terminal
+session remains visible while it applies the fresh review actions to the HTML
+it created. No synthetic terminal screen or fixture replacement is used.
+
+The recorder requires an installed, authenticated Claude Code CLI and the
+locked web dependencies; pinned VHS, tmux, ttyd, and ffmpeg tooling is resolved
+through mise/pkgx. It produces
+[`docs/rep-claude-html-skill-demo.mp4`](docs/rep-claude-html-skill-demo.mp4)
+and [`docs/rep-claude-html-skill-demo.gif`](docs/rep-claude-html-skill-demo.gif).
 
 ## HTML rendering and safety
 
