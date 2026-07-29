@@ -31,6 +31,7 @@ pub(crate) struct HtmlManifestNode {
     pub(crate) source_id: u64,
     pub(crate) source_line: usize,
     pub(crate) tag: String,
+    pub(crate) element_summary: String,
     pub(crate) text: String,
     pub(crate) logical_lines: Vec<ScalarRange>,
     pub(crate) selector: String,
@@ -443,12 +444,19 @@ impl ReviewDocument for HtmlReviewDocument {
             .nodes
             .iter()
             .enumerate()
-            .filter_map(|(node_idx, node)| {
-                node.heading_level.map(|level| OutlineRow {
+            .map(|(node_idx, node)| {
+                let mut preview = node.text.chars().take(96).collect::<String>();
+                if node.text.chars().count() > 96 {
+                    preview.push('…');
+                }
+                OutlineRow {
                     node_idx,
-                    level,
-                    text: node.text.clone(),
-                })
+                    level: node.heading_level.unwrap_or(1),
+                    text: format!(
+                        "{} · line {} · {}",
+                        node.element_summary, node.source_line, preview
+                    ),
+                }
             })
             .collect()
     }
@@ -490,6 +498,12 @@ fn validate_manifest(manifest: &HtmlManifest) -> Result<()> {
                 .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
         {
             bail!("manifest node {index} has an invalid tag");
+        }
+        if node.element_summary.is_empty()
+            || node.element_summary.len() > 4096
+            || node.element_summary.chars().any(char::is_control)
+        {
+            bail!("manifest node {index} has an invalid elementSummary");
         }
         if node.selector.is_empty() || node.selector.len() > MAX_SELECTOR_BYTES {
             bail!("manifest node {index} has an invalid selector");
@@ -583,6 +597,7 @@ mod tests {
             source_id: 1,
             source_line: 3,
             tag: "p".to_string(),
+            element_summary: "p#plan.review".to_string(),
             text: text.to_string(),
             logical_lines: vec![ScalarRange {
                 start: 0,
@@ -701,6 +716,7 @@ mod tests {
         let mut second = node("Second sentence.");
         second.source_id = 2;
         second.source_line = 8;
+        second.element_summary = "p#second.important".to_string();
         second.selector = "body > p:nth-of-type(2)".to_string();
         let document = document(vec![first, second]);
         let anchor = document.initial_anchor();
@@ -713,6 +729,12 @@ mod tests {
         let context = document.action_context(&target);
         assert_eq!(context.previous, "First sentence.");
         assert_eq!(context.where_line, 7);
+        let outline = document.node_outline();
+        assert_eq!(outline.len(), 2);
+        assert_eq!(
+            outline[1].text,
+            "p#second.important · line 8 · Second sentence."
+        );
     }
 
     #[test]
@@ -779,5 +801,104 @@ mod tests {
             output,
             include_str!("../../tests/fixtures/web/html-actions.golden.txt")
         );
+    }
+
+    #[test]
+    fn html_emit_snapshot_covers_every_unit_and_action_pair() {
+        let mut heading = node("Plan");
+        heading.source_id = 0;
+        heading.source_line = 3;
+        heading.tag = "h1".to_string();
+        heading.element_summary = "h1#plan".to_string();
+        heading.selector = "#plan".to_string();
+        heading.heading_level = Some(1);
+        let mut target = node("First sentence. Second target.");
+        target.source_id = 2;
+        target.source_line = 6;
+        target.element_summary = "p#target.review".to_string();
+        target.selector = "#target".to_string();
+        target.text_fragment = Some(2);
+        let mut outcome = node("Outcome");
+        outcome.source_id = 3;
+        outcome.source_line = 9;
+        outcome.element_summary = "h2#outcome".to_string();
+        outcome.selector = "#outcome".to_string();
+        outcome.tag = "h2".to_string();
+        outcome.heading_level = Some(2);
+        let document = document(vec![heading, target, outcome]);
+        let units = [
+            (
+                "section",
+                SelectionAnchor::new(0, SelectionUnit::Section, 0),
+            ),
+            (
+                "paragraph",
+                SelectionAnchor::new(1, SelectionUnit::Paragraph, 0),
+            ),
+            ("line", SelectionAnchor::new(1, SelectionUnit::Line, 0)),
+            (
+                "sentence",
+                SelectionAnchor::new(1, SelectionUnit::Sentence, 1),
+            ),
+            ("word", SelectionAnchor::new(1, SelectionUnit::Word, 1)),
+        ];
+        let actions = [
+            "change",
+            "feedback",
+            "insert-before",
+            "insert-after",
+            "delete",
+        ];
+        let mut matrix = String::new();
+
+        for (unit_name, anchor) in units {
+            for action in actions {
+                let mut review = ReviewSession::new(document.initial_anchor());
+                review.set_anchor(&document, anchor);
+                match action {
+                    "change" => {
+                        review.add_change(
+                            &document,
+                            "2026-01-01T00:00:01Z".to_string(),
+                            "Change payload.".to_string(),
+                        );
+                    }
+                    "feedback" => {
+                        review.add_feedback(
+                            &document,
+                            "2026-01-01T00:00:01Z".to_string(),
+                            "Feedback payload.".to_string(),
+                        );
+                    }
+                    "insert-before" => {
+                        review.add_insert(
+                            &document,
+                            "2026-01-01T00:00:01Z".to_string(),
+                            "Insert payload.".to_string(),
+                            true,
+                        );
+                    }
+                    "insert-after" => {
+                        review.add_insert(
+                            &document,
+                            "2026-01-01T00:00:01Z".to_string(),
+                            "Insert payload.".to_string(),
+                            false,
+                        );
+                    }
+                    "delete" => {
+                        review.toggle_strike(&document, "2026-01-01T00:00:01Z".to_string());
+                    }
+                    _ => unreachable!(),
+                }
+                matrix.push_str(&format!("## {unit_name}/{action}\n"));
+                matrix.push_str(&render_human_output(
+                    &review.emit_model(&document, "2026-01-01T00:01:00Z".to_string()),
+                ));
+                matrix.push('\n');
+            }
+        }
+
+        insta::assert_snapshot!("html_emit_matrix", matrix);
     }
 }

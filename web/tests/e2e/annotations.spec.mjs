@@ -35,16 +35,25 @@ test("@annotations search, help, outline, links, and annotation jumps use the sh
     await page.keyboard.press("O");
     await expect(page.locator("#modal")).toBeVisible();
     await expect(page.locator("#modal-content")).toContainText("guide.html");
-    await page.keyboard.press("Escape");
+    await expect(page.locator("#modal-content")).toContainText(
+      /guide\.html → http:\/\/127\.0\.0\.1:/,
+    );
+    await page.keyboard.press("O");
+    await expect(page.locator("#modal")).not.toBeVisible();
 
     await page.keyboard.press("I");
     await expect(page.locator("#modal-content")).toContainText("Delivery Plan");
     await expect(page.locator("#modal-content")).toContainText("Verification");
-    await page.keyboard.press("Escape");
+    await expect(page.locator("#modal-content")).toContainText("h1#delivery");
+    await expect(page.locator("#modal-content")).toContainText("line 15");
+    await expect(page.locator("#modal-content")).toContainText("p");
+    await page.keyboard.press("I");
+    await expect(page.locator("#modal")).not.toBeVisible();
 
     await page.keyboard.press("?");
     await expect(page.locator("#modal-content")).toContainText("change / feedback");
-    await page.keyboard.press("Escape");
+    await page.keyboard.press("?");
+    await expect(page.locator("#modal")).not.toBeVisible();
 
     await saveModal(page, "c", "Make the compatibility promise explicit.");
     expect((await state(page)).annotationCount).toBe(1);
@@ -69,6 +78,24 @@ test("@annotations search, help, outline, links, and annotation jumps use the sh
           ),
       )
       .toBeGreaterThanOrEqual(2);
+    const annotationPresentation = await frame
+      .locator("[data-rep-overlay]")
+      .evaluate((host) => {
+        const annotations = Array.from(
+          host.shadowRoot.querySelectorAll(".annotation"),
+        );
+        return {
+          backgrounds: annotations.map(
+            (annotation) => getComputedStyle(annotation).backgroundImage,
+          ),
+          badges: Array.from(
+            host.shadowRoot.querySelectorAll(".annotation .badge"),
+            (badge) => badge.textContent,
+          ),
+        };
+      });
+    expect(annotationPresentation.badges).toEqual(expect.arrayContaining(["C", "F"]));
+    expect(new Set(annotationPresentation.backgrounds).size).toBeGreaterThan(1);
 
     const beforeReload = await state(page);
     await page.reload();
@@ -85,7 +112,21 @@ test("@annotations search, help, outline, links, and annotation jumps use the sh
 test("@annotations create, edit, clear, strike, copy, and discard confirmation work", async ({
   page,
   context,
+  browserName,
 }) => {
+  if (browserName !== "chromium") {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText(text) {
+            window.__repClipboardText = text;
+            return Promise.resolve();
+          },
+        },
+      });
+    });
+  }
   const { running } = await openPlan(page, "unicode.html");
   try {
     await saveModal(page, "c", "Use a clearer heading.");
@@ -115,14 +156,18 @@ test("@annotations create, edit, clear, strike, copy, and discard confirmation w
       )
       .toBe(true);
 
-    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
-      origin: new URL(page.url()).origin,
-    });
+    if (browserName === "chromium") {
+      await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: new URL(page.url()).origin,
+      });
+    }
     await page.keyboard.press("r");
     await expect(page.locator("#status")).toContainText("Copied");
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
-      "FORMAT: html",
-    );
+    const copied = await page.evaluate((usesSystemClipboard) => {
+      if (usesSystemClipboard) return navigator.clipboard.readText();
+      return window.__repClipboardText;
+    }, browserName === "chromium");
+    expect(copied).toContain("FORMAT: html");
 
     await page.locator("#discard").click();
     await expect(page.locator("#modal")).toBeVisible();
@@ -135,6 +180,33 @@ test("@annotations create, edit, clear, strike, copy, and discard confirmation w
     await finishRep(page, running);
   }
   expect(running.output()).toBe("");
+});
+
+test("@annotations denied clipboard access exposes selectable output fallback", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText() {
+          return Promise.reject(new DOMException("denied", "NotAllowedError"));
+        },
+      },
+    });
+  });
+  const { running } = await openPlan(page, "semantic.html");
+  try {
+    await saveModal(page, "c", "Use explicit release criteria.");
+    await page.keyboard.press("r");
+    await expect(page.locator("#modal")).toBeVisible();
+    await expect(page.locator("#modal-title")).toHaveText("Copy action output");
+    await expect(page.locator(".copy-output")).toHaveValue(/FORMAT: html/);
+    await expect(page.locator("#modal-confirm")).toHaveText("Copy");
+    await expect(page.locator(".copy-output")).toHaveAttribute("readonly", "");
+  } finally {
+    await finishRep(page, running);
+  }
 });
 
 test("@annotations finish emits one HTML action protocol and closes the listener", async ({

@@ -113,6 +113,15 @@ export function stableSelector(element, doc = element.ownerDocument) {
   return parts.join(" > ");
 }
 
+export function elementSummary(element) {
+  const id = element.id ? `#${element.id}` : "";
+  const classes = Array.from(element.classList || [])
+    .slice(0, 8)
+    .map((name) => `.${name}`)
+    .join("");
+  return `${element.localName}${id}${classes}`.slice(0, 4096);
+}
+
 function elementIsVisible(element, view) {
   for (let current = element; current; current = current.parentElement) {
     if (current.hidden || current.localName === "template") return false;
@@ -178,7 +187,14 @@ function originalLink(node, owner) {
     node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
   const anchor = element?.closest("a,area");
   if (!anchor || !owner.contains(anchor)) return null;
-  return anchor.getAttribute("data-rep-original-href");
+  const original = anchor.getAttribute("data-rep-original-href");
+  if (!original) return null;
+  try {
+    const resolved = new URL(original, owner.ownerDocument.baseURI).href;
+    return resolved === original ? original : `${original} → ${resolved}`;
+  } catch {
+    return original;
+  }
 }
 
 function orderedListMetadata(owner, listIds) {
@@ -300,6 +316,7 @@ export function extractDocument(doc) {
         sourceId: source.sourceId,
         sourceLine: source.sourceLine,
         tag: group.owner.localName,
+        elementSummary: elementSummary(group.owner),
         text: group.text,
         logicalLines: logicalLineRanges(group.text),
         selector: stableSelector(group.owner, doc),
@@ -456,16 +473,55 @@ export class SelectionOverlay {
         box-sizing: border-box;
         position: fixed;
       }
-      .change { background: rgb(34 197 94 / 15%); border-color: #16a34a; }
-      .feedback { background: rgb(234 179 8 / 15%); border-color: #ca8a04; }
-      .insertBefore, .insertAfter {
-        background: rgb(14 165 233 / 13%);
+      .change {
+        background: repeating-linear-gradient(
+          45deg,
+          rgb(34 197 94 / 18%) 0 3px,
+          transparent 3px 7px
+        );
+        border-color: #16a34a;
+      }
+      .feedback {
+        background: radial-gradient(circle, rgb(202 138 4 / 30%) 1px, transparent 2px)
+          0 0 / 7px 7px;
+        border-color: #ca8a04;
+      }
+      .insertBefore {
+        background: repeating-linear-gradient(
+          90deg,
+          rgb(14 165 233 / 19%) 0 2px,
+          transparent 2px 7px
+        );
         border-color: #0284c7;
+      }
+      .insertAfter {
+        background: repeating-linear-gradient(
+          0deg,
+          rgb(14 165 233 / 19%) 0 2px,
+          transparent 2px 7px
+        );
+        border-color: #0369a1;
       }
       .strike {
         background:
           linear-gradient(to bottom right, transparent 47%, #dc2626 48% 52%, transparent 53%);
         border-color: #dc2626;
+      }
+      .badge {
+        align-items: center;
+        background: Canvas;
+        border: 1px solid currentColor;
+        border-radius: 999px;
+        color: CanvasText;
+        display: flex;
+        font: 700 9px/1 ui-sans-serif, system-ui, sans-serif;
+        height: 14px;
+        justify-content: center;
+        left: 0;
+        min-width: 14px;
+        padding: 1px 3px;
+        position: absolute;
+        top: -15px;
       }
     `;
     this.layer = doc.createElement("div");
@@ -475,26 +531,40 @@ export class SelectionOverlay {
 
   paint(selection, annotations = [], scroll = false) {
     this.selection = selection;
-    this.layer.replaceChildren();
-    for (const slice of annotations) this.paintSlice(slice, `annotation ${slice.kind}`);
-    let firstModel = null;
-    for (const slice of selection) {
-      const model = this.models[slice.node];
-      if (!model) continue;
-      firstModel ||= model;
-      this.paintSlice(slice, "selection");
-    }
+    const firstModel = selection
+      .map((slice) => this.models[slice.node])
+      .find(Boolean);
     if (scroll && firstModel) {
       firstModel.owner.scrollIntoView({ block: "center", inline: "nearest" });
     }
+    this.layer.replaceChildren();
+    const badges = {
+      change: "C",
+      feedback: "F",
+      insertBefore: "B",
+      insertAfter: "A",
+      strike: "×",
+    };
+    for (const slice of annotations) {
+      this.paintSlice(
+        slice,
+        `annotation ${slice.kind}`,
+        slice.first ? badges[slice.kind] : null,
+      );
+    }
+    for (const slice of selection) {
+      const model = this.models[slice.node];
+      if (!model) continue;
+      this.paintSlice(slice, "selection");
+    }
   }
 
-  paintSlice(slice, className) {
+  paintSlice(slice, className, badge = null) {
     const model = this.models[slice.node];
     if (!model) return;
     const range = domRangeForSlice(model, slice.start, slice.end);
     if (!range) return;
-    for (const rect of range.getClientRects()) {
+    for (const [index, rect] of Array.from(range.getClientRects()).entries()) {
       if (!rect.width && !rect.height) continue;
       const marker = this.doc.createElement("div");
       marker.className = className;
@@ -502,6 +572,12 @@ export class SelectionOverlay {
       marker.style.top = `${rect.top}px`;
       marker.style.width = `${rect.width}px`;
       marker.style.height = `${rect.height}px`;
+      if (badge && index === 0) {
+        const label = this.doc.createElement("span");
+        label.className = "badge";
+        label.textContent = badge;
+        marker.append(label);
+      }
       this.layer.append(marker);
     }
   }

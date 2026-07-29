@@ -19,7 +19,13 @@
     </div>
   </header>
   <main class="workspace">
-    <iframe id="plan" title="HTML plan under review" sandbox="allow-same-origin"></iframe>
+    <iframe id="plan" title="HTML plan under review" sandbox="allow-same-origin" tabindex="-1"></iframe>
+    <div
+      id="interaction-layer"
+      role="application"
+      aria-label="HTML plan review surface"
+      tabindex="0"
+    ></div>
   </main>
   <section id="completion" class="completion" hidden>
     <h1>Review complete</h1>

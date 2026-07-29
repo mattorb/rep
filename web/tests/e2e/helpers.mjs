@@ -78,11 +78,23 @@ export async function finishRep(page, running, action = "discard") {
 
 export async function openPlan(page, name) {
   const running = await launchRep(name);
-  await page.goto(running.url);
-  const frame = page.frameLocator("#plan");
-  await frame.locator("body").waitFor({ state: "attached" });
-  await page.waitForFunction(() =>
-    ["ready", "empty"].includes(window.__repTest?.state?.status),
-  );
-  return { frame, running };
+  try {
+    await page.goto(running.url);
+    const frame = page.frameLocator("#plan");
+    await frame.locator("body").waitFor({ state: "attached" });
+    await page.waitForFunction(() =>
+      ["ready", "empty"].includes(window.__repTest?.state?.status),
+    );
+    return { frame, running };
+  } catch (error) {
+    if (running.child.exitCode === null) {
+      const exited = once(running.child, "exit");
+      running.child.kill("SIGTERM");
+      await exited;
+    }
+    throw new Error(
+      `${error.message}\nRep exited with ${running.child.exitCode}. stderr:\n${running.diagnostics()}`,
+      { cause: error },
+    );
+  }
 }

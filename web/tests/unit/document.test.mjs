@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  elementSummary,
   logicalLineRanges,
   normalizePieces,
   scalarToUtf16,
@@ -42,4 +43,23 @@ test("preformatted newlines and Unicode scalar conversion are stable", () => {
   assert.equal(scalarToUtf16(normalized.text, 5), 5);
   assert.equal(scalarToUtf16(normalized.text, 6), 7);
   assert.equal(scalarToUtf16(normalized.text, 99), null);
+});
+
+test("element summaries retain tag, id, and bounded class context", () => {
+  assert.equal(
+    elementSummary({
+      localName: "section",
+      id: "delivery",
+      classList: ["board", "priority"],
+    }),
+    "section#delivery.board.priority",
+  );
+  assert.equal(
+    elementSummary({
+      localName: "p",
+      id: "",
+      classList: Array.from({ length: 10 }, (_, index) => `c${index}`),
+    }),
+    "p.c0.c1.c2.c3.c4.c5.c6.c7",
+  );
 });

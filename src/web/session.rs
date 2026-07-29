@@ -10,9 +10,14 @@ pub(crate) enum ReviewOutcome {
 }
 
 pub(crate) fn generate_token() -> Result<String> {
+    let source =
+        File::open("/dev/urandom").context("failed to open operating-system random source")?;
+    generate_token_from(source)
+}
+
+fn generate_token_from(mut source: impl Read) -> Result<String> {
     let mut random = [0_u8; 32];
-    File::open("/dev/urandom")
-        .context("failed to open operating-system random source")?
+    source
         .read_exact(&mut random)
         .context("failed to generate web session token")?;
     Ok(token_from_bytes(random))
@@ -30,6 +35,8 @@ fn token_from_bytes(bytes: [u8; 32]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use super::*;
 
     #[test]
@@ -48,5 +55,11 @@ mod tests {
             assert_eq!(token.len(), 64);
             assert!(token.bytes().all(|byte| byte.is_ascii_hexdigit()));
         }
+    }
+
+    #[test]
+    fn injected_random_source_failure_is_reported() {
+        let error = generate_token_from(Cursor::new([0xab; 31])).unwrap_err();
+        assert!(error.to_string().contains("generate web session token"));
     }
 }

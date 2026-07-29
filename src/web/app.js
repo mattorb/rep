@@ -8,6 +8,7 @@ const root = new URL(".", window.location.href);
 const status = document.querySelector("#status");
 const mode = document.querySelector("#mode");
 const frame = document.querySelector("#plan");
+const interactionLayer = document.querySelector("#interaction-layer");
 const submit = document.querySelector("#submit");
 const discard = document.querySelector("#discard");
 const modal = document.querySelector("#modal");
@@ -21,8 +22,15 @@ const modalConfirm = document.querySelector("#modal-confirm");
 let state = null;
 let extracted = null;
 let overlay = null;
+let layoutObserver = null;
+let heartbeatTimer = null;
 let modalAction = null;
 let commandQueue = Promise.resolve();
+let planClick = null;
+const planClickEvents = [];
+
+const MULTI_CLICK_INTERVAL_MS = 500;
+const MULTI_CLICK_DISTANCE_PX = 6;
 
 window.__repTest = {
   get manifest() {
@@ -33,6 +41,9 @@ window.__repTest = {
   },
   get overlay() {
     return overlay;
+  },
+  get clickEvents() {
+    return planClickEvents.map((event) => ({ ...event }));
   },
 };
 
@@ -88,6 +99,14 @@ function renderState(next, scroll = true) {
   );
 }
 
+function repaintOverlay() {
+  overlay?.paint(
+    state?.selection || [],
+    state?.annotations || [],
+    false,
+  );
+}
+
 function withTimeout(promise, milliseconds) {
   return Promise.race([
     promise,
@@ -123,27 +142,27 @@ async function initialize() {
     body: JSON.stringify(extracted.manifest),
   });
   renderState(next, false);
-  installDocumentEvents(doc);
-  const repaint = () =>
-    overlay?.paint(
-      state?.selection || [],
-      state?.annotations || [],
-      false,
-    );
-  doc.defaultView.addEventListener("scroll", repaint, { passive: true });
-  doc.defaultView.addEventListener("resize", repaint);
-  doc.fonts?.addEventListener?.("loadingdone", repaint);
-  for (const image of doc.images) image.addEventListener("load", repaint);
+  layoutObserver?.disconnect();
+  layoutObserver = new ResizeObserver(repaintOverlay);
+  layoutObserver.observe(doc.documentElement);
+  for (const model of extracted.models) layoutObserver.observe(model.owner);
+  clearInterval(heartbeatTimer);
+  heartbeatTimer = setInterval(() => {
+    api("heartbeat", { method: "POST", body: "{}" }).catch(() => {
+      // Foreground commands surface connection failures. A background
+      // keepalive should not overwrite the user's current status message.
+    });
+  }, 60_000);
 }
 
-async function sendCommand(command) {
+async function sendCommand(command, scroll) {
   if (!state || state.status !== "ready") return false;
   try {
     const next = await api("command", {
       method: "POST",
       body: JSON.stringify({ revision: state.revision, ...command }),
     });
-    renderState(next);
+    renderState(next, scroll);
     return true;
   } catch (error) {
     if (error.status === 409) {
@@ -156,8 +175,8 @@ async function sendCommand(command) {
   }
 }
 
-function queueCommand(command) {
-  commandQueue = commandQueue.then(() => sendCommand(command));
+function queueCommand(command, { scroll = true } = {}) {
+  commandQueue = commandQueue.then(() => sendCommand(command, scroll));
   return commandQueue;
 }
 
@@ -271,7 +290,7 @@ function openOutline() {
       (state?.outline || []).map(
         (row) => `${"  ".repeat(row.level - 1)}${row.text}`,
       ),
-      "This document has no headings.",
+      "This document has no selectable outline entries.",
     ),
   });
 }
@@ -292,24 +311,48 @@ function confirmFinish(kind, title, message) {
   });
 }
 
+function openCopyFallback(output, reason) {
+  const content = document.createElement("div");
+  const message = document.createElement("p");
+  message.textContent =
+    "Clipboard access was unavailable. Select the action output below or use Copy.";
+  const text = document.createElement("textarea");
+  text.className = "copy-output";
+  text.readOnly = true;
+  text.rows = 12;
+  text.value = output;
+  content.append(message, text);
+  openModal({
+    title: "Copy action output",
+    content,
+    confirm: "Copy",
+    action: () => {
+      text.focus();
+      text.select();
+      if (!document.execCommand("copy")) {
+        setStatus(`Could not copy output: ${reason}`);
+        return false;
+      }
+      setStatus("Copied action output to clipboard");
+      return true;
+    },
+  });
+}
+
 async function copyOutput() {
+  let output = "";
   try {
-    const { output } = await api("output");
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(output);
-    } else {
-      const temporary = document.createElement("textarea");
-      temporary.value = output;
-      temporary.style.position = "fixed";
-      temporary.style.opacity = "0";
-      document.body.append(temporary);
-      temporary.select();
-      if (!document.execCommand("copy")) throw new Error("copy unavailable");
-      temporary.remove();
-    }
+    ({ output } = await api("output"));
+    if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
+    await navigator.clipboard.writeText(output);
     setStatus("Copied action output to clipboard");
   } catch (error) {
-    setStatus(`Could not copy output: ${error.message}`);
+    if (output) {
+      openCopyFallback(output, error.message);
+      setStatus("Clipboard access unavailable; action output is ready to copy");
+    } else {
+      setStatus(`Could not load action output: ${error.message}`);
+    }
   }
 }
 
@@ -344,6 +387,12 @@ function keyCommand(event) {
 function onKeydown(event) {
   if (modal.open) {
     if (event.key === "Escape") {
+      event.preventDefault();
+      closeModal();
+    } else if (
+      modalInput.hidden &&
+      ["?", "I", "O"].includes(event.key)
+    ) {
       event.preventDefault();
       closeModal();
     } else if (
@@ -385,31 +434,88 @@ function onKeydown(event) {
   }
 }
 
-function installDocumentEvents(doc) {
-  doc.addEventListener("keydown", onKeydown, true);
-  doc.addEventListener(
-    "click",
-    (event) => {
-      if (!extracted || !state || state.status !== "ready" || modal.open) return;
-      const point = selectionPoint(
-        extracted.models,
-        doc,
-        event.clientX,
-        event.clientY,
-        event.target,
-      );
-      if (!point) return;
-      const unit =
-        event.detail >= 3
-          ? "paragraph"
-          : event.detail === 2
-            ? "sentence"
-            : "word";
-      event.preventDefault();
-      queueCommand({ type: "select", ...point, unit });
-    },
-    true,
+function onPlanClick(event) {
+  const recorded = {
+    clickCount: null,
+    detail: event.detail,
+    node: null,
+    status: "ignored",
+    unit: null,
+    x: event.clientX,
+    y: event.clientY,
+  };
+  planClickEvents.push(recorded);
+  if (planClickEvents.length > 10) planClickEvents.shift();
+  if (!extracted || !state || state.status !== "ready" || modal.open) return;
+  const doc = frame.contentDocument;
+  const frameRect = frame.getBoundingClientRect();
+  const x = event.clientX - frameRect.left;
+  const y = event.clientY - frameRect.top;
+  if (x < 0 || y < 0 || x > frameRect.width || y > frameRect.height) return;
+  const target = (doc.elementsFromPoint?.(x, y) || [doc.elementFromPoint(x, y)])
+    .find(
+      (element) =>
+        element &&
+        element !== overlay?.host &&
+        !element.closest?.("[data-rep-overlay]"),
+    );
+  const point = selectionPoint(
+    extracted.models,
+    doc,
+    x,
+    y,
+    target,
   );
+  if (!point) {
+    recorded.status = "unmapped";
+    return;
+  }
+  const now = performance.now();
+  const continuesSequence =
+    planClick &&
+    planClick.node === point.node &&
+    now - planClick.time <= MULTI_CLICK_INTERVAL_MS &&
+    Math.hypot(event.clientX - planClick.x, event.clientY - planClick.y) <=
+      MULTI_CLICK_DISTANCE_PX;
+  const inferredCount = continuesSequence ? planClick.count + 1 : 1;
+  const nativeCount = Number.isSafeInteger(event.detail)
+    ? Math.max(1, event.detail)
+    : 1;
+  const clickCount = Math.min(3, Math.max(inferredCount, nativeCount));
+  planClick = {
+    count: clickCount,
+    node: point.node,
+    time: now,
+    x: event.clientX,
+    y: event.clientY,
+  };
+  const unit =
+    clickCount >= 3
+      ? "paragraph"
+      : clickCount === 2
+        ? "sentence"
+        : "word";
+  Object.assign(recorded, {
+    clickCount,
+    node: point.node,
+    status: "selected",
+    unit,
+  });
+  queueCommand({ type: "select", ...point, unit }, { scroll: false });
+}
+
+function onPlanWheel(event) {
+  const view = frame.contentWindow;
+  if (!view) return;
+  event.preventDefault();
+  const scale =
+    event.deltaMode === WheelEvent.DOM_DELTA_LINE
+      ? 16
+      : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+        ? Math.max(1, view.innerHeight)
+        : 1;
+  view.scrollBy(event.deltaX * scale, event.deltaY * scale);
+  requestAnimationFrame(repaintOverlay);
 }
 
 async function finish(kind) {
@@ -420,6 +526,8 @@ async function finish(kind) {
   try {
     await commandQueue;
     await api(kind, { method: "POST", body: "{}" });
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
     document.body.classList.add("finished");
     document.querySelector("#completion").hidden = false;
   } catch (error) {
@@ -451,6 +559,12 @@ modal.addEventListener("cancel", (event) => {
   closeModal();
 });
 window.addEventListener("keydown", onKeydown, true);
+window.addEventListener("resize", repaintOverlay);
+interactionLayer.addEventListener("pointerdown", () => {
+  interactionLayer.focus({ preventScroll: true });
+});
+interactionLayer.addEventListener("click", onPlanClick);
+interactionLayer.addEventListener("wheel", onPlanWheel, { passive: false });
 submit.addEventListener("click", () => finish("finish"));
 discard.addEventListener("click", () => {
   if (state?.annotationCount) {

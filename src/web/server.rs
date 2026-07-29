@@ -152,6 +152,9 @@ fn serve(
                 if !peer.ip().is_loopback() {
                     continue;
                 }
+                stream
+                    .set_nonblocking(false)
+                    .context("failed to configure accepted loopback connection")?;
                 last_activity = Instant::now();
                 if let Some(outcome) =
                     handle_connection(&mut stream, address, token, content, &mut session)?
@@ -178,7 +181,10 @@ fn handle_connection(
         Ok(request) => request,
         Err(error) => {
             let response = Response::text(400, &format!("bad request: {error}"));
-            write_response(stream, &response, false)?;
+            // Browsers may open speculative loopback connections and abandon
+            // them without sending a request. A reset client connection is
+            // isolated to that connection and must not terminate the review.
+            let _ = write_response(stream, &response, false);
             return Ok(None);
         }
     };
@@ -193,7 +199,10 @@ fn handle_connection(
     } else {
         security::add_parent_headers(&mut response);
     }
-    write_response(stream, &response, head_only)?;
+    // A browser can cancel a fetch or close a tab while a response is being
+    // written. The request has already been validated and applied, so preserve
+    // any terminal outcome and keep non-terminal sessions available.
+    let _ = write_response(stream, &response, head_only);
     Ok(outcome)
 }
 
@@ -217,6 +226,7 @@ fn route(
     let state = format!("{root}api/state");
     let manifest = format!("{root}api/manifest");
     let command = format!("{root}api/command");
+    let heartbeat = format!("{root}api/heartbeat");
     let output = format!("{root}api/output");
     let finish = format!("{root}api/finish");
     let discard = format!("{root}api/discard");
@@ -285,6 +295,7 @@ fn route(
                 None,
             )
         }
+        ("POST", path) if path == heartbeat => (Response::json(200, "{\"status\":\"ok\"}"), None),
         ("POST", path) if path == manifest => {
             let incoming = match parse_manifest(&request.body) {
                 Ok(manifest) => manifest,
@@ -603,6 +614,7 @@ struct AnnotationSlice {
     node: usize,
     start: usize,
     end: usize,
+    first: bool,
 }
 
 #[derive(Serialize)]
@@ -704,17 +716,21 @@ fn annotation_slices(
     review: &ReviewSession,
 ) -> Vec<AnnotationSlice> {
     let mut slices = Vec::new();
-    let mut add =
-        |kind: &'static str, anchor: SelectionAnchor| {
-            slices.extend(document.selection_slices(anchor).into_iter().map(|slice| {
-                AnnotationSlice {
+    let mut add = |kind: &'static str, anchor: SelectionAnchor| {
+        slices.extend(
+            document
+                .selection_slices(anchor)
+                .into_iter()
+                .enumerate()
+                .map(|(index, slice)| AnnotationSlice {
                     kind,
                     node: slice.node,
                     start: slice.start,
                     end: slice.end,
-                }
-            }));
-        };
+                    first: index == 0,
+                }),
+        );
+    };
     for (&node, annotations) in &review.annotations.changes {
         for annotation in annotations {
             add(
@@ -873,6 +889,8 @@ fn parse_unit(unit: &str) -> Option<SelectionUnit> {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::io::{Read, Write};
+    use std::net::Shutdown;
 
     use super::*;
     use crate::web::document::{HtmlManifest, HtmlManifestNode, ScalarRange};
@@ -925,6 +943,11 @@ mod tests {
                     source_id: index as u64,
                     source_line: index + 1,
                     tag: if index == 0 { "h1" } else { "p" }.to_string(),
+                    element_summary: if index == 0 {
+                        "h1#plan".to_string()
+                    } else {
+                        "p.review-node".to_string()
+                    },
                     text: (*text).to_string(),
                     logical_lines: vec![ScalarRange {
                         start: 0,
@@ -998,6 +1021,28 @@ mod tests {
             assert_eq!(response.status, 200, "{path}");
             assert_eq!(response.headers[0].1, expected_type, "{path}");
         }
+    }
+
+    #[test]
+    fn heartbeat_keeps_the_session_alive_without_mutating_review_state() {
+        let address: SocketAddr = "127.0.0.1:1234".parse().unwrap();
+        let token = "8".repeat(64);
+        let content = content();
+        let root = format!("/session/{token}/");
+        let mut session = WebSession::new();
+        let mut initialize = request("POST", &format!("{root}api/manifest"), address);
+        initialize.body = serde_json::to_vec(&manifest(&["Plan"])).unwrap();
+        let (response, _) = route(&initialize, address, &token, &content, &mut session);
+        assert_eq!(response.status, 200);
+
+        let revision = session.revision;
+        let heartbeat = request("POST", &format!("{root}api/heartbeat"), address);
+        let (response, outcome) = route(&heartbeat, address, &token, &content, &mut session);
+
+        assert_eq!(response.status, 200);
+        assert!(outcome.is_none());
+        assert_eq!(session.revision, revision);
+        assert!(session.terminal.is_none());
     }
 
     #[test]
@@ -1133,5 +1178,72 @@ mod tests {
         .unwrap_err();
 
         assert!(error.to_string().contains("timed out"));
+    }
+
+    #[test]
+    fn injected_interrupt_exits_without_a_terminal_outcome() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let stop = AtomicBool::new(true);
+
+        let error = serve(
+            listener,
+            address,
+            &"6".repeat(64),
+            &content(),
+            Duration::from_secs(60),
+            &stop,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("interrupted"));
+    }
+
+    #[test]
+    fn abandoned_client_connection_does_not_end_the_session() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let token = "7".repeat(64);
+        let content = content();
+        let mut session = WebSession::new();
+
+        let mut abandoned = TcpStream::connect(address).unwrap();
+        abandoned
+            .write_all(
+                format!("GET /session/{token}/ HTTP/1.1\r\nHost: {address}\r\n\r\n").as_bytes(),
+            )
+            .unwrap();
+        abandoned.shutdown(Shutdown::Both).unwrap();
+        let (mut abandoned_server, _) = listener.accept().unwrap();
+        assert!(
+            handle_connection(
+                &mut abandoned_server,
+                address,
+                &token,
+                &content,
+                &mut session,
+            )
+            .unwrap()
+            .is_none()
+        );
+
+        let mut healthy = TcpStream::connect(address).unwrap();
+        healthy
+            .write_all(
+                format!("GET /session/{token}/api/health HTTP/1.1\r\nHost: {address}\r\n\r\n")
+                    .as_bytes(),
+            )
+            .unwrap();
+        let (mut healthy_server, _) = listener.accept().unwrap();
+        assert!(
+            handle_connection(&mut healthy_server, address, &token, &content, &mut session,)
+                .unwrap()
+                .is_none()
+        );
+        drop(healthy_server);
+        let mut response = String::new();
+        healthy.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
     }
 }

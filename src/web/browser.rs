@@ -91,6 +91,23 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
+    fn launcher_failure_reports_every_attempt() {
+        let error = launch_for_platform("http://127.0.0.1/", "linux", |program, _| {
+            if program == "xdg-open" {
+                Err(io::Error::new(io::ErrorKind::NotFound, "missing"))
+            } else {
+                Ok(status(7))
+            }
+        })
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("xdg-open: missing"), "{error}");
+        assert!(error.contains("gio exited with"), "{error}");
+    }
+
+    #[test]
     fn unsupported_platform_fails_without_running_a_command() {
         let error = launch_for_platform("http://127.0.0.1/", "windows", |_, _| {
             panic!("launcher must not run")

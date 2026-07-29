@@ -110,13 +110,13 @@ fn process_signal_flag() -> Result<Arc<AtomicBool>> {
 mod tests {
     use super::*;
 
+    fn scratch(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("rep-web-{name}-{}.html", std::process::id()))
+    }
+
     #[test]
     fn debug_diagnostics_do_not_include_a_live_token() {
-        let path = std::env::temp_dir().join(format!(
-            "rep-web-debug-{}-{}.html",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("test")
-        ));
+        let path = scratch("debug");
         fs::write(&path, "<h1>Plan</h1>").unwrap();
 
         let output = debug_diagnostics(&path, true).unwrap();
@@ -126,5 +126,39 @@ mod tests {
         assert!(output.contains("source_size: 13"));
         assert!(output.contains("no_open: true"));
         assert!(!output.contains("Review URL:"));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn html_input_fails_before_launch_when_missing_invalid_or_oversized() {
+        let missing = scratch("missing");
+        let _ = fs::remove_file(&missing);
+        assert!(
+            load_html_source(&missing)
+                .unwrap_err()
+                .to_string()
+                .contains("failed to inspect")
+        );
+
+        let invalid = scratch("invalid-utf8");
+        fs::write(&invalid, [0xff, 0xfe]).unwrap();
+        assert!(
+            load_html_source(&invalid)
+                .unwrap_err()
+                .to_string()
+                .contains("valid UTF-8")
+        );
+        fs::remove_file(invalid).unwrap();
+
+        let oversized = scratch("oversized");
+        let file = fs::File::create(&oversized).unwrap();
+        file.set_len(MAX_HTML_BYTES + 1).unwrap();
+        assert!(
+            load_html_source(&oversized)
+                .unwrap_err()
+                .to_string()
+                .contains("10 MiB")
+        );
+        fs::remove_file(oversized).unwrap();
     }
 }

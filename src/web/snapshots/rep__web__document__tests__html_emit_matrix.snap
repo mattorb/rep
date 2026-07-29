@@ -1,0 +1,318 @@
+---
+source: src/web/document.rs
+expression: matrix
+---
+## section/change
+FILE: plan.html
+FORMAT: html
+
+ACTION: change
+WHERE: line 3
+LOCATOR: #plan
+CONTEXT:
+  target: "Plan First sentence. Second target. Outcome"
+  next: "First sentence. Second target."
+CHANGE: "Change payload."
+
+## section/feedback
+FILE: plan.html
+FORMAT: html
+
+ACTION: revise-to-incorporate-feedback
+WHERE: line 3
+LOCATOR: #plan
+CONTEXT:
+  target: "Plan First sentence. Second target. Outcome"
+  next: "First sentence. Second target."
+FEEDBACK: "Feedback payload."
+
+## section/insert-before
+FILE: plan.html
+FORMAT: html
+
+ACTION: insert-before
+WHERE: line 3
+LOCATOR: #plan
+CONTEXT:
+  target: "Plan First sentence. Second target. Outcome"
+  next: "First sentence. Second target."
+INSERT: "Insert payload."
+
+## section/insert-after
+FILE: plan.html
+FORMAT: html
+
+ACTION: insert-after
+WHERE: line 3
+LOCATOR: #plan
+CONTEXT:
+  target: "Plan First sentence. Second target. Outcome"
+  next: "First sentence. Second target."
+INSERT: "Insert payload."
+
+## section/delete
+FILE: plan.html
+FORMAT: html
+
+ACTION: delete this
+WHERE: line 3
+LOCATOR: #plan
+CONTEXT:
+  target: "Plan First sentence. Second target. Outcome"
+  next: "First sentence. Second target."
+
+## paragraph/change
+FILE: plan.html
+FORMAT: html
+
+ACTION: change
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "First sentence. Second target."
+  next: "Outcome"
+CHANGE: "Change payload."
+
+## paragraph/feedback
+FILE: plan.html
+FORMAT: html
+
+ACTION: revise-to-incorporate-feedback
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "First sentence. Second target."
+  next: "Outcome"
+FEEDBACK: "Feedback payload."
+
+## paragraph/insert-before
+FILE: plan.html
+FORMAT: html
+
+ACTION: insert-before
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "First sentence. Second target."
+  next: "Outcome"
+INSERT: "Insert payload."
+
+## paragraph/insert-after
+FILE: plan.html
+FORMAT: html
+
+ACTION: insert-after
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "First sentence. Second target."
+  next: "Outcome"
+INSERT: "Insert payload."
+
+## paragraph/delete
+FILE: plan.html
+FORMAT: html
+
+ACTION: delete this
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "First sentence. Second target."
+  next: "Outcome"
+
+## line/change
+FILE: plan.html
+FORMAT: html
+
+ACTION: change
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "First sentence. Second target."
+  next: "Outcome"
+CHANGE: "Change payload."
+
+## line/feedback
+FILE: plan.html
+FORMAT: html
+
+ACTION: revise-to-incorporate-feedback
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "First sentence. Second target."
+  next: "Outcome"
+FEEDBACK: "Feedback payload."
+
+## line/insert-before
+FILE: plan.html
+FORMAT: html
+
+ACTION: insert-before
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "First sentence. Second target."
+  next: "Outcome"
+INSERT: "Insert payload."
+
+## line/insert-after
+FILE: plan.html
+FORMAT: html
+
+ACTION: insert-after
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "First sentence. Second target."
+  next: "Outcome"
+INSERT: "Insert payload."
+
+## line/delete
+FILE: plan.html
+FORMAT: html
+
+ACTION: delete this
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "First sentence. Second target."
+  next: "Outcome"
+
+## sentence/change
+FILE: plan.html
+FORMAT: html
+
+ACTION: change
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "Second target."
+  next: "Outcome"
+CHANGE: "Change payload."
+
+## sentence/feedback
+FILE: plan.html
+FORMAT: html
+
+ACTION: revise-to-incorporate-feedback
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "Second target."
+  next: "Outcome"
+FEEDBACK: "Feedback payload."
+
+## sentence/insert-before
+FILE: plan.html
+FORMAT: html
+
+ACTION: insert-before
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "Second target."
+  next: "Outcome"
+INSERT: "Insert payload."
+
+## sentence/insert-after
+FILE: plan.html
+FORMAT: html
+
+ACTION: insert-after
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "Second target."
+  next: "Outcome"
+INSERT: "Insert payload."
+
+## sentence/delete
+FILE: plan.html
+FORMAT: html
+
+ACTION: delete this
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "Second target."
+  next: "Outcome"
+
+## word/change
+FILE: plan.html
+FORMAT: html
+
+ACTION: change
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "sentence"
+  next: "Outcome"
+CHANGE: "Change payload."
+
+## word/feedback
+FILE: plan.html
+FORMAT: html
+
+ACTION: revise-to-incorporate-feedback
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "sentence"
+  next: "Outcome"
+FEEDBACK: "Feedback payload."
+
+## word/insert-before
+FILE: plan.html
+FORMAT: html
+
+ACTION: insert-before
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "sentence"
+  next: "Outcome"
+INSERT: "Insert payload."
+
+## word/insert-after
+FILE: plan.html
+FORMAT: html
+
+ACTION: insert-after
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "sentence"
+  next: "Outcome"
+INSERT: "Insert payload."
+
+## word/delete
+FILE: plan.html
+FORMAT: html
+
+ACTION: delete this
+WHERE: line 6
+LOCATOR: #target::text-fragment(2)
+CONTEXT:
+  prev: "Plan"
+  target: "sentence"
+  next: "Outcome"

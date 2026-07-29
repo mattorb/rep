@@ -190,6 +190,8 @@ const fn reason_phrase(status: u16) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use std::net::TcpListener;
+
     use super::*;
 
     #[test]
@@ -208,5 +210,22 @@ mod tests {
             Response::json(200, "{}").headers[0].1,
             "application/json; charset=utf-8"
         );
+    }
+
+    #[test]
+    fn request_reader_rejects_unsupported_methods_and_oversized_bodies() {
+        for request in [
+            "PUT / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".to_string(),
+            format!(
+                "POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\n\r\n",
+                MAX_BODY_BYTES + 1
+            ),
+        ] {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+            client.write_all(request.as_bytes()).unwrap();
+            let (mut server, _) = listener.accept().unwrap();
+            assert!(read_request(&mut server).is_err(), "{request}");
+        }
     }
 }

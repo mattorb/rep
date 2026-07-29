@@ -101,6 +101,22 @@ mod tests {
         let encoded = "assets/space%20%E2%98%83.css";
         assert!(load(&root, encoded).is_ok());
         fs::remove_file(scratch).unwrap();
+
+        let font = root.join("assets/test-font.woff2");
+        fs::write(&font, b"wOF2 fixture bytes").unwrap();
+        assert_eq!(
+            load(&root, "assets/test-font.woff2").unwrap().content_type,
+            "font/woff2"
+        );
+        fs::remove_file(font).unwrap();
+
+        let raster = root.join("assets/test-image.png");
+        fs::write(&raster, b"\x89PNG fixture bytes").unwrap();
+        assert_eq!(
+            load(&root, "assets/test-image.png").unwrap().content_type,
+            "image/png"
+        );
+        fs::remove_file(raster).unwrap();
     }
 
     #[test]
