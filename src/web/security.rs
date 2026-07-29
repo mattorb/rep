@@ -43,6 +43,30 @@ pub(crate) fn add_api_headers(response: &mut Response) {
     add_common_headers(response);
 }
 
+pub(crate) fn add_document_headers(response: &mut Response) {
+    response.headers.push((
+        "Content-Security-Policy".to_string(),
+        "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; sandbox allow-same-origin; base-uri 'none'; form-action 'none'; navigate-to 'none'"
+            .to_string(),
+    ));
+    response
+        .headers
+        .push(("Cache-Control".to_string(), "no-store".to_string()));
+    add_common_headers(response);
+}
+
+pub(crate) fn add_asset_headers(response: &mut Response) {
+    response.headers.push((
+        "Content-Security-Policy".to_string(),
+        "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; sandbox"
+            .to_string(),
+    ));
+    response
+        .headers
+        .push(("Cache-Control".to_string(), "no-store".to_string()));
+    add_common_headers(response);
+}
+
 fn add_common_headers(response: &mut Response) {
     response
         .headers

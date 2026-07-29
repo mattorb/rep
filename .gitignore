@@ -5,3 +5,6 @@
 *.snap.new
 # Debug artifacts written by the transcript test driver on golden mismatches.
 tests/fixtures/transcripts/**/*.actual.txt
+/web/node_modules/
+/web/playwright-report/
+/web/test-results/

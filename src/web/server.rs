@@ -11,6 +11,17 @@ use anyhow::{Context, Result, anyhow, bail};
 use crate::web::protocol::{Request, Response, read_request, write_response};
 use crate::web::security;
 use crate::web::session::{ReviewOutcome, generate_token};
+use crate::web::{assets, html_source};
+
+const APP_HTML: &str = include_str!("app.html");
+const APP_CSS: &str = include_str!("app.css");
+const APP_JS: &str = include_str!("app.js");
+
+struct WebContent {
+    document: String,
+    blocked_resources: usize,
+    plan_root: PathBuf,
+}
 
 pub(crate) struct RunningServer {
     source_path: PathBuf,
@@ -31,6 +42,11 @@ impl RunningServer {
                 source_path.display()
             )
         })?;
+        let plan_root = canonical_source
+            .parent()
+            .context("HTML source path has no parent directory")?
+            .canonicalize()
+            .context("failed to canonicalize HTML plan directory")?;
         let listener =
             TcpListener::bind(("127.0.0.1", 0)).context("failed to bind loopback web server")?;
         listener
@@ -40,6 +56,12 @@ impl RunningServer {
             .local_addr()
             .context("failed to read bind address")?;
         let token = generate_token()?;
+        let transformed = html_source::transform(&source, &token)?;
+        let content = WebContent {
+            document: transformed.source,
+            blocked_resources: transformed.blocked_resources,
+            plan_root,
+        };
         let url = format!("http://{address}/session/{token}/");
         let thread_url = url.clone();
         let join = thread::Builder::new()
@@ -49,7 +71,7 @@ impl RunningServer {
                     listener,
                     address,
                     &token,
-                    &source,
+                    &content,
                     inactivity_timeout,
                     &stop,
                 )
@@ -82,7 +104,7 @@ fn serve(
     listener: TcpListener,
     address: SocketAddr,
     token: &str,
-    source: &str,
+    content: &WebContent,
     inactivity_timeout: Duration,
     stop: &AtomicBool,
 ) -> Result<ReviewOutcome> {
@@ -100,7 +122,7 @@ fn serve(
                     continue;
                 }
                 last_activity = Instant::now();
-                if let Some(outcome) = handle_connection(&mut stream, address, token, source)? {
+                if let Some(outcome) = handle_connection(&mut stream, address, token, content)? {
                     return Ok(outcome);
                 }
             }
@@ -116,7 +138,7 @@ fn handle_connection(
     stream: &mut TcpStream,
     address: SocketAddr,
     token: &str,
-    source: &str,
+    content: &WebContent,
 ) -> Result<Option<ReviewOutcome>> {
     let request = match read_request(stream) {
         Ok(request) => request,
@@ -127,12 +149,13 @@ fn handle_connection(
         }
     };
     let head_only = request.method == "HEAD";
-    let (mut response, outcome) = route(&request, address, token, source);
-    if request.path.ends_with("/api/health")
-        || request.path.ends_with("/api/state")
-        || request.path.contains("/api/")
-    {
+    let (mut response, outcome) = route(&request, address, token, content);
+    if request.path.contains("/api/") {
         security::add_api_headers(&mut response);
+    } else if request.path.ends_with("/assets/__rep_document__.html") {
+        security::add_document_headers(&mut response);
+    } else if request.path.contains("/assets/") {
+        security::add_asset_headers(&mut response);
     } else {
         security::add_parent_headers(&mut response);
     }
@@ -144,7 +167,7 @@ fn route(
     request: &Request,
     address: SocketAddr,
     token: &str,
-    source: &str,
+    content: &WebContent,
 ) -> (Response, Option<ReviewOutcome>) {
     if let Err(response) = security::validate_request(request, address, token) {
         return (response, None);
@@ -159,22 +182,53 @@ fn route(
     let state = format!("{root}api/state");
     let finish = format!("{root}api/finish");
     let discard = format!("{root}api/discard");
+    let document = format!("{root}assets/__rep_document__.html");
+    let app_css = format!("{root}app.css");
+    let app_js = format!("{root}app.js");
+    let asset_prefix = format!("{root}assets/");
 
     match (request.method.as_str(), request.path.as_str()) {
         ("GET" | "HEAD", path) if path == root => (
             Response::new(
                 200,
                 "text/html; charset=utf-8",
-                placeholder_shell(token, source.len()).into_bytes(),
+                APP_HTML.as_bytes().to_vec(),
             ),
             None,
         ),
+        ("GET" | "HEAD", path) if path == app_css => (
+            Response::new(200, "text/css; charset=utf-8", APP_CSS.as_bytes().to_vec()),
+            None,
+        ),
+        ("GET" | "HEAD", path) if path == app_js => (
+            Response::new(
+                200,
+                "text/javascript; charset=utf-8",
+                APP_JS.as_bytes().to_vec(),
+            ),
+            None,
+        ),
+        ("GET" | "HEAD", path) if path == document => (
+            Response::new(
+                200,
+                "text/html; charset=utf-8",
+                content.document.as_bytes().to_vec(),
+            ),
+            None,
+        ),
+        ("GET" | "HEAD", path) if path.starts_with(&asset_prefix) => {
+            let encoded_path = &path[asset_prefix.len()..];
+            match assets::load(&content.plan_root, encoded_path) {
+                Ok(asset) => (Response::new(200, asset.content_type, asset.bytes), None),
+                Err(_) => (Response::text(404, "asset not found"), None),
+            }
+        }
         ("GET" | "HEAD", path) if path == health || path == state => (
             Response::json(
                 200,
                 &format!(
-                    "{{\"status\":\"waiting\",\"sourceBytes\":{}}}",
-                    source.len()
+                    "{{\"status\":\"waiting\",\"blockedResources\":{}}}",
+                    content.blocked_resources
                 ),
             ),
             None,
@@ -190,14 +244,6 @@ fn route(
         ("GET" | "HEAD", _) => (Response::text(404, "not found"), None),
         _ => (Response::text(405, "method not allowed"), None),
     }
-}
-
-fn placeholder_shell(token: &str, source_bytes: usize) -> String {
-    format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Rep HTML review</title></head>\
-         <body><main><h1>Rep HTML review</h1><p>Preparing {source_bytes} bytes of HTML.</p>\
-         <p>Session {token}</p></main></body></html>"
-    )
 }
 
 #[cfg(test)]
@@ -220,19 +266,31 @@ mod tests {
         }
     }
 
+    fn content() -> WebContent {
+        WebContent {
+            document: "<h1>Plan</h1>".to_string(),
+            blocked_resources: 2,
+            plan_root: Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/web")
+                .canonicalize()
+                .unwrap(),
+        }
+    }
+
     #[test]
     fn token_method_host_origin_and_content_type_are_required() {
         let address: SocketAddr = "127.0.0.1:1234".parse().unwrap();
         let token = "a".repeat(64);
         let root = format!("/session/{token}/");
-        let (response, _) = route(&request("GET", &root, address), address, &token, "");
+        let content = content();
+        let (response, _) = route(&request("GET", &root, address), address, &token, &content);
         assert_eq!(response.status, 200);
 
         let (response, _) = route(
             &request("GET", "/session/wrong/", address),
             address,
             &token,
-            "",
+            &content,
         );
         assert_eq!(response.status, 404);
 
@@ -240,30 +298,67 @@ mod tests {
         wrong_host
             .headers
             .insert("host".to_string(), "localhost".to_string());
-        let (response, _) = route(&wrong_host, address, &token, "");
+        let (response, _) = route(&wrong_host, address, &token, &content);
         assert_eq!(response.status, 400);
 
         let finish = format!("{root}api/finish");
         let mut missing_origin = request("POST", &finish, address);
         missing_origin.headers.remove("origin");
-        let (response, outcome) = route(&missing_origin, address, &token, "");
+        let (response, outcome) = route(&missing_origin, address, &token, &content);
         assert_eq!(response.status, 403);
         assert!(outcome.is_none());
+    }
+
+    #[test]
+    fn embedded_shell_document_and_assets_are_routed() {
+        let address: SocketAddr = "127.0.0.1:1234".parse().unwrap();
+        let token = "d".repeat(64);
+        let content = content();
+        let root = format!("/session/{token}/");
+
+        for (path, expected_type) in [
+            (root.clone(), "text/html; charset=utf-8"),
+            (format!("{root}app.css"), "text/css; charset=utf-8"),
+            (format!("{root}app.js"), "text/javascript; charset=utf-8"),
+            (
+                format!("{root}assets/__rep_document__.html"),
+                "text/html; charset=utf-8",
+            ),
+            (
+                format!("{root}assets/assets/plan.css"),
+                "text/css; charset=utf-8",
+            ),
+        ] {
+            let (response, _) = route(&request("GET", &path, address), address, &token, &content);
+            assert_eq!(response.status, 200, "{path}");
+            assert_eq!(response.headers[0].1, expected_type, "{path}");
+        }
     }
 
     #[test]
     fn finish_and_discard_produce_terminal_outcomes() {
         let address: SocketAddr = "127.0.0.1:1234".parse().unwrap();
         let token = "b".repeat(64);
+        let content = content();
         let finish = format!("/session/{token}/api/finish");
-        let (_, outcome) = route(&request("POST", &finish, address), address, &token, "");
+        let (_, outcome) = route(
+            &request("POST", &finish, address),
+            address,
+            &token,
+            &content,
+        );
         assert_eq!(
             outcome,
             Some(ReviewOutcome::Submitted("No actions.".to_string()))
         );
 
         let discard = format!("/session/{token}/api/discard");
-        let (_, outcome) = route(&request("POST", &discard, address), address, &token, "");
+        let (_, outcome) = route(
+            &request("POST", &discard, address),
+            address,
+            &token,
+            &content,
+        );
         assert_eq!(outcome, Some(ReviewOutcome::Discarded));
     }
 
@@ -278,7 +373,7 @@ mod tests {
             listener,
             address,
             &"c".repeat(64),
-            "",
+            &content(),
             Duration::ZERO,
             &stop,
         )

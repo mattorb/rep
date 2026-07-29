@@ -1,0 +1,13 @@
+{
+  "name": "rep-web-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/unit/*.test.mjs",
+    "test:e2e": "playwright test",
+    "gallery": "playwright test --grep @gallery && node tests/build-gallery.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.0"
+  }
+}

@@ -48,7 +48,15 @@ fn no_open_server_finishes_cleanly_and_closes_its_listener() {
         &format!("GET {path} HTTP/1.1\r\nHost: {address}\r\n\r\n"),
     );
     assert!(shell.starts_with("HTTP/1.1 200 OK"), "{shell}");
-    assert!(shell.contains("Rep HTML review"), "{shell}");
+    assert!(shell.contains("<title>Rep HTML Review</title>"), "{shell}");
+
+    let document = request(
+        address,
+        &format!("GET {path}assets/__rep_document__.html HTTP/1.1\r\nHost: {address}\r\n\r\n"),
+    );
+    assert!(document.starts_with("HTTP/1.1 200 OK"), "{document}");
+    assert!(document.contains("data-rep-source-line="), "{document}");
+    assert!(document.contains("sandbox allow-same-origin"), "{document}");
 
     let finish_path = format!("{path}api/finish");
     let finish = request(

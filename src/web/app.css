@@ -1,0 +1,97 @@
+:root {
+  color-scheme: light dark;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: Canvas;
+  color: CanvasText;
+}
+
+.toolbar {
+  align-items: center;
+  background: color-mix(in srgb, Canvas 92%, #4f46e5 8%);
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: auto 1fr auto;
+  min-height: 3.25rem;
+  padding: .55rem .8rem;
+}
+
+.brand {
+  color: #6366f1;
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: -.04em;
+}
+
+.status {
+  font-size: .88rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions { display: flex; gap: .5rem; }
+
+button {
+  border: 1px solid color-mix(in srgb, CanvasText 22%, transparent);
+  border-radius: .45rem;
+  cursor: pointer;
+  font: inherit;
+  padding: .45rem .75rem;
+}
+
+button.primary {
+  background: #4f46e5;
+  border-color: #4f46e5;
+  color: white;
+}
+
+.workspace, iframe {
+  border: 0;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+}
+
+.completion {
+  align-self: center;
+  justify-self: center;
+  max-width: 30rem;
+  padding: 2rem;
+  text-align: center;
+}
+
+body.finished {
+  display: grid;
+  place-items: center;
+}
+
+body.finished .toolbar,
+body.finished .workspace {
+  display: none;
+}
+
+body.finished .completion {
+  display: block;
+}
+
+@media (max-width: 38rem) {
+  .toolbar {
+    grid-template-columns: auto 1fr;
+  }
+  .actions {
+    grid-column: 1 / -1;
+  }
+}

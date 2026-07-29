@@ -9,7 +9,9 @@ use anyhow::{Context, Result, bail};
 use crate::cli::CliArgs;
 use crate::web::browser::BrowserLauncher;
 
+mod assets;
 pub(crate) mod browser;
+mod html_source;
 mod protocol;
 mod security;
 mod server;
