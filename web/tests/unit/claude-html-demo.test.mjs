@@ -3,7 +3,9 @@ import test from "node:test";
 
 import {
   browserOverlayOffsetSeconds,
+  browserProcessId,
   extractReviewUrl,
+  parseNativeWindowId,
   validateOriginalHtml,
   validateRevisedHtml,
 } from "../record-claude-html-demo.mjs";
@@ -64,6 +66,20 @@ test("Claude HTML demo maps browser time onto the cropped VHS timeline", () => {
     () => browserOverlayOffsetSeconds({}, 4_000),
     /must be finite numbers/,
   );
+});
+
+test("Claude HTML demo identifies its native Chromium process and window", () => {
+  assert.equal(
+    browserProcessId([
+      { type: "renderer", id: 15 },
+      { type: "browser", id: 42 },
+    ]),
+    42,
+  );
+  assert.equal(parseNativeWindowId("731\n"), 731);
+  assert.throws(() => browserProcessId([]), /browser process id/);
+  assert.throws(() => parseNativeWindowId(""), /headed Chromium window/);
+  assert.throws(() => parseNativeWindowId("12\n13\n"), /headed Chromium window/);
 });
 
 test("Claude HTML demo verifies both actions and preserved layout structure", () => {

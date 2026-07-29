@@ -8,15 +8,17 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/record-claude-rep-html-demo.sh [output-prefix]
 
-Records the real interactive Claude Code terminal with VHS, records the live
-Rep browser review with Playwright, and overlays the browser on the active
-Claude terminal. The default outputs are:
+Records the real interactive Claude Code terminal with VHS, records a headed
+Chromium window with the native macOS screen recorder, and overlays the real
+browser window on the active Claude terminal. The default outputs are:
 
   docs/rep-claude-html-skill-demo.mp4
   docs/rep-claude-html-skill-demo.gif
 
-Claude Code must be installed and authenticated. The script installs pinned
-VHS, tmux, ttyd, and ffmpeg tooling through mise/pkgx when needed.
+Claude Code must be installed and authenticated. macOS Screen Recording
+permission is required for the terminal or agent host running this script. The
+script installs pinned VHS, tmux, ttyd, and ffmpeg tooling through mise/pkgx
+when needed.
 
 Environment:
   REP_CLAUDE_DEMO_MODEL       Claude model alias (default: sonnet)
@@ -58,6 +60,25 @@ if [[ ! -d web/node_modules ]]; then
   printf 'error: web dependencies are missing; run mise exec -- npm --prefix web ci\n' >&2
   exit 1
 fi
+if [[ "$(uname -s)" != "Darwin" ]] || ! command -v screencapture >/dev/null 2>&1; then
+  printf 'error: recording real browser chrome currently requires macOS screencapture\n' >&2
+  exit 1
+fi
+
+capture_probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/rep-screen-capture-probe.XXXXXX")"
+capture_probe_error="$capture_probe_dir/error.log"
+if ! screencapture -x -t png "$capture_probe_dir/probe.png" 2>"$capture_probe_error"; then
+  printf '%s\n' \
+    'error: macOS denied native browser capture.' \
+    'Grant Screen & System Audio Recording permission to the terminal or agent host running this script,' \
+    'restart that host if macOS requests it, then run the recorder again.' >&2
+  sed -n '1,20p' "$capture_probe_error" >&2
+  rm -f "$capture_probe_dir/probe.png" "$capture_probe_error"
+  rmdir "$capture_probe_dir"
+  exit 1
+fi
+rm -f "$capture_probe_dir/probe.png" "$capture_probe_error"
+rmdir "$capture_probe_dir"
 
 MP4_CRF="${REP_DEMO_MP4_CRF:-24}"
 if [[ ! "$MP4_CRF" =~ ^[0-9]+$ ]] || ((MP4_CRF < 0 || MP4_CRF > 51)); then
@@ -71,8 +92,8 @@ TTYD_VERSION="1.7.7"
 FFMPEG_VERSION="8.1.1"
 PKGX_VERSION="2.11.0"
 LIBWEBSOCKETS_VERSION="4.3.6"
-VHS_DRIVER_DELAY_MS=1650
 VHS_VISIBLE_LEAD_MS=4000
+CLAUDE_PLAN_PROMPT="Create a polished, responsive HTML rollout plan for checkout recovery in demo-plan.html. Use semantic HTML and embedded CSS with a top-level wrapper whose class='page'. Include exactly <p id='ownership'>The checkout platform group will monitor failures after launch.</p> and <p id='launch-gate'>Launch to all customers as soon as integration tests pass.</p>."
 
 find_tool() {
   local root="$1"
@@ -98,22 +119,6 @@ for resolved in "$VHS_BIN" "$TMUX_BIN"; do
     exit 1
   fi
 done
-
-BROWSER_FONT_FILE="${REP_DEMO_BROWSER_FONT_FILE:-}"
-if [[ -z "$BROWSER_FONT_FILE" ]]; then
-  for candidate in \
-    /System/Library/Fonts/SFNS.ttf \
-    /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf; do
-    if [[ -f "$candidate" ]]; then
-      BROWSER_FONT_FILE="$candidate"
-      break
-    fi
-  done
-fi
-if [[ ! -f "$BROWSER_FONT_FILE" ]]; then
-  printf 'error: set REP_DEMO_BROWSER_FONT_FILE to a readable TrueType font\n' >&2
-  exit 1
-fi
 
 CLAUDE_SKILLS_DIR="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
 REP_SKILL_SRC="$ROOT_DIR/.agents/skills/rep"
@@ -197,6 +202,7 @@ render_tape() {
     -e "s|__VHS_START_FILE__|$DEMO_TEMP_DIR/vhs-start-ms|g" \
     -e "s|__TMUX_BIN__|$TMUX_BIN|g" \
     -e "s|__TMUX_SOCKET__|$TMUX_SOCKET|g" \
+    -e "s|__CLAUDE_PLAN_PROMPT__|$CLAUDE_PLAN_PROMPT|g" \
     scripts/claude-rep-html-demo.tape >"$DEMO_TEMP_DIR/demo.tape"
 }
 
@@ -219,10 +225,9 @@ mise exec -- cargo build --release --locked
 REP_BIN="$ROOT_DIR/target/release/rep" \
 REP_CAPTURE_DIR="$DEMO_TEMP_DIR/captures" \
 REP_DEMO_DIAGNOSTICS="$DEMO_TEMP_DIR/rep.stderr" \
-REP_CLAUDE_DEMO_BROWSER_VIDEO="$DEMO_TEMP_DIR/browser.webm" \
+REP_CLAUDE_DEMO_BROWSER_VIDEO="$DEMO_TEMP_DIR/browser.mov" \
 REP_CLAUDE_DEMO_TIMING_FILE="$DEMO_TEMP_DIR/timing.json" \
 REP_CLAUDE_DEMO_VHS_START_FILE="$DEMO_TEMP_DIR/vhs-start-ms" \
-REP_CLAUDE_DEMO_VHS_DRIVER_DELAY_MS="$VHS_DRIVER_DELAY_MS" \
 REP_CLAUDE_DEMO_VHS_VISIBLE_LEAD_MS="$VHS_VISIBLE_LEAD_MS" \
 REP_CLAUDE_DEMO_MODEL="${REP_CLAUDE_DEMO_MODEL:-sonnet}" \
 REP_CLAUDE_DEMO_TIMEOUT_MS="${REP_CLAUDE_DEMO_TIMEOUT_MS:-300000}" \
@@ -271,7 +276,7 @@ orchestrator_pid=""
 
 for artifact in \
   "$DEMO_TEMP_DIR/terminal.mp4" \
-  "$DEMO_TEMP_DIR/browser.webm" \
+  "$DEMO_TEMP_DIR/browser.mov" \
   "$DEMO_TEMP_DIR/timing.json" \
   "$DEMO_TEMP_DIR/vhs-start-ms"; do
   if [[ ! -s "$artifact" ]]; then
@@ -299,9 +304,9 @@ media_cmd=(
 "${media_cmd[@]}" ffmpeg \
   -y \
   -i "$DEMO_TEMP_DIR/terminal.mp4" \
-  -i "$DEMO_TEMP_DIR/browser.webm" \
+  -i "$DEMO_TEMP_DIR/browser.mov" \
   -filter_complex \
-  "[0:v]fps=24,format=yuv420p[terminal];[1:v]setpts=PTS-STARTPTS+${overlay_offset}/TB,scale=940:-2:flags=lanczos,pad=iw+12:ih+96:6:90:color=#f8fafc,drawbox=x=6:y=6:w=iw-12:h=84:color=#dfe3e8:t=fill,drawbox=x=20:y=18:w=10:h=10:color=#ff5f57:t=fill,drawbox=x=38:y=18:w=10:h=10:color=#febc2e:t=fill,drawbox=x=56:y=18:w=10:h=10:color=#28c840:t=fill,drawbox=x=80:y=10:w=300:h=32:color=#ffffff:t=fill,drawbox=x=20:y=50:w=iw-40:h=30:color=#ffffff:t=fill,drawtext=fontfile=${BROWSER_FONT_FILE}:text='Rep HTML Review':fontcolor=#202124:fontsize=16:x=96:y=18,drawtext=fontfile=${BROWSER_FONT_FILE}:text='127.0.0.1  /  local Rep review':fontcolor=#3c4043:fontsize=15:x=38:y=56[browser];[terminal][browser]overlay=x=W-w-24:y=24:eof_action=pass:repeatlast=0:shortest=0,format=yuv420p[out]" \
+  "[0:v]fps=24,format=yuv420p[terminal];[1:v]setpts=PTS-STARTPTS+${overlay_offset}/TB,scale=940:-2:flags=lanczos[browser];[terminal][browser]overlay=x=W-w-24:y=24:eof_action=pass:repeatlast=0:shortest=0,format=yuv420p[out]" \
   -map "[out]" \
   -movflags +faststart \
   -c:v libx264 \

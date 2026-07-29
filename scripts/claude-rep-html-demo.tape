@@ -29,16 +29,31 @@ Enter
 Sleep 1s
 Show
 
+Wait+Screen@30s /permissions on/
+Sleep 500ms
+Set TypingSpeed 0.015
+Type "__CLAUDE_PLAN_PROMPT__"
+Enter
+Set TypingSpeed 0.001
 Sleep 4s
 Hide
 Wait+Screen@300s /plan-ready/
 Show
 
+Sleep 800ms
+Set TypingSpeed 0.07
+Type "/rep @demo-plan.html"
+Enter
+Set TypingSpeed 0.001
 Wait+Screen@300s /apply-running/
 Sleep 4s
 Hide
 Wait+Screen@300s /revision-ready/
 Show
 
+Sleep 2s
+Set TypingSpeed 0.07
+Type "/quit"
+Enter
 Wait+Screen@300s /REP_HTML_DEMO_COMPLETE/
 Sleep 2s

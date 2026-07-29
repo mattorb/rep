@@ -1,9 +1,7 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   access,
-  mkdir,
   readFile,
-  rename,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
@@ -17,6 +15,34 @@ const ORIGINAL_GATE =
   "Launch to all customers as soon as integration tests pass.";
 const ORIGINAL_OWNERSHIP =
   "The checkout platform group will monitor failures after launch.";
+const NATIVE_WINDOW_LOOKUP_SOURCE = `
+import CoreGraphics
+import Foundation
+
+let browserPid = Int(CommandLine.arguments[1]) ?? -1
+let windows = CGWindowListCopyWindowInfo(
+  [.optionOnScreenOnly, .excludeDesktopElements],
+  kCGNullWindowID
+) as? [[String: Any]] ?? []
+let candidates = windows.filter { window in
+  let ownerPid = window[kCGWindowOwnerPID as String] as? Int ?? -1
+  let layer = window[kCGWindowLayer as String] as? Int ?? -1
+  let alpha = window[kCGWindowAlpha as String] as? Double ?? 0
+  return ownerPid == browserPid && layer == 0 && alpha > 0
+}
+let largest = candidates.max { left, right in
+  func area(_ window: [String: Any]) -> Double {
+    let bounds = window[kCGWindowBounds as String] as? [String: Any] ?? [:]
+    let width = bounds["Width"] as? Double ?? 0
+    let height = bounds["Height"] as? Double ?? 0
+    return width * height
+  }
+  return area(left) < area(right)
+}
+if let windowId = largest?[kCGWindowNumber as String] as? Int {
+  print(windowId)
+}
+`;
 
 export function extractReviewUrl(diagnostics) {
   return diagnostics.match(/^Review URL: (http:\/\/127\.0\.0\.1:\d+\/[^\s]+)$/m)?.[1];
@@ -38,6 +64,22 @@ export function browserOverlayOffsetSeconds(timing, visibleLeadMs) {
       timing.planReadyEpochMs) /
       1000,
   );
+}
+
+export function browserProcessId(processInfo) {
+  const browser = processInfo?.find((process) => process.type === "browser");
+  if (!Number.isInteger(browser?.id) || browser.id < 1) {
+    throw new Error("Chromium did not report a valid browser process id");
+  }
+  return browser.id;
+}
+
+export function parseNativeWindowId(output) {
+  const value = output.trim();
+  if (!/^[1-9]\d*$/.test(value)) {
+    throw new Error(`Could not identify the headed Chromium window: ${value}`);
+  }
+  return Number(value);
 }
 
 export function validateOriginalHtml(html) {
@@ -103,10 +145,6 @@ async function main() {
   const tmux = requiredEnvironment("REP_CLAUDE_DEMO_TMUX_BIN");
   const tmuxConfig = requiredEnvironment("REP_CLAUDE_DEMO_TMUX_CONFIG");
   const tmuxSocket = requiredEnvironment("REP_CLAUDE_DEMO_TMUX_SOCKET");
-  const driverDelay = parsePositiveInteger(
-    process.env.REP_CLAUDE_DEMO_VHS_DRIVER_DELAY_MS || "1650",
-    "REP_CLAUDE_DEMO_VHS_DRIVER_DELAY_MS",
-  );
   const visibleLead = parsePositiveInteger(
     process.env.REP_CLAUDE_DEMO_VHS_VISIBLE_LEAD_MS || "4000",
     "REP_CLAUDE_DEMO_VHS_VISIBLE_LEAD_MS",
@@ -117,15 +155,11 @@ async function main() {
     "REP_CLAUDE_DEMO_TIMEOUT_MS",
   );
   const session = "claude";
-  const readyMarker = path.join(path.dirname(diagnosticsPath), "plan-created");
-  const videoDirectory = path.join(repo, "target", "claude-html-vhs-browser");
-  await mkdir(videoDirectory, { recursive: true });
   await writeFile(diagnosticsPath, "");
 
   let browser;
   let context;
-  let page;
-  let video;
+  let nativeRecording;
   let completed = false;
   try {
     startClaudeSession({
@@ -139,33 +173,16 @@ async function main() {
     });
     await waitForClaudeReady({ session, timeout, tmux, tmuxSocket });
     await waitForFile(vhsStartFile, timeout, "VHS capture marker");
-    await pause(driverDelay);
-
-    sendToClaude(
-      { session, tmux, tmuxSocket },
-      [
-        "Create a polished, responsive HTML rollout plan for checkout recovery and write it to demo-plan.html.",
-        "Use semantic HTML, embedded CSS, a top-level wrapper with class=\"page\",",
-        `and include exactly <p id="ownership">${ORIGINAL_OWNERSHIP}</p>`,
-        `and <p id="launch-gate">${ORIGINAL_GATE}</p>.`,
-        `When every file edit is complete, run: touch ${shellQuote(readyMarker)}`,
-      ].join(" "),
-    );
-    await waitForClaudePlanMarker({
-      file: readyMarker,
+    const original = await waitForClaudePlan({
+      file: plan,
       session,
       timeout,
       tmux,
       tmuxSocket,
     });
-    await waitForClaudePrompt({ session, timeout, tmux, tmuxSocket });
-    const original = await readFile(plan, "utf8");
-    validateOriginalHtml(original);
 
     const planReadyEpochMs = Date.now();
     setDemoStage({ session, tmux, tmuxSocket }, "plan-ready");
-    await pause(1_200);
-    sendToClaude({ session, tmux, tmuxSocket }, "/rep @demo-plan.html");
     const url = await waitForReviewUrl({
       diagnosticsPath,
       session,
@@ -174,27 +191,27 @@ async function main() {
       tmuxSocket,
     });
 
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({
+      headless: false,
+      args: ["--window-position=40,40", "--window-size=1120,780"],
+    });
     context = await browser.newContext({
-      recordVideo: {
-        dir: videoDirectory,
-        size: { width: 1120, height: 700 },
-        showActions: {
-          cursor: "pointer",
-          duration: 1_400,
-          fontSize: 22,
-          position: "bottom-right",
-        },
-      },
       viewport: { width: 1120, height: 700 },
     });
-    const browserStartEpochMs = Date.now();
-    page = await context.newPage();
-    video = page.video();
+    const page = await context.newPage();
     await page.goto(url);
     await page.waitForFunction(
       () => window.__repTest?.state?.status === "ready",
     );
+    await installDemoActionCue(page);
+
+    const cdp = await browser.newBrowserCDPSession();
+    const { processInfo } = await cdp.send("SystemInfo.getProcessInfo");
+    const browserPid = browserProcessId(processInfo);
+    const windowId = await waitForNativeBrowserWindow(browserPid, timeout);
+    const browserStartEpochMs = Date.now();
+    nativeRecording = startNativeWindowRecording(windowId, browserVideo);
+    await ensureNativeWindowRecordingStarted(nativeRecording);
     await pause(1_000);
 
     await page.keyboard.press("?");
@@ -230,12 +247,13 @@ async function main() {
     await page.locator("#submit").click();
     await page.locator("#completion").waitFor();
     await pause(1_200);
+    await stopNativeWindowRecording(nativeRecording);
+    nativeRecording = null;
     await context.close();
     context = null;
     await browser.close();
     browser = null;
     const browserEndEpochMs = Date.now();
-    await rename(await video.path(), browserVideo);
     await writeFile(
       timingFile,
       `${JSON.stringify(
@@ -258,11 +276,12 @@ async function main() {
     await waitForClaudePrompt({ session, timeout, tmux, tmuxSocket });
     validateRevisedHtml(original, revised);
     setDemoStage({ session, tmux, tmuxSocket }, "revision-ready");
-    await pause(3_500);
-    sendToClaude({ session, tmux, tmuxSocket }, "/quit");
     await waitForCompletionMarker({ session, timeout, tmux, tmuxSocket });
     completed = true;
   } finally {
+    if (nativeRecording) {
+      await stopNativeWindowRecording(nativeRecording).catch(() => {});
+    }
     if (context) await context.close();
     if (browser) await browser.close();
     if (!completed) abortClaude({ session, tmux, tmuxSocket });
@@ -360,7 +379,7 @@ async function waitForClaudePrompt({ session, timeout, tmux, tmuxSocket }) {
   );
 }
 
-async function waitForClaudePlanMarker({
+async function waitForClaudePlan({
   file,
   session,
   timeout,
@@ -368,39 +387,33 @@ async function waitForClaudePlanMarker({
   tmuxSocket,
 }) {
   const deadline = Date.now() + timeout;
+  let lastError;
   while (Date.now() < deadline) {
-    try {
-      await access(file);
-      return;
-    } catch {
-      const pane = captureClaude({ session, tmux, tmuxSocket });
-      if (claudeAtPrompt(pane) && pane.includes("API Error:")) {
+    const pane = captureClaude({ session, tmux, tmuxSocket });
+    if (claudeAtPrompt(pane)) {
+      if (pane.includes("API Error:")) {
         throw new Error(`Claude Code could not create the demo plan:\n${pane}`);
       }
-      if (!tmuxSessionExists({ session, tmux, tmuxSocket })) {
-        throw new Error(`Claude Code exited before creating the demo plan:\n${pane}`);
+      try {
+        const html = await readFile(file, "utf8");
+        validateOriginalHtml(html);
+        return html;
+      } catch (error) {
+        lastError = error;
       }
-      await pause(100);
     }
+    if (!tmuxSessionExists({ session, tmux, tmuxSocket })) {
+      throw new Error(`Claude Code exited before creating the demo plan:\n${pane}`);
+    }
+    await pause(100);
   }
-  throw new Error(`Timed out waiting for Claude plan creation after ${timeout}ms`);
+  throw new Error(
+    `Timed out waiting for Claude plan creation after ${timeout}ms: ${lastError?.message || "no valid plan was written"}`,
+  );
 }
 
 function claudeAtPrompt(pane) {
   return pane.split("\n").some((line) => line.trim() === "❯");
-}
-
-function sendToClaude({ session, tmux, tmuxSocket }, text) {
-  runTmux(tmux, tmuxSocket, ["load-buffer", "-b", "rep-demo-input", "-"], text);
-  runTmux(tmux, tmuxSocket, [
-    "paste-buffer",
-    "-d",
-    "-b",
-    "rep-demo-input",
-    "-t",
-    session,
-  ]);
-  runTmux(tmux, tmuxSocket, ["send-keys", "-t", session, "Enter"]);
 }
 
 function setDemoStage({ session, tmux, tmuxSocket }, stage) {
@@ -443,6 +456,90 @@ async function waitForReviewUrl({
     await pause(100);
   }
   throw new Error(`Timed out waiting for the Rep review URL after ${timeout}ms`);
+}
+
+async function waitForNativeBrowserWindow(browserPid, timeout) {
+  const deadline = Date.now() + Math.min(timeout, 30_000);
+  while (Date.now() < deadline) {
+    const result = spawnSync(
+      "xcrun",
+      ["swift", "-e", NATIVE_WINDOW_LOOKUP_SOURCE, String(browserPid)],
+      { encoding: "utf8" },
+    );
+    if (result.error) throw result.error;
+    if (result.status !== 0) {
+      throw new Error(
+        `Could not query the headed Chromium window (${result.status}): ${result.stderr || result.stdout}`,
+      );
+    }
+    if (result.stdout.trim()) return parseNativeWindowId(result.stdout);
+    await pause(200);
+  }
+  throw new Error(
+    `Timed out waiting for headed Chromium process ${browserPid} to expose a window`,
+  );
+}
+
+function startNativeWindowRecording(windowId, output) {
+  const child = spawn(
+    "/usr/sbin/screencapture",
+    ["-x", "-v", "-k", "-o", "-l", String(windowId), output],
+    { stdio: ["ignore", "ignore", "pipe"] },
+  );
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  let settle;
+  const finished = new Promise((resolve) => {
+    settle = resolve;
+  });
+  child.once("error", (error) => settle({ error }));
+  child.once("exit", (code, signal) => settle({ code, signal }));
+  return { child, finished, output, stderr: () => stderr.trim() };
+}
+
+async function ensureNativeWindowRecordingStarted(recording) {
+  const earlyExit = await Promise.race([
+    recording.finished,
+    pause(750).then(() => null),
+  ]);
+  if (earlyExit) {
+    throw nativeRecordingError(
+      "Native browser recording exited before capture began",
+      recording,
+      earlyExit,
+    );
+  }
+}
+
+async function stopNativeWindowRecording(recording) {
+  recording.child.kill("SIGINT");
+  const result = await Promise.race([
+    recording.finished,
+    pause(10_000).then(() => null),
+  ]);
+  if (!result) {
+    recording.child.kill("SIGTERM");
+    throw new Error("Native browser recording did not stop within 10 seconds");
+  }
+  if (result.error || (result.code !== 0 && result.signal !== "SIGINT")) {
+    throw nativeRecordingError(
+      "Native browser recording failed",
+      recording,
+      result,
+    );
+  }
+  await access(recording.output);
+}
+
+function nativeRecordingError(message, recording, result) {
+  const detail =
+    result.error?.message ||
+    recording.stderr() ||
+    `exit=${result.code ?? "none"} signal=${result.signal ?? "none"}`;
+  return new Error(`${message}: ${detail}`);
 }
 
 async function waitForCompletionMarker({
@@ -545,6 +642,59 @@ function tmuxOptions(extra = {}) {
 
 function shellQuote(value) {
   return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+async function installDemoActionCue(page) {
+  await page.evaluate(() => {
+    const cue = document.createElement("div");
+    cue.id = "rep-demo-action-cue";
+    cue.setAttribute("aria-hidden", "true");
+    Object.assign(cue.style, {
+      background: "rgba(15, 23, 42, 0.92)",
+      border: "1px solid rgba(255, 255, 255, 0.24)",
+      borderRadius: "10px",
+      bottom: "18px",
+      boxShadow: "0 8px 24px rgba(15, 23, 42, 0.3)",
+      color: "#ffffff",
+      font: "600 22px -apple-system, BlinkMacSystemFont, sans-serif",
+      letterSpacing: "0.01em",
+      opacity: "0",
+      padding: "10px 15px",
+      pointerEvents: "none",
+      position: "fixed",
+      right: "18px",
+      transform: "translateY(8px)",
+      transition: "opacity 120ms ease, transform 120ms ease",
+      zIndex: "2147483647",
+    });
+    document.documentElement.append(cue);
+
+    let hideTimer;
+    const show = (label) => {
+      cue.textContent = label;
+      cue.style.opacity = "1";
+      cue.style.transform = "translateY(0)";
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => {
+        cue.style.opacity = "0";
+        cue.style.transform = "translateY(8px)";
+      }, 1_400);
+    };
+    window.addEventListener(
+      "keydown",
+      (event) => {
+        const key =
+          event.key === " "
+            ? "Space"
+            : event.key === "Backspace"
+              ? "Backspace"
+              : event.key;
+        show(`Press “${key}”`);
+      },
+      true,
+    );
+    window.addEventListener("pointerdown", () => show("Click"), true);
+  });
 }
 
 async function commitModal(page) {

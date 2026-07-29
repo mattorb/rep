@@ -71,17 +71,19 @@ The built-in `rep --demo` remains Markdown/TUI-only. An HTML example lives at
 dependencies and Chromium are installed.
 
 For the complete agent loop, `scripts/record-claude-rep-html-demo.sh` records
-the actual interactive Claude Code terminal through VHS while Playwright
-records the live Rep browser review. The browser recording is timestamped and
-overlaid in a recognizable browser frame on the still-active Claude terminal.
-The recording opens Rep's keyboard help, shows the pressed keys and pointer,
-and crops long Claude generation/application waits with VHS before showing
-Claude apply the fresh review actions to the HTML it created. No synthetic
-terminal screen or fixture replacement is used.
+the actual interactive Claude Code terminal through VHS while the native macOS
+screen recorder captures a headed Chromium window, including its real tabs,
+toolbar, address bar, and window frame. VHS visibly types the plan request,
+`/rep`, and `/quit`; it also crops long Claude generation/application waits.
+The browser recording opens Rep's keyboard help and shows the actual keyboard
+and pointer events before Claude applies the fresh review actions to the HTML
+it created. No synthetic terminal, browser chrome, or fixture replacement is
+used.
 
 The recorder requires an installed, authenticated Claude Code CLI and the
-locked web dependencies; pinned VHS, tmux, ttyd, and ffmpeg tooling is resolved
-through mise/pkgx. It produces
+locked web dependencies. Grant Screen & System Audio Recording permission to
+the terminal or agent host running the script before recording; pinned VHS,
+tmux, ttyd, and ffmpeg tooling is resolved through mise/pkgx. It produces
 [`docs/rep-claude-html-skill-demo.mp4`](docs/rep-claude-html-skill-demo.mp4)
 and [`docs/rep-claude-html-skill-demo.gif`](docs/rep-claude-html-skill-demo.gif).
 
