@@ -1,0 +1,11 @@
+{
+  "purpose": "script, event, navigation, remote resource, traversal, form, frame, and object blocking",
+  "removed": ["script", "base", "meta-refresh", "meta-csp", "event-handlers"],
+  "blocked": ["remote.css", "tracker.png", "../../outside.png", "/root-relative.png", "javascript:", "form", "iframe", "object"],
+  "visible_text": [
+    "Security Boundary",
+    "Document scripts and event handlers stay inert.",
+    "Blocked JavaScript link",
+    "Submit"
+  ]
+}

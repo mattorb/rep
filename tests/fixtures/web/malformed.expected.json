@@ -1,0 +1,11 @@
+{
+  "purpose": "malformed but browser-renderable HTML",
+  "visible_text_contains": [
+    "Browser repair behavior",
+    "A paragraph closed by the next block.",
+    "First item",
+    "Second item",
+    "First cell",
+    "Second cell"
+  ]
+}

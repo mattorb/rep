@@ -1,0 +1,20 @@
+{
+  "purpose": "semantic blocks, nested headings, lists, br lines, pre text, and tables",
+  "visible_text": [
+    "Preface content before the first heading.",
+    "Delivery Plan",
+    "Ship the browser review safely. Keep the terminal workflow stable.",
+    "Extract the shared review state.",
+    "Serve the HTML locally.",
+    "Disable scripts.",
+    "Confine assets.",
+    "Verification",
+    "Run browser tests.\nRun the Rust build.",
+    "first preformatted line\nsecond preformatted line",
+    "Gate",
+    "Outcome",
+    "Security",
+    "Pass"
+  ],
+  "section_headings": ["Delivery Plan", "Verification"]
+}

@@ -1,0 +1,11 @@
+{
+  "purpose": "Unicode scalar mapping, combining marks, entities, RTL, and repeated targets",
+  "visible_text": [
+    "Unicode and repeated text",
+    "Café naïve 日本語. Ship 🚀 safely.",
+    "Café naïve 日本語. Ship 🚀 safely.",
+    "Combining: café. Entities: Tom & Jerry.",
+    "خطة مراجعة آمنة"
+  ],
+  "unique_locators": ["#first", "#second"]
+}

@@ -1,0 +1,41 @@
+:root {
+  color-scheme: light;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  background: #f8fafc;
+  color: #172033;
+}
+
+body {
+  margin: 0;
+}
+
+.board {
+  margin: 3rem auto;
+  max-width: 64rem;
+  padding: 0 2rem;
+}
+
+header {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+}
+
+header img {
+  height: 4rem;
+  width: 4rem;
+}
+
+.columns {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.card {
+  background: white;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.75rem;
+  box-shadow: 0 0.5rem 1.5rem rgb(15 23 42 / 0.08);
+  padding: 1rem;
+}

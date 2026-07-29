@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="refresh" content="0; url=https://example.com/escaped">
+  <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval'">
+  <base href="https://example.com/">
+  <title>Security Fixture</title>
+  <link rel="stylesheet" href="https://example.com/remote.css">
+  <script>window.repDocumentScriptRan = true;</script>
+</head>
+<body onload="window.repEventHandlerRan = true">
+  <h1>Security Boundary</h1>
+  <p onclick="window.repClickHandlerRan = true">Document scripts and event handlers stay inert.</p>
+  <img src="https://example.com/tracker.png" alt="blocked remote image">
+  <img src="../../outside.png" alt="blocked traversal image">
+  <img src="/root-relative.png" alt="blocked root relative image">
+  <a href="javascript:window.repJavascriptUrlRan = true">Blocked JavaScript link</a>
+  <form action="https://example.com/collect"><input name="secret"><button>Submit</button></form>
+  <iframe src="https://example.com/"></iframe>
+  <object data="https://example.com/object"></object>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "purpose": "visible-node filtering",
+  "visible_text": ["Visible plan", "Visible review content."],
+  "hidden_text": [
+    "Hidden attribute content.",
+    "Display none content.",
+    "Visibility hidden content.",
+    "Template content."
+  ]
+}
