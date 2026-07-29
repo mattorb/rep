@@ -2,13 +2,26 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  browserCropFilter,
   browserOverlayOffsetSeconds,
   browserProcessId,
   extractReviewUrl,
-  parseNativeWindowId,
+  nativeRecorderTerminalCommand,
+  parseNativeBrowserCapture,
   validateOriginalHtml,
   validateRevisedHtml,
 } from "../record-claude-html-demo.mjs";
+
+const browserCapture = {
+  windowId: 731,
+  displayNumber: 1,
+  x: 40,
+  y: 40,
+  width: 1120,
+  height: 780,
+  displayWidth: 1512,
+  displayHeight: 982,
+};
 
 const original = `<!doctype html>
 <html><head><style>p { color: black; }</style></head><body>
@@ -76,10 +89,50 @@ test("Claude HTML demo identifies its native Chromium process and window", () =>
     ]),
     42,
   );
-  assert.equal(parseNativeWindowId("731\n"), 731);
+  assert.deepEqual(
+    parseNativeBrowserCapture(`${JSON.stringify(browserCapture)}\n`),
+    browserCapture,
+  );
   assert.throws(() => browserProcessId([]), /browser process id/);
-  assert.throws(() => parseNativeWindowId(""), /headed Chromium window/);
-  assert.throws(() => parseNativeWindowId("12\n13\n"), /headed Chromium window/);
+  assert.throws(() => parseNativeBrowserCapture(""), /headed Chromium window/);
+  assert.throws(
+    () =>
+      parseNativeBrowserCapture(
+        JSON.stringify({ ...browserCapture, displayWidth: 100 }),
+      ),
+    /headed Chromium window/,
+  );
+  assert.equal(
+    browserCropFilter(browserCapture),
+    "crop=w='floor(iw*1120/1512/2)*2':h='floor(ih*780/982/2)*2':x='round(iw*40/1512)':y='round(ih*40/982)'",
+  );
+});
+
+test("Claude HTML demo safely launches the built-in macOS recorder", () => {
+  assert.equal(
+    nativeRecorderTerminalCommand({
+      displayNumber: 1,
+      errorLog: "/tmp/browser.error.log",
+      output: "/tmp/browser.mov",
+      ready: "/tmp/browser.ready",
+      recorder: "/tmp/rep recorder",
+      status: "/tmp/browser.status",
+      stop: "/tmp/browser.stop",
+    }),
+    "'/tmp/rep recorder' '1' '/tmp/browser.mov' '/tmp/browser.ready' '/tmp/browser.stop' >/dev/null 2>'/tmp/browser.error.log'; recorder_status=$?; printf '%s\\n' \"$recorder_status\" >'/tmp/browser.status'",
+  );
+  assert.match(
+    nativeRecorderTerminalCommand({
+      displayNumber: 2,
+      errorLog: "/tmp/error",
+      output: "/tmp/browser's.mov",
+      ready: "/tmp/ready",
+      recorder: "/tmp/recorder",
+      status: "/tmp/status",
+      stop: "/tmp/stop",
+    }),
+    /'\/tmp\/browser'\\''s\.mov'/,
+  );
 });
 
 test("Claude HTML demo verifies both actions and preserved layout structure", () => {

@@ -8,17 +8,18 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/record-claude-rep-html-demo.sh [output-prefix]
 
-Records the real interactive Claude Code terminal with VHS, records a headed
-Chromium window with the native macOS screen recorder, and overlays the real
-browser window on the active Claude terminal. The default outputs are:
+Records the real interactive Claude Code terminal with VHS, records the active
+display with macOS screencapture, crops it to the headed Chromium window, and
+overlays the real browser window on the active Claude terminal. The default
+outputs are:
 
   docs/rep-claude-html-skill-demo.mp4
   docs/rep-claude-html-skill-demo.gif
 
-Claude Code must be installed and authenticated. macOS Screen Recording
-permission is required for the terminal or agent host running this script. The
-script installs pinned VHS, tmux, ttyd, and ffmpeg tooling through mise/pkgx
-when needed.
+Claude Code must be installed and authenticated. Grant Screen & System Audio
+Recording permission to Terminal, restart Terminal if macOS requests it, and
+keep the macOS desktop unlocked. The script installs pinned VHS, tmux, ttyd,
+and ffmpeg tooling through mise/pkgx when needed.
 
 Environment:
   REP_CLAUDE_DEMO_MODEL       Claude model alias (default: sonnet)
@@ -60,25 +61,12 @@ if [[ ! -d web/node_modules ]]; then
   printf 'error: web dependencies are missing; run mise exec -- npm --prefix web ci\n' >&2
   exit 1
 fi
-if [[ "$(uname -s)" != "Darwin" ]] || ! command -v screencapture >/dev/null 2>&1; then
-  printf 'error: recording real browser chrome currently requires macOS screencapture\n' >&2
+if [[ "$(uname -s)" != "Darwin" ]] ||
+  [[ ! -x /usr/sbin/screencapture ]] ||
+  ! command -v xcrun >/dev/null 2>&1; then
+  printf 'error: recording real browser chrome requires macOS screencapture and Xcode command-line tools\n' >&2
   exit 1
 fi
-
-capture_probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/rep-screen-capture-probe.XXXXXX")"
-capture_probe_error="$capture_probe_dir/error.log"
-if ! screencapture -x -t png "$capture_probe_dir/probe.png" 2>"$capture_probe_error"; then
-  printf '%s\n' \
-    'error: macOS denied native browser capture.' \
-    'Grant Screen & System Audio Recording permission to the terminal or agent host running this script,' \
-    'restart that host if macOS requests it, then run the recorder again.' >&2
-  sed -n '1,20p' "$capture_probe_error" >&2
-  rm -f "$capture_probe_dir/probe.png" "$capture_probe_error"
-  rmdir "$capture_probe_dir"
-  exit 1
-fi
-rm -f "$capture_probe_dir/probe.png" "$capture_probe_error"
-rmdir "$capture_probe_dir"
 
 MP4_CRF="${REP_DEMO_MP4_CRF:-24}"
 if [[ ! "$MP4_CRF" =~ ^[0-9]+$ ]] || ((MP4_CRF < 0 || MP4_CRF > 51)); then
@@ -130,13 +118,26 @@ TMUX_SOCKET="rep-claude-html-vhs-$$"
 created_skill_link=0
 replaced_skill_link=0
 orchestrator_pid=""
+caffeinate_pid=""
 demo_plan_path="$ROOT_DIR/demo-plan.html"
 demo_plan_backup=""
 demo_plan_existed=0
 
 cleanup() {
+  if [[ -n "$DEMO_TEMP_DIR" && -e "$DEMO_TEMP_DIR/browser.mov.ready" ]]; then
+    : >"$DEMO_TEMP_DIR/browser.mov.stop"
+    for _ in {1..100}; do
+      if [[ -e "$DEMO_TEMP_DIR/browser.mov.status" ]]; then
+        break
+      fi
+      sleep 0.05
+    done
+  fi
   if [[ -n "$orchestrator_pid" ]]; then
     kill "$orchestrator_pid" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$caffeinate_pid" ]]; then
+    kill "$caffeinate_pid" >/dev/null 2>&1 || true
   fi
   TMUX="" "$TMUX_BIN" -L "$TMUX_SOCKET" kill-server >/dev/null 2>&1 || true
   if [[ "$replaced_skill_link" == 1 ]]; then
@@ -211,6 +212,71 @@ ensure_claude_skill
 protect_demo_plan
 DEMO_TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/rep-claude-html-vhs.XXXXXX")"
 mkdir -p "$DEMO_TEMP_DIR/captures" "$(dirname -- "$OUTPUT_PREFIX")"
+caffeinate -dimsu &
+caffeinate_pid=$!
+desktop_state="$(
+  xcrun swift -e '
+    import CoreGraphics
+    import Foundation
+    let session = CGSessionCopyCurrentDictionary() as? [String: Any] ?? [:]
+    var count: UInt32 = 0
+    _ = CGGetActiveDisplayList(0, nil, &count)
+    if session["CGSSessionScreenIsLocked"] as? Bool == true {
+      print("locked")
+    } else if count == 0 {
+      print("inactive")
+    } else {
+      print("ready")
+    }
+  '
+)"
+if [[ "$desktop_state" != ready ]]; then
+  printf 'error: the macOS desktop is %s; unlock it and keep its display active while recording\n' \
+    "$desktop_state" >&2
+  exit 1
+fi
+display_recorder="$ROOT_DIR/scripts/record-macos-display.sh"
+preflight_command="'$display_recorder' --preflight 1 > '"$DEMO_TEMP_DIR"/capture-preflight.log' 2> '"$DEMO_TEMP_DIR"/capture-preflight.error'; recorder_status=\$?; printf '%s\\n' \"\$recorder_status\" > '"$DEMO_TEMP_DIR"/capture-preflight.status'"
+preflight_tty="$(
+  /usr/bin/osascript \
+    -e 'on run argv' \
+    -e 'tell application "Terminal"' \
+    -e 'set captureTab to do script (item 1 of argv)' \
+    -e 'delay 0.2' \
+    -e 'return tty of captureTab' \
+    -e 'end tell' \
+    -e 'end run' \
+    "$preflight_command"
+)"
+for _ in {1..300}; do
+  if [[ -e "$DEMO_TEMP_DIR/capture-preflight.status" ]]; then
+    break
+  fi
+  sleep 0.1
+done
+preflight_status="$(cat "$DEMO_TEMP_DIR/capture-preflight.status" 2>/dev/null || true)"
+/usr/bin/osascript \
+  -e 'on run argv' \
+  -e 'tell application "Terminal"' \
+  -e 'repeat with terminalWindow in windows' \
+  -e 'repeat with terminalTab in tabs of terminalWindow' \
+  -e 'if tty of terminalTab is item 1 of argv then' \
+  -e 'close terminalTab' \
+  -e 'return' \
+  -e 'end if' \
+  -e 'end repeat' \
+  -e 'end repeat' \
+  -e 'end tell' \
+  -e 'end run' \
+  "$preflight_tty" >/dev/null 2>&1 || true
+if [[ "$preflight_status" != 0 ]]; then
+  printf '%s\n' \
+    'error: macOS is not ready for native browser capture.' \
+    'Grant Screen & System Audio Recording permission to Terminal, restart Terminal if requested,' \
+    'and keep the logged-in macOS desktop unlocked while recording.' >&2
+  sed -n '1,20p' "$DEMO_TEMP_DIR/capture-preflight.error" >&2
+  exit 1
+fi
 printf '%s\n' \
   "set -g status-left '[rep html demo]'" \
   "set -g status-left-length 24" \
@@ -226,6 +292,7 @@ REP_BIN="$ROOT_DIR/target/release/rep" \
 REP_CAPTURE_DIR="$DEMO_TEMP_DIR/captures" \
 REP_DEMO_DIAGNOSTICS="$DEMO_TEMP_DIR/rep.stderr" \
 REP_CLAUDE_DEMO_BROWSER_VIDEO="$DEMO_TEMP_DIR/browser.mov" \
+REP_CLAUDE_DEMO_DISPLAY_RECORDER="$display_recorder" \
 REP_CLAUDE_DEMO_TIMING_FILE="$DEMO_TEMP_DIR/timing.json" \
 REP_CLAUDE_DEMO_VHS_START_FILE="$DEMO_TEMP_DIR/vhs-start-ms" \
 REP_CLAUDE_DEMO_VHS_VISIBLE_LEAD_MS="$VHS_VISIBLE_LEAD_MS" \
@@ -294,6 +361,18 @@ overlay_offset="$(
     process.stdout.write(browserOverlayOffsetSeconds(timing, visibleLead).toFixed(3));
   ' "$DEMO_TEMP_DIR/timing.json" "$VHS_VISIBLE_LEAD_MS"
 )"
+browser_capture_filter="$(
+  mise exec -- node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import { browserCropFilter } from "./web/tests/record-claude-html-demo.mjs";
+    const timing = JSON.parse(readFileSync(process.argv[1], "utf8"));
+    const trim = Number(timing.browserVideoTrimSeconds);
+    if (!Number.isFinite(trim) || trim < 0) {
+      throw new Error("browserVideoTrimSeconds must be a non-negative number");
+    }
+    process.stdout.write(`trim=start=${trim.toFixed(3)},${browserCropFilter(timing.browserCapture)}`);
+  ' "$DEMO_TEMP_DIR/timing.json"
+)"
 
 mp4_tmp="$DEMO_TEMP_DIR/composite.mp4"
 gif_tmp="$DEMO_TEMP_DIR/composite.gif"
@@ -306,7 +385,7 @@ media_cmd=(
   -i "$DEMO_TEMP_DIR/terminal.mp4" \
   -i "$DEMO_TEMP_DIR/browser.mov" \
   -filter_complex \
-  "[0:v]fps=24,format=yuv420p[terminal];[1:v]setpts=PTS-STARTPTS+${overlay_offset}/TB,scale=940:-2:flags=lanczos[browser];[terminal][browser]overlay=x=W-w-24:y=24:eof_action=pass:repeatlast=0:shortest=0,format=yuv420p[out]" \
+  "[0:v]fps=24,format=yuv420p[terminal];[1:v]${browser_capture_filter},setpts=PTS-STARTPTS+${overlay_offset}/TB,scale=940:-2:flags=lanczos[browser];[terminal][browser]overlay=x=W-w-24:y=24:eof_action=pass:repeatlast=0:shortest=0,format=yuv420p[out]" \
   -map "[out]" \
   -movflags +faststart \
   -c:v libx264 \

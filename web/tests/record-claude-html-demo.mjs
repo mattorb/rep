@@ -1,7 +1,8 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import {
   access,
   readFile,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
@@ -39,8 +40,36 @@ let largest = candidates.max { left, right in
   }
   return area(left) < area(right)
 }
-if let windowId = largest?[kCGWindowNumber as String] as? Int {
-  print(windowId)
+if
+  let window = largest,
+  let windowId = window[kCGWindowNumber as String] as? Int,
+  let boundsDictionary = window[kCGWindowBounds as String] as? [String: Any],
+  let windowFrame = CGRect(
+    dictionaryRepresentation: boundsDictionary as CFDictionary
+  )
+{
+  var displayCount: UInt32 = 0
+  _ = CGGetActiveDisplayList(0, nil, &displayCount)
+  var displays = Array(repeating: CGDirectDisplayID(), count: Int(displayCount))
+  _ = CGGetActiveDisplayList(displayCount, &displays, &displayCount)
+  let windowCenter = CGPoint(x: windowFrame.midX, y: windowFrame.midY)
+  if let displayIndex = displays.firstIndex(where: {
+    CGDisplayBounds($0).contains(windowCenter)
+  }) {
+    let displayFrame = CGDisplayBounds(displays[displayIndex])
+    let capture = [
+      "windowId": windowId,
+      "displayNumber": displayIndex + 1,
+      "x": windowFrame.minX - displayFrame.minX,
+      "y": windowFrame.minY - displayFrame.minY,
+      "width": windowFrame.width,
+      "height": windowFrame.height,
+      "displayWidth": displayFrame.width,
+      "displayHeight": displayFrame.height,
+    ] as [String: Any]
+    let data = try! JSONSerialization.data(withJSONObject: capture)
+    print(String(data: data, encoding: .utf8)!)
+  }
 }
 `;
 
@@ -74,12 +103,49 @@ export function browserProcessId(processInfo) {
   return browser.id;
 }
 
-export function parseNativeWindowId(output) {
-  const value = output.trim();
-  if (!/^[1-9]\d*$/.test(value)) {
-    throw new Error(`Could not identify the headed Chromium window: ${value}`);
+export function parseNativeBrowserCapture(output) {
+  let capture;
+  try {
+    capture = JSON.parse(output);
+  } catch {
+    throw new Error(`Could not identify the headed Chromium window: ${output.trim()}`);
   }
-  return Number(value);
+  const positiveIntegers = ["windowId", "displayNumber"];
+  const finitePositive = ["width", "height", "displayWidth", "displayHeight"];
+  if (
+    positiveIntegers.some(
+      (key) => !Number.isInteger(capture?.[key]) || capture[key] < 1,
+    ) ||
+    finitePositive.some(
+      (key) => !Number.isFinite(capture?.[key]) || capture[key] <= 0,
+    ) ||
+    !Number.isFinite(capture?.x) ||
+    !Number.isFinite(capture?.y) ||
+    capture.x < 0 ||
+    capture.y < 0 ||
+    capture.x + capture.width > capture.displayWidth + 1 ||
+    capture.y + capture.height > capture.displayHeight + 1
+  ) {
+    throw new Error(`Could not identify the headed Chromium window: ${output.trim()}`);
+  }
+  return capture;
+}
+
+export function browserCropFilter(capture) {
+  const {
+    displayHeight,
+    displayWidth,
+    height,
+    width,
+    x,
+    y,
+  } = parseNativeBrowserCapture(JSON.stringify(capture));
+  return [
+    `crop=w='floor(iw*${width}/${displayWidth}/2)*2'`,
+    `h='floor(ih*${height}/${displayHeight}/2)*2'`,
+    `x='round(iw*${x}/${displayWidth})'`,
+    `y='round(ih*${y}/${displayHeight})'`,
+  ].join(":");
 }
 
 export function validateOriginalHtml(html) {
@@ -140,6 +206,9 @@ async function main() {
   const settings = requiredEnvironment("REP_CLAUDE_DEMO_SETTINGS");
   const diagnosticsPath = requiredEnvironment("REP_DEMO_DIAGNOSTICS");
   const browserVideo = requiredEnvironment("REP_CLAUDE_DEMO_BROWSER_VIDEO");
+  const displayRecorder = requiredEnvironment(
+    "REP_CLAUDE_DEMO_DISPLAY_RECORDER",
+  );
   const timingFile = requiredEnvironment("REP_CLAUDE_DEMO_TIMING_FILE");
   const vhsStartFile = requiredEnvironment("REP_CLAUDE_DEMO_VHS_START_FILE");
   const tmux = requiredEnvironment("REP_CLAUDE_DEMO_TMUX_BIN");
@@ -208,10 +277,21 @@ async function main() {
     const cdp = await browser.newBrowserCDPSession();
     const { processInfo } = await cdp.send("SystemInfo.getProcessInfo");
     const browserPid = browserProcessId(processInfo);
-    const windowId = await waitForNativeBrowserWindow(browserPid, timeout);
+    const browserCapture = await waitForNativeBrowserCapture(browserPid, timeout);
+    await page.bringToFront();
+    const recordingStart = startNativeDisplayRecording({
+      capture: browserCapture,
+      output: browserVideo,
+      recorder: displayRecorder,
+      timeout,
+    });
+    await page.bringToFront();
+    nativeRecording = await recordingStart;
     const browserStartEpochMs = Date.now();
-    nativeRecording = startNativeWindowRecording(windowId, browserVideo);
-    await ensureNativeWindowRecordingStarted(nativeRecording);
+    const browserVideoTrimSeconds = Math.max(
+      0,
+      (browserStartEpochMs - nativeRecording.startedEpochMs) / 1_000,
+    );
     await pause(1_000);
 
     await page.keyboard.press("?");
@@ -247,7 +327,7 @@ async function main() {
     await page.locator("#submit").click();
     await page.locator("#completion").waitFor();
     await pause(1_200);
-    await stopNativeWindowRecording(nativeRecording);
+    await stopNativeDisplayRecording(nativeRecording);
     nativeRecording = null;
     await context.close();
     context = null;
@@ -264,6 +344,8 @@ async function main() {
             { browserStartEpochMs, planReadyEpochMs },
             visibleLead,
           ),
+          browserCapture,
+          browserVideoTrimSeconds,
           planReadyEpochMs,
         },
         null,
@@ -280,7 +362,7 @@ async function main() {
     completed = true;
   } finally {
     if (nativeRecording) {
-      await stopNativeWindowRecording(nativeRecording).catch(() => {});
+      await stopNativeDisplayRecording(nativeRecording).catch(() => {});
     }
     if (context) await context.close();
     if (browser) await browser.close();
@@ -458,7 +540,7 @@ async function waitForReviewUrl({
   throw new Error(`Timed out waiting for the Rep review URL after ${timeout}ms`);
 }
 
-async function waitForNativeBrowserWindow(browserPid, timeout) {
+async function waitForNativeBrowserCapture(browserPid, timeout) {
   const deadline = Date.now() + Math.min(timeout, 30_000);
   while (Date.now() < deadline) {
     const result = spawnSync(
@@ -472,7 +554,7 @@ async function waitForNativeBrowserWindow(browserPid, timeout) {
         `Could not query the headed Chromium window (${result.status}): ${result.stderr || result.stdout}`,
       );
     }
-    if (result.stdout.trim()) return parseNativeWindowId(result.stdout);
+    if (result.stdout.trim()) return parseNativeBrowserCapture(result.stdout);
     await pause(200);
   }
   throw new Error(
@@ -480,66 +562,183 @@ async function waitForNativeBrowserWindow(browserPid, timeout) {
   );
 }
 
-function startNativeWindowRecording(windowId, output) {
-  const child = spawn(
-    "/usr/sbin/screencapture",
-    ["-x", "-v", "-k", "-o", "-l", String(windowId), output],
-    { stdio: ["ignore", "ignore", "pipe"] },
+export function nativeRecorderTerminalCommand({
+  displayNumber,
+  errorLog,
+  output,
+  ready,
+  recorder,
+  status,
+  stop,
+}) {
+  const recorderCommand = [
+    recorder,
+    String(displayNumber),
+    output,
+    ready,
+    stop,
+  ]
+    .map(shellQuote)
+    .join(" ");
+  return `${recorderCommand} >/dev/null 2>${shellQuote(errorLog)}; recorder_status=$?; printf '%s\\n' "$recorder_status" >${shellQuote(status)}`;
+}
+
+async function startNativeDisplayRecording({
+  capture,
+  output,
+  recorder,
+  timeout,
+}) {
+  const recording = {
+    displayNumber: capture.displayNumber,
+    errorLog: `${output}.error.log`,
+    output,
+    ready: `${output}.ready`,
+    recorder,
+    status: `${output}.status`,
+    stop: `${output}.stop`,
+    startedEpochMs: Date.now(),
+    terminalTty: "",
+  };
+  const command = nativeRecorderTerminalCommand(recording);
+  const result = spawnSync(
+    "/usr/bin/osascript",
+    [
+      "-e",
+      "on run argv",
+      "-e",
+      'tell application "Terminal"',
+      "-e",
+      "set captureTab to do script (item 1 of argv)",
+      "-e",
+      "delay 0.2",
+      "-e",
+      "return tty of captureTab",
+      "-e",
+      "end tell",
+      "-e",
+      "end run",
+      command,
+    ],
+    { encoding: "utf8" },
   );
-  let stderr = "";
-  child.stderr.setEncoding("utf8");
-  child.stderr.on("data", (chunk) => {
-    stderr += chunk;
-  });
-  let settle;
-  const finished = new Promise((resolve) => {
-    settle = resolve;
-  });
-  child.once("error", (error) => settle({ error }));
-  child.once("exit", (code, signal) => settle({ code, signal }));
-  return { child, finished, output, stderr: () => stderr.trim() };
-}
-
-async function ensureNativeWindowRecordingStarted(recording) {
-  const earlyExit = await Promise.race([
-    recording.finished,
-    pause(750).then(() => null),
-  ]);
-  if (earlyExit) {
-    throw nativeRecordingError(
-      "Native browser recording exited before capture began",
-      recording,
-      earlyExit,
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(
+      `Could not launch the built-in macOS recorder through Terminal (${result.status}): ${result.stderr || result.stdout}`,
     );
   }
+  recording.terminalTty = result.stdout.trim();
+  try {
+    await waitForNativeRecordingStart(recording, Math.min(timeout, 30_000));
+    return recording;
+  } catch (error) {
+    closeTerminalTab(recording.terminalTty);
+    throw error;
+  }
 }
 
-async function stopNativeWindowRecording(recording) {
-  recording.child.kill("SIGINT");
-  const result = await Promise.race([
-    recording.finished,
-    pause(10_000).then(() => null),
-  ]);
-  if (!result) {
-    recording.child.kill("SIGTERM");
-    throw new Error("Native browser recording did not stop within 10 seconds");
-  }
-  if (result.error || (result.code !== 0 && result.signal !== "SIGINT")) {
-    throw nativeRecordingError(
-      "Native browser recording failed",
-      recording,
-      result,
+async function stopNativeDisplayRecording(recording) {
+  await writeFile(recording.stop, "");
+  try {
+    await waitForFile(
+      recording.status,
+      30_000,
+      "built-in macOS recorder completion",
     );
+    const exitCode = await readRecorderExitCode(recording);
+    if (exitCode !== 0) {
+      throw await nativeRecordingError(
+        "Built-in macOS browser recording failed",
+        recording,
+        exitCode,
+      );
+    }
+    const output = await stat(recording.output);
+    if (output.size === 0) {
+      throw new Error("Built-in macOS browser recording produced an empty file");
+    }
+  } finally {
+    closeTerminalTab(recording.terminalTty);
   }
-  await access(recording.output);
 }
 
-function nativeRecordingError(message, recording, result) {
-  const detail =
-    result.error?.message ||
-    recording.stderr() ||
-    `exit=${result.code ?? "none"} signal=${result.signal ?? "none"}`;
-  return new Error(`${message}: ${detail}`);
+async function waitForNativeRecordingStart(recording, timeout) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (await fileExists(recording.ready)) return;
+    if (await fileExists(recording.status)) {
+      const exitCode = await readRecorderExitCode(recording);
+      throw await nativeRecordingError(
+        "Built-in macOS browser recording exited before capture began",
+        recording,
+        exitCode,
+      );
+    }
+    await pause(100);
+  }
+  throw new Error(
+    `Built-in macOS browser recording did not start within ${timeout}ms`,
+  );
+}
+
+async function readRecorderExitCode(recording) {
+  const value = (await readFile(recording.status, "utf8")).trim();
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`Invalid macOS recorder exit status: ${value}`);
+  }
+  return Number(value);
+}
+
+async function nativeRecordingError(message, recording, exitCode) {
+  const detail = await readFile(recording.errorLog, "utf8")
+    .then((value) => value.trim())
+    .catch(() => "");
+  return new Error(`${message}: ${detail || `exit=${exitCode}`}`);
+}
+
+async function fileExists(file) {
+  try {
+    await access(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function closeTerminalTab(tty) {
+  if (!tty) return;
+  spawnSync(
+    "/usr/bin/osascript",
+    [
+      "-e",
+      "on run argv",
+      "-e",
+      'tell application "Terminal"',
+      "-e",
+      "repeat with terminalWindow in windows",
+      "-e",
+      "repeat with terminalTab in tabs of terminalWindow",
+      "-e",
+      "if tty of terminalTab is item 1 of argv then",
+      "-e",
+      "close terminalTab",
+      "-e",
+      "return",
+      "-e",
+      "end if",
+      "-e",
+      "end repeat",
+      "-e",
+      "end repeat",
+      "-e",
+      "end tell",
+      "-e",
+      "end run",
+      tty,
+    ],
+    { encoding: "utf8" },
+  );
 }
 
 async function waitForCompletionMarker({
