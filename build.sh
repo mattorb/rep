@@ -16,6 +16,8 @@ Validation:
   - cargo test --locked
   - cargo llvm-cov with an 80% line coverage threshold when installed,
     otherwise a coverage skip notice; CI=true requires cargo-llvm-cov
+  - npm --prefix web test when web dependencies are installed;
+    CI=true requires installed web dependencies
 
 Examples:
   ./build.sh
@@ -61,6 +63,15 @@ run_cmd() {
 run_cmd cargo fmt --check
 run_cmd cargo clippy --all-targets -- -D warnings
 run_cmd cargo test --locked
+
+if [[ -d "$ROOT_DIR/web/node_modules" ]]; then
+  run_cmd npm --prefix web test
+elif [[ "${CI:-}" == "true" ]]; then
+  printf 'Web tests required: run npm --prefix web ci before ./build.sh.\n' >&2
+  exit 1
+else
+  printf 'Web tests skipped: run npm --prefix web ci to install dependencies.\n'
+fi
 
 if run_cmd cargo llvm-cov --version >/dev/null 2>&1; then
   run_cmd cargo llvm-cov --locked --workspace --all-targets --fail-under-lines 80

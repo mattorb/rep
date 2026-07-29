@@ -76,6 +76,10 @@ sha256_file() {
 }
 
 cleanup() {
+  if [ -n "${WEB_PID:-}" ] && kill -0 "$WEB_PID" 2>/dev/null; then
+    kill "$WEB_PID" 2>/dev/null || true
+    wait "$WEB_PID" 2>/dev/null || true
+  fi
   if [ -n "${TMP_DIR:-}" ] && [ -d "$TMP_DIR" ]; then
     rm -rf "$TMP_DIR"
   fi
@@ -161,7 +165,98 @@ tar -xzf "$ARCHIVE" -C "$extract_dir"
 [ -f "$extract_dir/README.md" ] || fail "Archive did not contain README.md"
 [ -f "$extract_dir/.agents/skills/rep/SKILL.md" ] || fail "Archive did not contain .agents/skills/rep/SKILL.md"
 
+for entry in "$extract_dir"/* "$extract_dir"/.[!.]*; do
+  [ -e "$entry" ] || continue
+  case "$(base_name "$entry")" in
+    "$BIN_NAME"|LICENSE|README.md|.agents)
+      ;;
+    *)
+      fail "Archive contained unexpected top-level payload: $(base_name "$entry")"
+      ;;
+  esac
+done
+
+case "$TARGET" in
+  *-unknown-linux-musl)
+    linked="$(ldd "$extract_dir/$BIN_NAME" 2>&1 || true)"
+    printf '%s\n' "$linked" | grep -Eiq 'not a dynamic executable|statically linked' ||
+      fail "Packaged Linux binary was not static: $linked"
+    ;;
+  *-apple-darwin)
+    binary_kind="$(file "$extract_dir/$BIN_NAME")"
+    printf '%s\n' "$binary_kind" | grep -q 'Mach-O 64-bit executable' ||
+      fail "Packaged macOS binary was not a 64-bit Mach-O executable: $binary_kind"
+    ;;
+  *)
+    fail "Unsupported release smoke target: $TARGET"
+    ;;
+esac
+
 "$extract_dir/$BIN_NAME" --help >/dev/null
+help_text="$("$extract_dir/$BIN_NAME" --help)"
+printf '%s\n' "$help_text" | grep -q -- '--web' ||
+  fail "Packaged binary help did not include --web"
+printf '%s\n' "$help_text" | grep -q -- '--no-open' ||
+  fail "Packaged binary help did not include --no-open"
+
+grep -q -- '--web' "$extract_dir/.agents/skills/rep/SKILL.md" ||
+  fail "Bundled skill did not contain HTML --web routing"
+[ -x "$extract_dir/.agents/skills/rep/scripts/plan_mode.sh" ] ||
+  fail "Bundled skill did not contain executable plan_mode.sh"
+if [ "$("$extract_dir/.agents/skills/rep/scripts/plan_mode.sh" "$TMP_DIR/sample.HTML")" != "html" ]; then
+  fail "Bundled skill did not route a case-insensitive HTML path"
+fi
+
+fixture="$TMP_DIR/packaged-plan.html"
+cat >"$fixture" <<'HTML'
+<!doctype html>
+<html><head><style>body { color: #25352d; }</style></head>
+<body><h1 id="release">Packaged web smoke</h1></body></html>
+HTML
+web_stdout="$TMP_DIR/web.stdout"
+web_stderr="$TMP_DIR/web.stderr"
+"$extract_dir/$BIN_NAME" --web --no-open "$fixture" >"$web_stdout" 2>"$web_stderr" &
+WEB_PID=$!
+
+review_url=""
+attempt=0
+while [ "$attempt" -lt 100 ]; do
+  review_url="$(sed -n 's/^Review URL: //p' "$web_stderr" | tail -n 1)"
+  [ -n "$review_url" ] && break
+  if ! kill -0 "$WEB_PID" 2>/dev/null; then
+    wait "$WEB_PID" || true
+    WEB_PID=""
+    fail "Packaged web process exited before printing a review URL"
+  fi
+  attempt=$((attempt + 1))
+  sleep 0.05
+done
+[ -n "$review_url" ] || fail "Timed out waiting for packaged web review URL"
+
+curl -fsS "$review_url" | grep -q '<title>Rep HTML Review</title>' ||
+  fail "Packaged binary did not serve the embedded application shell"
+curl -fsS "${review_url}app.js" | grep -Fq 'api("manifest"' ||
+  fail "Packaged binary did not serve embedded JavaScript"
+curl -fsS "${review_url}app.css" | grep -Fq '.workspace' ||
+  fail "Packaged binary did not serve embedded application CSS"
+curl -fsS "${review_url}document.js" | grep -Fq 'extractDocument' ||
+  fail "Packaged binary did not serve embedded document extraction JavaScript"
+curl -fsS "${review_url}assets/__rep_document__.html" | grep -q 'Packaged web smoke' ||
+  fail "Packaged binary did not serve the transformed fixture"
+
+authority="${review_url#http://}"
+authority="${authority%%/*}"
+curl -fsS \
+  -X POST \
+  -H "Origin: http://${authority}" \
+  -H 'Content-Type: application/json' \
+  --data '{}' \
+  "${review_url}api/finish" >/dev/null ||
+  fail "Packaged web review did not accept completion"
+wait "$WEB_PID" || fail "Packaged web process failed during completion"
+WEB_PID=""
+[ "$(cat "$web_stdout")" = "No actions." ] ||
+  fail "Packaged web completion emitted unexpected output"
 
 if [ "$RUN_INSTALLER" = "true" ]; then
   [ -f "$INSTALLER" ] || fail "Installer not found: $INSTALLER"

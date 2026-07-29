@@ -3,11 +3,11 @@ name = "rep"
 version = "0.3.3"
 edition = "2024"
 rust-version = "1.95"
-description = "A multi-unit TUI annotation tool for Markdown files (section / paragraph / line / sentence / word), designed for human-AI review loops"
+description = "A multi-unit Markdown TUI and local HTML browser reviewer for human-AI review loops"
 homepage = "https://github.com/mattorb/rep"
 repository = "https://github.com/mattorb/rep"
 license = "MIT"
-keywords = ["tui", "markdown", "annotation", "review", "ai"]
+keywords = ["tui", "markdown", "html", "annotation", "review"]
 categories = ["command-line-utilities", "text-editors"]
 exclude = [
     ".agents/",

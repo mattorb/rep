@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orchid Release Plan</title>
+  <style>
+    :root {
+      color: #25352d;
+      font: 17px/1.6 Georgia, serif;
+      background: #f3eee4;
+    }
+    * { box-sizing: border-box; }
+    body {
+      max-width: 72rem;
+      margin: 0 auto;
+      padding: clamp(1.5rem, 5vw, 5rem);
+    }
+    header {
+      border-bottom: 1px solid #a4aa91;
+      margin-bottom: 2.5rem;
+      padding-bottom: 1.5rem;
+    }
+    .eyebrow {
+      color: #657061;
+      font: 700 .75rem/1.2 system-ui, sans-serif;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+    h1, h2 { line-height: 1.08; }
+    h1 {
+      font-size: clamp(2.6rem, 7vw, 5.4rem);
+      letter-spacing: -.055em;
+      margin: .35rem 0 .6rem;
+    }
+    main {
+      display: grid;
+      gap: 3rem;
+      grid-template-columns: minmax(0, 1.55fr) minmax(15rem, .75fr);
+    }
+    section + section { margin-top: 2.7rem; }
+    h2 { color: #426b53; margin-bottom: .5rem; }
+    li { margin-bottom: .65rem; }
+    aside {
+      background: #e4eadc;
+      border-radius: 1.2rem;
+      padding: 1.5rem;
+    }
+    aside h2 { margin-top: 0; }
+    code {
+      background: rgb(255 255 255 / 55%);
+      border-radius: .2rem;
+      font-size: .9em;
+      padding: .08rem .25rem;
+    }
+    @media (max-width: 46rem) {
+      main { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="eyebrow">Orchid / release proposal</div>
+    <h1 id="title">Ship a calmer planning workflow</h1>
+    <p>Preserve the document's voice and layout while making review decisions easy to capture.</p>
+  </header>
+  <main>
+    <article>
+      <section>
+        <h2 id="outcome">Outcome</h2>
+        <p>Teams can review the rendered plan without losing typography, hierarchy, or responsive behavior.</p>
+        <p>The final action list remains precise enough for an agent to apply without guessing.</p>
+      </section>
+      <section>
+        <h2 id="steps">Delivery stages</h2>
+        <ol>
+          <li>Validate the local security boundary and original static layout.</li>
+          <li>Exercise keyboard navigation, search, links, and every annotation type.</li>
+          <li>Package the browser application inside the existing single binary.</li>
+        </ol>
+      </section>
+      <section>
+        <h2 id="decision">Open decision</h2>
+        <p>Release all supported platforms on the same day, even if the manual browser checklist is incomplete.</p>
+      </section>
+    </article>
+    <aside>
+      <h2 id="constraints">Constraints</h2>
+      <ul>
+        <li>Markdown continues to use the TUI.</li>
+        <li>HTML review runs only on <code>127.0.0.1</code>.</li>
+        <li>Document JavaScript never executes.</li>
+      </ul>
+      <p>Reference: <a href="#steps">delivery stages</a>.</p>
+    </aside>
+  </main>
+</body>
+</html>

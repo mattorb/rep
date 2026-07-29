@@ -141,11 +141,11 @@ pub(crate) fn keybinding_doc_rows() -> Vec<KeyBindingDocRow> {
         },
         KeyBindingDocRow {
             keys: "`I`".to_string(),
-            action: "Open or close the AST view".to_string(),
+            action: "Open or close the document structure view".to_string(),
         },
         KeyBindingDocRow {
             keys: format!("`{}`", keymap.reveal_link),
-            action: "Reveal markdown links for the current sentence".to_string(),
+            action: "Reveal links for the current selection".to_string(),
         },
         KeyBindingDocRow {
             keys: "`r`".to_string(),

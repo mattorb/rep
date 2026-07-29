@@ -38,7 +38,7 @@ pub enum CliCommand {
 #[command(
     name = "rep",
     version,
-    about = "Collaboratively Tag Text Tool",
+    about = "Review Markdown plans in a terminal or HTML plans in a browser",
     override_usage = "rep [OPTIONS] <plan-file|--demo>",
     group(
         ArgGroup::new("input")
