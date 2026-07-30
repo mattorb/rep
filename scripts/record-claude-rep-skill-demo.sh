@@ -16,25 +16,27 @@ FFMPEG_VERSION="8.1.1"
 LIBWEBSOCKETS_VERSION="4.3.6"
 TMUX_VERSION="3.7b"
 TMUX_SESSION="rep-claude-skill-demo"
+# Use a real short directory so Claude's physical cwd cannot expose the source checkout.
+DEMO_WORKSPACE="${REP_DEMO_WORKSPACE:-/tmp/rep-demo}"
 CLAUDE_SKILLS_DIR="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
 REP_SKILL_SRC="$ROOT_DIR/.agents/skills/rep"
 REP_SKILL_LINK="$CLAUDE_SKILLS_DIR/rep"
 REP_SKILL_BACKUP="$CLAUDE_SKILLS_DIR/rep.rep-demo-backup-$$"
 DEMO_REP_SKILL_SRC=""
+created_demo_workspace=0
 created_skill_link=0
 replaced_skill_link=0
 rendered_tape=""
 output_file=""
 mp4_output_file=""
-demo_plan_path="$ROOT_DIR/demo-plan.md"
-demo_plan_ready_path="$ROOT_DIR/tmp-demo-plan.ready"
-demo_plan_backup=""
-demo_plan_existed=0
 
 cleanup() {
   tmux kill-session -t "$TMUX_SESSION" >/dev/null 2>&1 || true
   if [[ -n "$rendered_tape" ]]; then
     rm -f "$rendered_tape"
+  fi
+  if [[ "$created_demo_workspace" == 1 ]]; then
+    rm -rf -- "$DEMO_WORKSPACE"
   fi
   if [[ "$replaced_skill_link" == 1 ]]; then
     rm -rf "$REP_SKILL_LINK"
@@ -42,15 +44,6 @@ cleanup() {
   elif [[ "$created_skill_link" == 1 ]]; then
     rm -f "$REP_SKILL_LINK"
   fi
-  if [[ -n "$DEMO_REP_SKILL_SRC" ]]; then
-    rm -rf "$DEMO_REP_SKILL_SRC"
-  fi
-  if [[ "$demo_plan_existed" == 1 ]]; then
-    mv "$demo_plan_backup" "$demo_plan_path"
-  else
-    rm -f "$demo_plan_path"
-  fi
-  rm -f "$demo_plan_ready_path"
 }
 trap cleanup EXIT
 
@@ -70,8 +63,48 @@ require_tool() {
   fi
 }
 
+validate_demo_workspace() {
+  local workspace_parent
+  local workspace_name
+
+  if [[ "$DEMO_WORKSPACE" != /* ]]; then
+    printf 'error: REP_DEMO_WORKSPACE must be an absolute path, got: %s\n' "$DEMO_WORKSPACE" >&2
+    exit 2
+  fi
+
+  workspace_parent="$(cd -- "$(dirname -- "$DEMO_WORKSPACE")" && pwd -P)"
+  workspace_name="$(basename -- "$DEMO_WORKSPACE")"
+  if [[ -z "$workspace_name" || "$workspace_name" == "." || "$workspace_name" == ".." ]]; then
+    printf 'error: unsafe REP_DEMO_WORKSPACE name: %s\n' "$DEMO_WORKSPACE" >&2
+    exit 2
+  fi
+  DEMO_WORKSPACE="${workspace_parent%/}/$workspace_name"
+
+  case "$DEMO_WORKSPACE" in
+    /|/tmp|/private/tmp|"$ROOT_DIR"|"$HOME")
+      printf 'error: refusing unsafe REP_DEMO_WORKSPACE: %s\n' "$DEMO_WORKSPACE" >&2
+      exit 2
+      ;;
+  esac
+  if [[ -e "$DEMO_WORKSPACE" || -L "$DEMO_WORKSPACE" ]]; then
+    printf 'error: demo workspace already exists: %s\n' "$DEMO_WORKSPACE" >&2
+    printf 'Remove it or set REP_DEMO_WORKSPACE to another short, disposable path.\n' >&2
+    exit 2
+  fi
+}
+
+prepare_demo_workspace() {
+  mkdir "$DEMO_WORKSPACE"
+  created_demo_workspace=1
+  mkdir -p "$DEMO_WORKSPACE/scripts" "$DEMO_WORKSPACE/target/release"
+  cp scripts/claude-rep-skill-demo-plan.md "$DEMO_WORKSPACE/scripts/"
+  cp scripts/claude-rep-skill-demo-claude-settings.json "$DEMO_WORKSPACE/scripts/"
+  cp target/release/rep "$DEMO_WORKSPACE/target/release/rep"
+}
+
 prepare_demo_skill() {
-  DEMO_REP_SKILL_SRC="$(mktemp -d "${TMPDIR:-/tmp}/rep-demo-skill.XXXXXX")"
+  DEMO_REP_SKILL_SRC="$DEMO_WORKSPACE/.claude/skills/rep"
+  mkdir -p "$DEMO_REP_SKILL_SRC"
   cp -R "$REP_SKILL_SRC"/. "$DEMO_REP_SKILL_SRC"/
 }
 
@@ -94,30 +127,22 @@ ensure_claude_skill() {
   fi
 }
 
-protect_demo_plan() {
-  if [[ -e "$demo_plan_path" || -L "$demo_plan_path" ]]; then
-    demo_plan_backup="$(mktemp "${TMPDIR:-/tmp}/rep-demo-plan-backup.XXXXXX")"
-    rm -f "$demo_plan_backup"
-    mv "$demo_plan_path" "$demo_plan_backup"
-    demo_plan_existed=1
-  fi
-}
-
 render_tape() {
   rendered_tape="$(mktemp -t rep-claude-skill-demo.XXXXXX)"
   mv "$rendered_tape" "$rendered_tape.tape"
   rendered_tape="$rendered_tape.tape"
   sed \
-    -e "s|__REP_DEMO_ROOT__|$ROOT_DIR|g" \
-    -e "s|__REP_BIN__|$ROOT_DIR/target/release/rep|g" \
+    -e "s|__REP_DEMO_ROOT__|$DEMO_WORKSPACE|g" \
     scripts/claude-rep-skill-demo.tape >"$rendered_tape"
+  if grep -Fq "$ROOT_DIR" "$rendered_tape"; then
+    printf 'error: rendered tape exposes the source checkout path: %s\n' "$ROOT_DIR" >&2
+    exit 2
+  fi
 }
 
 require_tool claude
 require_tool tmux
-prepare_demo_skill
-ensure_claude_skill
-protect_demo_plan
+validate_demo_workspace
 
 if [[ -n "$POSTPROCESS_FPS" && ! "$POSTPROCESS_FPS" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
   printf 'error: REP_DEMO_POSTPROCESS_FPS must be numeric, got: %s\n' "$POSTPROCESS_FPS" >&2
@@ -163,6 +188,9 @@ else
 fi
 
 run_cmd cargo build --release
+prepare_demo_workspace
+prepare_demo_skill
+ensure_claude_skill
 mkdir -p docs
 render_tape
 output_file="$(awk '$1 == "Output" { print $2; exit }' "$rendered_tape")"
