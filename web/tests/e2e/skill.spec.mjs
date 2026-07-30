@@ -60,6 +60,10 @@ test("@skill bundled runner launches HTML review, captures output, and supports 
     await page.waitForFunction(
       () => window.__repTest?.state?.status === "ready",
     );
+    await page.keyboard.press("Space");
+    await expect
+      .poll(() => page.evaluate(() => window.__repTest.state.mode))
+      .toBe("paragraph");
     await page.keyboard.press("c");
     await page.locator("#modal-input").fill("Revised plan");
     await page.locator("#modal-input").press("Enter");

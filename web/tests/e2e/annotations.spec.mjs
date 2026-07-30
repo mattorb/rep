@@ -208,6 +208,13 @@ test("@annotations finish emits one HTML action protocol and closes the listener
   const { running } = await openPlan(page, "unicode.html");
   expect(running.output()).toBe("");
 
+  await page.keyboard.press("Space");
+  await page.keyboard.press("Space");
+  await page.keyboard.press("Space");
+  await expect.poll(() => state(page)).toMatchObject({
+    mode: "sentence",
+    anchor: { node: 0, unit: "sentence" },
+  });
   await saveModal(page, "c", "Rename this heading.");
   await page.keyboard.press("j");
   await saveModal(page, "f", "Preserve all scripts and diacritics.");

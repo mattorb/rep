@@ -250,10 +250,15 @@ impl ReviewDocument for HtmlReviewDocument {
     }
 
     fn initial_anchor(&self) -> SelectionAnchor {
-        SelectionAnchor::new(
-            self.next_content_node(0).unwrap_or(0),
-            SelectionUnit::Sentence,
-            0,
+        self.selection_index.sections.first().map_or_else(
+            || {
+                SelectionAnchor::new(
+                    self.next_content_node(0).unwrap_or(0),
+                    SelectionUnit::Sentence,
+                    0,
+                )
+            },
+            |section| SelectionAnchor::new(section.start_node_idx, SelectionUnit::Section, 0),
         )
     }
 
@@ -634,6 +639,10 @@ mod tests {
         let document = document(vec![heading, paragraph]);
 
         assert_eq!(document.selection_index.sections.len(), 1);
+        assert_eq!(
+            document.initial_anchor(),
+            SelectionAnchor::new(0, SelectionUnit::Section, 0)
+        );
         assert_eq!(document.selection_index.nodes[1].sentence_ranges.len(), 2);
         let rocket = document
             .anchor_at_scalar(1, SelectionUnit::Word, 5)
@@ -720,6 +729,11 @@ mod tests {
         second.selector = "body > p:nth-of-type(2)".to_string();
         let document = document(vec![first, second]);
         let anchor = document.initial_anchor();
+        assert_eq!(
+            anchor,
+            SelectionAnchor::new(0, SelectionUnit::Sentence, 0),
+            "prose-only HTML retains the finest available initial anchor"
+        );
         let moved = document.navigate(anchor, true);
         assert_eq!(
             moved,

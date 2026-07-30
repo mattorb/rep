@@ -69,7 +69,7 @@ test("@rendering demo viewport keeps the command legend in two contained rows", 
           return { bottom: box.bottom, top: box.top };
         }),
       );
-    expect(commandBoxes).toHaveLength(7);
+    expect(commandBoxes).toHaveLength(8);
     const commandRows = new Set(
       commandBoxes.map((box) => Math.round(box.top)),
     );
@@ -152,6 +152,9 @@ test("@gallery focus spotlight modes", async ({ page }) => {
         fullPage: true,
       });
     };
+    await page.keyboard.press("Space");
+    await page.keyboard.press("Space");
+    await page.keyboard.press("Space");
     await page.keyboard.press("j");
     await page.keyboard.press("j");
     await expect

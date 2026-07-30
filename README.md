@@ -64,9 +64,10 @@ Rep prints the authenticated loopback URL to stderr. Keep the foreground
 process running, open that exact URL, and press `q` then confirm to send the
 review, or press `Q` to discard it silently. The page acknowledges the handoff
 and attempts to close itself. A large, full-width HUD stays visible at the
-bottom of the review, labels the current `Mode:`, and shows the `q` completion
-and `?` help shortcuts. `--debug` validates and describes an HTML launch
-without binding a server or opening a browser.
+bottom of the review, labels the current `Mode:`, and shows `Spacebar` to
+change mode alongside the `q` completion and `?` help shortcuts. `--debug`
+validates and describes an HTML launch without binding a server or opening a
+browser.
 
 The bundled Rep skill owns the complete HTML handoff. Its runner starts Rep
 without the built-in opener, launches an isolated Chromium- or Firefox-family

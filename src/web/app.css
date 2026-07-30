@@ -204,7 +204,7 @@ iframe.empty {
   box-shadow: 0 -.45rem 1.4rem color-mix(in srgb, #000 22%, transparent);
   display: grid;
   gap: clamp(.55rem, 1vw, 1rem);
-  grid-template-columns: repeat(4, max-content);
+  grid-template-columns: repeat(5, max-content);
   justify-content: center;
   left: 0;
   padding: .65rem max(.65rem, env(safe-area-inset-right, 0px))
@@ -314,8 +314,4 @@ body.finished .completion:not([hidden]) {
     white-space: normal;
   }
 
-  .review-hud-command:last-child {
-    grid-column: 1 / -1;
-    justify-self: center;
-  }
 }

@@ -1110,6 +1110,10 @@ mod tests {
         assert_eq!(response.status, 200);
         assert_eq!(session.revision, 1);
         assert_eq!(session.review.as_ref().unwrap().anchor().node_idx, 0);
+        assert_eq!(
+            session.review.as_ref().unwrap().anchor().unit,
+            SelectionUnit::Section
+        );
 
         let (response, _) = route(&initialize, address, &token, &content, &mut session);
         assert_eq!(response.status, 200);
@@ -1123,7 +1127,11 @@ mod tests {
         let (response, _) = route(&move_request, address, &token, &content, &mut session);
         assert_eq!(response.status, 200);
         assert_eq!(session.revision, 2);
-        assert_eq!(session.review.as_ref().unwrap().anchor().node_idx, 1);
+        assert_eq!(
+            session.review.as_ref().unwrap().anchor(),
+            SelectionAnchor::new(0, SelectionUnit::Section, 0),
+            "the single section reports a boundary without changing anchors"
+        );
 
         let (response, _) = route(&move_request, address, &token, &content, &mut session);
         assert_eq!(response.status, 409);

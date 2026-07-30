@@ -118,9 +118,7 @@ for (const name of [
       }
       if (name === "empty") {
         await expect(page.locator("#review-hud")).toBeVisible();
-        await expect(page.locator("#mode")).toHaveText(
-          "Mode (Space): No selection",
-        );
+        await expect(page.locator("#mode")).toHaveText("Mode: No selection");
       }
     } finally {
       await finishRep(page, running);
@@ -135,16 +133,17 @@ test("@navigation keyboard units, boundaries, focus, and reload are authoritativ
   try {
     expect(await browserState(page)).toMatchObject({
       revision: 1,
-      mode: "sentence",
-      anchor: { node: 0, unit: "sentence", unitIndex: 0 },
+      mode: "section",
+      anchor: { node: 0, unit: "section", unitIndex: 0 },
     });
     const hud = page.locator("#review-hud");
     await expect(hud).toBeVisible();
-    await expect(hud.locator("#mode")).toHaveText("Mode (Space): sentence", {
+    await expect(hud.locator("#mode")).toHaveText("Mode: section", {
       ignoreCase: true,
     });
     await expectSelectionSpotlight(frame);
     await expect(hud.locator(".review-hud-command")).toHaveText([
+      "Spacebar = change mode",
       "j/k = next/prev",
       "x = strike",
       "c = change literal",
@@ -175,54 +174,72 @@ test("@navigation keyboard units, boundaries, focus, and reload are authoritativ
       Number.parseFloat(hudTypography.commandFontSize),
     ).toBeGreaterThanOrEqual(16);
 
-    await page.keyboard.press("Space");
+    await page.keyboard.press("j");
     await expect.poll(() => browserState(page)).toMatchObject({
       revision: 2,
-      mode: "word",
-      anchor: { node: 0, unit: "word", unitIndex: 0 },
+      anchor: { node: 1, unit: "section" },
     });
-    await expect(hud.locator("#mode")).toHaveText("Mode (Space): word", {
+    await page.keyboard.press("Space");
+    await expect.poll(() => browserState(page)).toMatchObject({
+      revision: 3,
+      mode: "paragraph",
+      anchor: { node: 1, unit: "paragraph", unitIndex: 0 },
+    });
+    await expect(hud.locator("#mode")).toHaveText("Mode: paragraph", {
       ignoreCase: true,
     });
     await expectSelectionSpotlight(frame);
-    await page.keyboard.press("j");
-    await expect.poll(() => browserState(page)).toMatchObject({
-      revision: 3,
-      anchor: { node: 0, unit: "word", unitIndex: 1 },
-    });
-    await page.keyboard.press("o");
+    await page.keyboard.press("Space");
     await expect.poll(() => browserState(page)).toMatchObject({
       revision: 4,
+      mode: "line",
+    });
+    await expectSelectionSpotlight(frame);
+    await page.keyboard.press("Space");
+    await expect.poll(() => browserState(page)).toMatchObject({
+      revision: 5,
       mode: "sentence",
+    });
+    await expectSelectionSpotlight(frame);
+    await page.keyboard.press("Space");
+    await expect.poll(() => browserState(page)).toMatchObject({
+      revision: 6,
+      mode: "word",
     });
     await expectSelectionSpotlight(frame);
 
     await page.locator("#interaction-layer").focus();
     await page.keyboard.press("Backspace");
     await expect.poll(() => browserState(page)).toMatchObject({
-      revision: 5,
+      revision: 7,
+      mode: "sentence",
+    });
+    await expectSelectionSpotlight(frame);
+    await page.keyboard.press("Backspace");
+    await expect.poll(() => browserState(page)).toMatchObject({
+      revision: 8,
       mode: "line",
     });
     await expectSelectionSpotlight(frame);
     await page.keyboard.press("Backspace");
     await expect.poll(() => browserState(page)).toMatchObject({
-      revision: 6,
+      revision: 9,
       mode: "paragraph",
     });
     await expectSelectionSpotlight(frame);
     await page.keyboard.press("Backspace");
     await expect.poll(() => browserState(page)).toMatchObject({
-      revision: 7,
+      revision: 10,
       mode: "section",
-      anchor: { node: 0, unit: "section" },
+      anchor: { node: 1, unit: "section" },
     });
     await expectSelectionSpotlight(frame);
     await page.keyboard.press("j");
     await expect.poll(() => browserState(page)).toMatchObject({
-      revision: 8,
-      anchor: { node: 1, unit: "section" },
+      revision: 11,
+      anchor: { node: 7, unit: "section" },
     });
-    await expect(hud.locator("#mode")).toHaveText("Mode (Space): section", {
+    await expect(hud.locator("#mode")).toHaveText("Mode: section", {
       ignoreCase: true,
     });
 
@@ -250,12 +267,11 @@ test("@navigation closing and reopening the review URL restores server state", a
   let reopened = null;
   const reviewUrl = page.url();
   try {
-    await page.keyboard.press("Space");
     await page.keyboard.press("j");
     await expect.poll(() => browserState(page)).toMatchObject({
-      revision: 3,
-      mode: "word",
-      anchor: { node: 0, unit: "word", unitIndex: 1 },
+      revision: 2,
+      mode: "section",
+      anchor: { node: 1, unit: "section", unitIndex: 0 },
     });
     const beforeClose = await browserState(page);
     await page.close();
@@ -387,6 +403,9 @@ test("@navigation selection overlay paints text runs without blank-space boxes",
   const { frame, running } = await openPlan(page, "semantic.html");
   try {
     await page.keyboard.press("j");
+    await page.keyboard.press("Space");
+    await page.keyboard.press("Space");
+    await page.keyboard.press("Space");
     await expect.poll(() => browserState(page)).toMatchObject({
       mode: "sentence",
       anchor: { node: 1, unit: "sentence" },
