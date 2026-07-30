@@ -54,10 +54,15 @@ const original = `<!doctype html>
 </div>
 </body></html>`;
 
-const revised = original.replace(
-  "The checkout platform group will monitor failures after launch.",
-  "The Checkout Reliability team owns rollout monitoring in the CheckoutSession state store.",
-);
+const revised = original
+  .replace(
+    "The checkout platform group will monitor failures after launch.",
+    "The Checkout Reliability team owns rollout monitoring in the CheckoutSession state store.",
+  )
+  .replace(
+    "Launch to all customers as soon as integration tests pass.",
+    "Launch at 10% only after recovered-cart deltas remain below 0.5% for 24 hours.",
+  );
 
 test("Claude HTML demo accepts only loopback Rep review URLs", () => {
   assert.equal(
@@ -211,7 +216,7 @@ test("Claude HTML demo records the q handoff without owning the skill browser", 
     /cue\.style\.bottom = `\$\{Math\.ceil\(hudHeight\) \+ 18\}px`/,
   );
   assert.doesNotMatch(recorderOrchestrator, /keyboard\.press\("\?"\)/);
-  assert.doesNotMatch(recorderOrchestrator, /keyboard\.press\("c"\)/);
+  assert.match(recorderOrchestrator, /keyboard\.press\("c"\)/);
   assert.doesNotMatch(
     recorderOrchestrator,
     /searchForPlanElement|keyboard\.press\("\/"\)/,
@@ -220,13 +225,21 @@ test("Claude HTML demo records the q handoff without owning the skill browser", 
   assert.doesNotMatch(recorderOrchestrator, /locator\("#submit"\)/);
   assert.match(
     recorderOrchestrator,
+    /navigateBySectionToPlanElement\(page, "#launch-gate"\)/,
+  );
+  assert.match(
+    recorderOrchestrator,
     /navigateBySectionToPlanElement\(page, "#ownership"\)/,
   );
   assert.match(
     recorderOrchestrator,
-    /state\?\.mode !== "section"[\s\S]*findLastIndex[\s\S]*keyboard\.press\(key\)[\s\S]*keyboard\.press\("Space"\)[\s\S]*keyboard\.press\("j"\)/,
+    /findLastIndex[\s\S]*keyboard\.press\(key\)[\s\S]*keyboard\.press\("Space"\)[\s\S]*keyboard\.press\("j"\)/,
   );
-  assert.match(recorderOrchestrator, /annotationCount === 1/);
+  assert.match(
+    recorderOrchestrator,
+    /async function ensureSectionMode[\s\S]*state\?\.mode === "section"[\s\S]*keyboard\.press\("o"\)/,
+  );
+  assert.match(recorderOrchestrator, /annotationCount === 2/);
 });
 
 test("Claude HTML demo visibly types browser annotations and pauses before Rep", () => {
@@ -268,7 +281,7 @@ test("Claude HTML demo clips the browser launch wait after a visible beat", () =
   assert.ok(firstBrowserAction > browserReady);
 });
 
-test("Claude HTML demo verifies ownership feedback and preserved layout structure", () => {
+test("Claude HTML demo verifies both actions and preserved layout structure", () => {
   assert.doesNotThrow(() => validateOriginalHtml(original));
   assert.doesNotThrow(() =>
     validateOriginalHtml(
@@ -286,17 +299,17 @@ test("Claude HTML demo verifies ownership feedback and preserved layout structur
   );
   assert.throws(
     () => validateRevisedHtml(original, original),
-    /did not change the plan.*ownership feedback/s,
+    /did not change the plan.*launch-gate change.*original launch gate.*ownership feedback/s,
   );
   assert.throws(
     () =>
       validateRevisedHtml(
         original,
         revised.replace(
-          "Launch to all customers as soon as integration tests pass.",
+          "Launch at 10% only after recovered-cart deltas remain below 0.5% for 24 hours.",
           "Changed launch gate.",
         ),
       ),
-    /original launch gate was changed/,
+    /literal launch-gate change was not applied/,
   );
 });

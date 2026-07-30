@@ -11,6 +11,8 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { chromium } from "@playwright/test";
 
+const REQUIRED_GATE =
+  "Launch at 10% only after recovered-cart deltas remain below 0.5% for 24 hours.";
 const ORIGINAL_GATE =
   "Launch to all customers as soon as integration tests pass.";
 const ORIGINAL_OWNERSHIP =
@@ -186,8 +188,11 @@ export function validateOriginalHtml(html) {
 export function validateRevisedHtml(original, revised) {
   const failures = [];
   if (original === revised) failures.push("Claude Code did not change the plan");
-  if (!revised.includes(ORIGINAL_GATE)) {
-    failures.push("the original launch gate was changed");
+  if (!revised.includes(REQUIRED_GATE)) {
+    failures.push("the literal launch-gate change was not applied");
+  }
+  if (revised.includes(ORIGINAL_GATE)) {
+    failures.push("the original launch gate is still present");
   }
   if (revised.includes(ORIGINAL_OWNERSHIP)) {
     failures.push("the ownership feedback was not incorporated");
@@ -317,6 +322,13 @@ async function main() {
     setDemoStage({ session, tmux, tmuxSocket }, "browser-ready");
     await pause(1_000);
 
+    await navigateBySectionToPlanElement(page, "#launch-gate");
+    await page.keyboard.press("c");
+    await typeBrowserDialogText(page, REQUIRED_GATE);
+    await pause(900);
+    await commitModal(page);
+    await pause(900);
+
     await navigateBySectionToPlanElement(page, "#ownership");
     await page.keyboard.press("f");
     await typeBrowserDialogText(
@@ -326,7 +338,7 @@ async function main() {
     await pause(900);
     await commitModal(page);
     await page.waitForFunction(
-      () => window.__repTest?.state?.annotationCount === 1,
+      () => window.__repTest?.state?.annotationCount === 2,
     );
     await pause(1_200);
 
@@ -934,11 +946,9 @@ async function commitModal(page) {
 }
 
 async function navigateBySectionToPlanElement(page, selector) {
+  await ensureSectionMode(page);
   const navigation = await page.evaluate((target) => {
     const rep = window.__repTest;
-    if (rep?.state?.mode !== "section") {
-      throw new Error("The HTML demo must begin in section mode");
-    }
     const nodes = rep?.manifest?.nodes;
     const targetNode = nodes?.findIndex(
       (candidate) => candidate.selector === target,
@@ -989,6 +999,20 @@ async function navigateBySectionToPlanElement(page, selector) {
     navigation.targetNode,
   );
   await pause(700);
+}
+
+async function ensureSectionMode(page) {
+  for (let index = 0; index < 5; index += 1) {
+    const state = await page.evaluate(() => window.__repTest?.state);
+    if (state?.mode === "section") return;
+    await page.keyboard.press("o");
+    await page.waitForFunction(
+      (revision) => window.__repTest?.state?.revision > revision,
+      state.revision,
+    );
+    await pause(500);
+  }
+  throw new Error("The HTML demo could not return to section mode");
 }
 
 function pause(milliseconds) {
