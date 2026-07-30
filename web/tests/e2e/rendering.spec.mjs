@@ -53,6 +53,48 @@ test("@rendering blocks document code and unsafe resources without rewriting sou
   expect(await readFile(fixture("security.html"), "utf8")).toBe(original);
 });
 
+test("@rendering demo viewport keeps the command legend on one contained line", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1120, height: 620 });
+  const { running } = await openPlan(page, "layout.html");
+  try {
+    const hud = page.locator("#review-hud");
+    const modeBox = await hud.locator("#mode").boundingBox();
+    const commandBoxes = await hud
+      .locator(".review-hud-command")
+      .evaluateAll((commands) =>
+        commands.map((command) => {
+          const box = command.getBoundingClientRect();
+          return { bottom: box.bottom, top: box.top };
+        }),
+      );
+    expect(commandBoxes).toHaveLength(5);
+    expect(
+      commandBoxes.every(
+        (box) =>
+          Math.abs(box.top - commandBoxes[0].top) <= 1 &&
+          Math.abs(box.bottom - commandBoxes[0].bottom) <= 1,
+      ),
+    ).toBe(true);
+    expect(
+      Math.abs(
+        (commandBoxes[0].top + commandBoxes[0].bottom) / 2 -
+          (modeBox.y + modeBox.height / 2),
+      ),
+    ).toBeLessThanOrEqual(1);
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+  } finally {
+    await finishRep(page, running);
+  }
+});
+
 for (const viewport of [
   { name: "desktop", width: 1440, height: 1000 },
   { name: "narrow", width: 430, height: 860 },
@@ -85,6 +127,10 @@ for (const viewport of [
           .first()
           .boundingBox();
         expect(commandBox.y).toBeGreaterThan(modeBox.y);
+        await expect(hud.locator(".review-hud-commands")).toHaveCSS(
+          "grid-template-columns",
+          /.+ .+/,
+        );
       }
       await page.screenshot({
         path: `gallery/layout-${viewport.name}.png`,

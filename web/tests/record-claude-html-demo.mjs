@@ -315,10 +315,6 @@ async function main() {
     );
     await pause(1_000);
 
-    await page.keyboard.press("?");
-    await pause(2_800);
-    await page.keyboard.press("?");
-    await pause(600);
     for (const key of ["j", "j", "Space", "j", "Backspace"]) {
       await page.keyboard.press(key);
       await pause(800);

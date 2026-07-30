@@ -91,7 +91,7 @@ function renderState(next, scroll = true) {
   state = next;
   const empty = next.status === "empty";
   frame.classList.toggle("empty", empty);
-  mode.textContent = `Mode: ${
+  mode.textContent = `Mode (Space): ${
     next.mode || (empty ? "No selection" : "Loading")
   }`;
   setStatus(readyStatus(next));
