@@ -54,6 +54,7 @@ Wait+Screen@300s /revision-ready/
 Show
 
 Sleep 2s
+Hide
 Set TypingSpeed 0.07
 Type "/quit"
 Enter

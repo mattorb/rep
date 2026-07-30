@@ -74,12 +74,14 @@ For the complete agent loop, `scripts/record-claude-rep-html-demo.sh` records
 the actual interactive Claude Code terminal through VHS while macOS's built-in
 `screencapture` utility records the active display. The compositor crops that
 recording to the headed Chromium window, including its real tabs, toolbar,
-address bar, and window frame. VHS visibly types the plan request, `/rep`, and
-`/quit`; it also crops long Claude generation/application waits. The browser
-recording opens Rep's keyboard help and shows the actual keyboard and pointer
-events before Claude applies the fresh review actions to the HTML it created.
-No synthetic terminal, browser chrome, third-party screen recorder, or fixture
-replacement is used.
+address bar, and window frame. VHS visibly types the plan request and `/rep`;
+it hides long Claude generation/application waits and ends before the cleanup
+`/quit`. After Claude creates a real draft,
+`scripts/claude-rep-html-demo-plan.html` replaces it with a deterministic plan,
+matching the Markdown demo's fixture-swap approach. The browser recording opens
+Rep's keyboard help and shows the actual keyboard and pointer events before
+Claude applies the fresh review actions. No synthetic terminal, browser chrome,
+or third-party screen recorder is used.
 
 The recorder requires an installed, authenticated Claude Code CLI and the
 locked web dependencies. Grant Screen & System Audio Recording permission to

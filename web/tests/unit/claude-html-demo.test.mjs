@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -9,9 +10,26 @@ import {
   nativeRecorderArguments,
   parseNativeBrowserCapture,
   shouldConfirmRepSuggestions,
+  validateGeneratedHtml,
   validateOriginalHtml,
   validateRevisedHtml,
 } from "../record-claude-html-demo.mjs";
+
+const deterministicPlan = readFileSync(
+  new URL("../../../scripts/claude-rep-html-demo-plan.html", import.meta.url),
+  "utf8",
+);
+const recorderScript = readFileSync(
+  new URL(
+    "../../../scripts/record-claude-rep-html-demo.sh",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const recorderTape = readFileSync(
+  new URL("../../../scripts/claude-rep-html-demo.tape", import.meta.url),
+  "utf8",
+);
 
 const browserCapture = {
   windowId: 731,
@@ -144,6 +162,27 @@ test("Claude HTML demo confirms intentional Rep changes when Claude asks", () =>
   );
 });
 
+test("Claude HTML demo swaps a deterministic plan and hides before cleanup", () => {
+  assert.doesNotThrow(() => validateGeneratedHtml(original));
+  assert.doesNotThrow(() => validateOriginalHtml(deterministicPlan));
+  assert.throws(
+    () => validateGeneratedHtml("<html><body>short</body></html>"),
+    /Claude-generated draft/,
+  );
+  assert.match(
+    recorderScript,
+    /CLAUDE_PLAN_PROMPT="Create a polished, responsive HTML rollout plan for checkout recovery and write it to demo-plan\.html\."/,
+  );
+  const revisionReady = recorderTape.indexOf(
+    "Wait+Screen@300s /revision-ready/",
+  );
+  const hidden = recorderTape.indexOf("\nHide\n", revisionReady);
+  const cleanupQuit = recorderTape.indexOf('Type "/quit"', revisionReady);
+  assert.ok(revisionReady >= 0);
+  assert.ok(hidden > revisionReady);
+  assert.ok(cleanupQuit > hidden);
+});
+
 test("Claude HTML demo verifies both actions and preserved layout structure", () => {
   assert.doesNotThrow(() => validateOriginalHtml(original));
   assert.doesNotThrow(() =>
@@ -158,7 +197,7 @@ test("Claude HTML demo verifies both actions and preserved layout structure", ()
   assert.doesNotThrow(() => validateRevisedHtml(original, revised));
   assert.throws(
     () => validateOriginalHtml("<html></html>"),
-    /Invalid Claude-created plan/,
+    /Invalid deterministic demo plan/,
   );
   assert.throws(
     () => validateRevisedHtml(original, original),

@@ -80,7 +80,8 @@ FFMPEG_VERSION="8.1.1"
 PKGX_VERSION="2.11.0"
 LIBWEBSOCKETS_VERSION="4.3.6"
 VHS_VISIBLE_LEAD_MS=4000
-CLAUDE_PLAN_PROMPT="Create a polished, responsive HTML rollout plan for checkout recovery in demo-plan.html. Use semantic HTML and embedded CSS with a top-level wrapper whose class='page'. Include exactly <p id='ownership'>The checkout platform group will monitor failures after launch.</p> and <p id='launch-gate'>Launch to all customers as soon as integration tests pass.</p>."
+CLAUDE_PLAN_PROMPT="Create a polished, responsive HTML rollout plan for checkout recovery and write it to demo-plan.html."
+HTML_PLAN_FIXTURE="$ROOT_DIR/scripts/claude-rep-html-demo-plan.html"
 
 find_tool() {
   local root="$1"
@@ -295,6 +296,7 @@ REP_CLAUDE_DEMO_VHS_VISIBLE_LEAD_MS="$VHS_VISIBLE_LEAD_MS" \
 REP_CLAUDE_DEMO_MODEL="${REP_CLAUDE_DEMO_MODEL:-sonnet}" \
 REP_CLAUDE_DEMO_TIMEOUT_MS="${REP_CLAUDE_DEMO_TIMEOUT_MS:-300000}" \
 REP_CLAUDE_DEMO_PLAN="$demo_plan_path" \
+REP_CLAUDE_DEMO_PLAN_FIXTURE="$HTML_PLAN_FIXTURE" \
 REP_CLAUDE_DEMO_SETTINGS="$ROOT_DIR/scripts/claude-rep-skill-demo-claude-settings.json" \
 REP_CLAUDE_DEMO_TMUX_BIN="$TMUX_BIN" \
 REP_CLAUDE_DEMO_TMUX_CONFIG="$DEMO_TEMP_DIR/tmux.conf" \

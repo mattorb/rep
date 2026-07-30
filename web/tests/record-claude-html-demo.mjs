@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import {
   access,
+  copyFile,
   readFile,
   stat,
   writeFile,
@@ -148,6 +149,21 @@ export function browserCropFilter(capture) {
   ].join(":");
 }
 
+export function validateGeneratedHtml(html) {
+  const failures = [];
+  for (const [description, present] of [
+    ["an HTML doctype", /<!doctype html>/i.test(html)],
+    ["an html element", /<html(?:\s|>)/i.test(html)],
+    ["a body element", /<body(?:\s|>)/i.test(html)],
+    ["substantive content", html.trim().length >= 200],
+  ]) {
+    if (!present) failures.push(`missing ${description}`);
+  }
+  if (failures.length > 0) {
+    throw new Error(`Invalid Claude-generated draft: ${failures.join("; ")}`);
+  }
+}
+
 export function validateOriginalHtml(html) {
   const failures = [];
   for (const [description, present] of [
@@ -162,7 +178,7 @@ export function validateOriginalHtml(html) {
     if (!present) failures.push(`missing ${description}`);
   }
   if (failures.length > 0) {
-    throw new Error(`Invalid Claude-created plan: ${failures.join("; ")}`);
+    throw new Error(`Invalid deterministic demo plan: ${failures.join("; ")}`);
   }
 }
 
@@ -203,6 +219,7 @@ function hasAttribute(html, name, value) {
 async function main() {
   const repo = path.resolve(import.meta.dirname, "../..");
   const plan = requiredEnvironment("REP_CLAUDE_DEMO_PLAN");
+  const planFixture = requiredEnvironment("REP_CLAUDE_DEMO_PLAN_FIXTURE");
   const settings = requiredEnvironment("REP_CLAUDE_DEMO_SETTINGS");
   const diagnosticsPath = requiredEnvironment("REP_DEMO_DIAGNOSTICS");
   const browserVideo = requiredEnvironment("REP_CLAUDE_DEMO_BROWSER_VIDEO");
@@ -242,13 +259,16 @@ async function main() {
     });
     await waitForClaudeReady({ session, timeout, tmux, tmuxSocket });
     await waitForFile(vhsStartFile, timeout, "VHS capture marker");
-    const original = await waitForClaudePlan({
+    await waitForClaudePlan({
       file: plan,
       session,
       timeout,
       tmux,
       tmuxSocket,
     });
+    await copyFile(planFixture, plan);
+    const original = await readFile(plan, "utf8");
+    validateOriginalHtml(original);
 
     const planReadyEpochMs = Date.now();
     setDemoStage({ session, tmux, tmuxSocket }, "plan-ready");
@@ -487,7 +507,7 @@ async function waitForClaudePlan({
       }
       try {
         const html = await readFile(file, "utf8");
-        validateOriginalHtml(html);
+        validateGeneratedHtml(html);
         return html;
       } catch (error) {
         lastError = error;
@@ -902,34 +922,57 @@ async function commitModal(page) {
 }
 
 async function focusPlanElement(page, selector) {
-  await page.evaluate((target) => {
+  const targetNode = await page.evaluate((target) => {
+    const rep = window.__repTest;
+    const node = rep?.manifest?.nodes?.findIndex(
+      (candidate) => candidate.selector === target,
+    );
+    if (node < 0) throw new Error(`Review target is missing: ${target}`);
     const iframe = document.querySelector("#plan");
     iframe.contentDocument.querySelector(target).scrollIntoView({
       behavior: "instant",
       block: "center",
     });
+    return node;
   }, selector);
   await pause(700);
-  const point = await page.evaluate((target) => {
-    const iframe = document.querySelector("#plan");
-    const element = iframe.contentDocument.querySelector(target);
-    const iframeRect = iframe.getBoundingClientRect();
-    const elementRect = element.getBoundingClientRect();
-    return {
-      x: iframeRect.left + elementRect.left + Math.min(24, elementRect.width / 2),
-      y: iframeRect.top + elementRect.top + Math.min(8, elementRect.height / 2),
-    };
-  }, selector);
-  await page.mouse.click(point.x, point.y);
-  await page.waitForFunction(
-    (target) => {
-      const rep = window.__repTest;
-      const node = rep?.manifest?.nodes?.[rep.state?.anchor?.node];
-      return node?.selector === target;
-    },
-    selector,
+  for (const horizontalPosition of [0.05, 0.5, 0.95]) {
+    const point = await page.evaluate(
+      ({ position, target }) => {
+        const iframe = document.querySelector("#plan");
+        const element = iframe.contentDocument.querySelector(target);
+        const iframeRect = iframe.getBoundingClientRect();
+        const elementRect = element.getBoundingClientRect();
+        return {
+          x:
+            iframeRect.left +
+            elementRect.left +
+            elementRect.width * position,
+          y: iframeRect.top + elementRect.top + elementRect.height / 2,
+        };
+      },
+      { position: horizontalPosition, target: selector },
+    );
+    await page.mouse.click(point.x, point.y);
+    try {
+      await page.waitForFunction(
+        (node) => window.__repTest?.state?.anchor?.node === node,
+        targetNode,
+        { timeout: 2_000 },
+      );
+      await pause(500);
+      return;
+    } catch {
+      // Try a different point in case another rendered element overlaps the text.
+    }
+  }
+  const diagnostics = await page.evaluate(() => ({
+    anchor: window.__repTest?.state?.anchor,
+    clicks: window.__repTest?.clickEvents?.slice(-3),
+  }));
+  throw new Error(
+    `Could not focus ${selector}: ${JSON.stringify(diagnostics)}`,
   );
-  await pause(500);
 }
 
 function pause(milliseconds) {

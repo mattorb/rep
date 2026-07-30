@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Checkout Recovery Rollout Plan</title>
+  <style>
+    :root {
+      color: #17203b;
+      font: 16px/1.55 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #edf1fb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: clamp(1rem, 4vw, 3.5rem);
+      background:
+        radial-gradient(circle at top left, rgb(104 125 255 / 18%), transparent 32rem),
+        #edf1fb;
+    }
+    .page {
+      max-width: 72rem;
+      margin: 0 auto;
+      overflow: hidden;
+      border: 1px solid rgb(77 91 158 / 16%);
+      border-radius: 1.5rem;
+      background: #fff;
+      box-shadow: 0 1.5rem 4rem rgb(31 43 92 / 14%);
+    }
+    .hero {
+      padding: clamp(2rem, 6vw, 4.5rem);
+      color: #fff;
+      background: linear-gradient(130deg, #315be8, #6c3ec1);
+    }
+    .eyebrow {
+      margin: 0 0 .8rem;
+      font-size: .75rem;
+      font-weight: 800;
+      letter-spacing: .17em;
+      text-transform: uppercase;
+      opacity: .8;
+    }
+    h1 {
+      max-width: 14ch;
+      margin: 0;
+      font-size: clamp(2.5rem, 7vw, 5rem);
+      line-height: .98;
+      letter-spacing: -.055em;
+    }
+    .hero > p:last-of-type {
+      max-width: 46rem;
+      margin: 1.3rem 0 0;
+      font-size: 1.08rem;
+      opacity: .86;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: .8rem;
+      margin-top: 2.2rem;
+    }
+    .stat {
+      padding: 1rem 1.1rem;
+      border: 1px solid rgb(255 255 255 / 22%);
+      border-radius: .9rem;
+      background: rgb(255 255 255 / 11%);
+    }
+    .stat strong {
+      display: block;
+      font-size: 1.5rem;
+    }
+    main {
+      display: grid;
+      gap: 2rem;
+      padding: clamp(1.4rem, 4vw, 3.5rem);
+    }
+    section {
+      scroll-margin-top: 4rem;
+    }
+    h2 {
+      margin: 0 0 .35rem;
+      color: #263d9b;
+      font-size: 1.45rem;
+      letter-spacing: -.025em;
+    }
+    h3 {
+      margin: 0 0 .45rem;
+      font-size: 1rem;
+    }
+    .lede {
+      max-width: 58rem;
+      margin: 0;
+      color: #56617d;
+    }
+    .phase-grid,
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin-top: 1.2rem;
+    }
+    .card {
+      padding: 1.25rem;
+      border: 1px solid #dbe1f2;
+      border-radius: 1rem;
+      background: #f9faff;
+    }
+    .badge {
+      display: inline-flex;
+      margin-bottom: .8rem;
+      padding: .3rem .55rem;
+      border-radius: 999px;
+      color: #3153ca;
+      background: #e4eaff;
+      font-size: .72rem;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .card p,
+    .card ul {
+      margin: .45rem 0 0;
+      color: #56617d;
+    }
+    ul,
+    ol {
+      padding-left: 1.2rem;
+    }
+    li + li {
+      margin-top: .45rem;
+    }
+    .timeline {
+      display: grid;
+      gap: .75rem;
+      margin-top: 1.2rem;
+    }
+    .timeline article {
+      display: grid;
+      grid-template-columns: 7rem 1fr;
+      gap: 1rem;
+      padding: 1rem;
+      border-left: .28rem solid #5270eb;
+      border-radius: .35rem .9rem .9rem .35rem;
+      background: #f5f7ff;
+    }
+    .timeline strong {
+      color: #3153ca;
+    }
+    .decision-grid {
+      display: grid;
+      grid-template-columns: 1.15fr .85fr;
+      gap: 1rem;
+    }
+    .gate,
+    .ownership {
+      padding: 1.35rem;
+      border-radius: 1rem;
+    }
+    .gate {
+      border: 1px solid #d2d9fa;
+      background: #f0f3ff;
+    }
+    .ownership {
+      border: 1px solid #d8e7df;
+      background: #f0f8f3;
+    }
+    .gate p,
+    .ownership p {
+      margin: .55rem 0 0;
+    }
+    .checklist {
+      columns: 2;
+      column-gap: 2rem;
+      margin-top: 1rem;
+    }
+    .checklist li {
+      break-inside: avoid;
+      margin-bottom: .65rem;
+    }
+    footer {
+      padding: 1.2rem clamp(1.4rem, 4vw, 3.5rem);
+      color: #5f6880;
+      background: #f6f7fb;
+      font-size: .86rem;
+    }
+    @media (max-width: 48rem) {
+      .stats,
+      .phase-grid,
+      .metric-grid,
+      .decision-grid {
+        grid-template-columns: 1fr;
+      }
+      .timeline article {
+        grid-template-columns: 1fr;
+      }
+      .checklist {
+        columns: 1;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <p class="eyebrow">Checkout platform · rollout brief</p>
+      <h1>Recover every paid cart safely</h1>
+      <p>Introduce a reversible checkout recovery path that restores failed finalizations without duplicate charges, stale inventory, or ambiguous support states.</p>
+      <div class="stats">
+        <div class="stat"><strong>3 phases</strong>Controlled exposure</div>
+        <div class="stat"><strong>&lt; 5 min</strong>Recovery target</div>
+        <div class="stat"><strong>24 hours</strong>Gate observation</div>
+      </div>
+    </header>
+
+    <main>
+      <section>
+        <h2>Executive summary</h2>
+        <p class="lede">Payment can succeed while cart finalization fails. This plan introduces an explicit checkout-session state machine, idempotent recovery workers, and customer-safe support labels before traffic moves to the new path.</p>
+        <div class="phase-grid">
+          <article class="card">
+            <span class="badge">Phase 1</span>
+            <h3>Instrument</h3>
+            <p>Record authoritative payment, inventory, and cart transitions without changing customer-visible behavior.</p>
+          </article>
+          <article class="card">
+            <span class="badge">Phase 2</span>
+            <h3>Shadow</h3>
+            <p>Replay production failures and compare recovery decisions against the existing manual triage queue.</p>
+          </article>
+          <article class="card">
+            <span class="badge">Phase 3</span>
+            <h3>Release</h3>
+            <p>Enable recovery gradually with automatic rollback on correctness, latency, or duplicate-charge signals.</p>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>Implementation sequence</h2>
+        <div class="timeline">
+          <article>
+            <strong>Days 1–3</strong>
+            <div><h3>State foundation</h3>Create a shared <code>CheckoutSession</code> state model and idempotency contract for the API, webhook consumer, and support tools.</div>
+          </article>
+          <article>
+            <strong>Days 4–7</strong>
+            <div><h3>Recovery worker</h3>Retry paid-but-unfinalized carts, reconcile inventory reservations, and emit a durable decision for every attempt.</div>
+          </article>
+          <article>
+            <strong>Days 8–10</strong>
+            <div><h3>Operational rollout</h3>Backfill open cases, validate dashboards, rehearse rollback, and begin the staged traffic ramp.</div>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>Success measures</h2>
+        <div class="metric-grid">
+          <article class="card"><h3>Correctness</h3><p>No duplicate captures and no unreconciled inventory transitions.</p></article>
+          <article class="card"><h3>Recovery</h3><p>At least 98% of eligible carts finalize within five minutes.</p></article>
+          <article class="card"><h3>Support</h3><p>Every case exposes one documented, customer-safe status.</p></article>
+        </div>
+      </section>
+
+      <section class="decision-grid">
+        <article class="gate">
+          <span class="badge">Launch gate</span>
+          <h2>Traffic decision</h2>
+          <p id="launch-gate">Launch to all customers as soon as integration tests pass.</p>
+        </article>
+        <article class="ownership">
+          <span class="badge">Ownership</span>
+          <h2>Operating model</h2>
+          <p id="ownership">The checkout platform group will monitor failures after launch.</p>
+        </article>
+      </section>
+
+      <section>
+        <h2>Pre-launch checklist</h2>
+        <ul class="checklist">
+          <li>Duplicate webhook deliveries remain idempotent.</li>
+          <li>Expired inventory reservations have a tested outcome.</li>
+          <li>Support labels map to authoritative internal states.</li>
+          <li>Shadow counts match the manual triage baseline.</li>
+          <li>Rollback restores the previous finalization path.</li>
+          <li>On-call dashboards and alerts are reviewed.</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer>Prepared for Checkout Recovery readiness review · deterministic demo fixture</footer>
+  </div>
+</body>
+</html>
