@@ -67,7 +67,7 @@ for (const name of [
       }
       if (name === "empty") {
         await expect(page.locator("#review-hud")).toBeVisible();
-        await expect(page.locator("#mode")).toHaveText("No selection");
+        await expect(page.locator("#mode")).toHaveText("Mode: No selection");
         await expect(page.locator(".review-hud-help")).toHaveText("? Help");
       }
     } finally {
@@ -88,7 +88,7 @@ test("@navigation keyboard units, boundaries, focus, and reload are authoritativ
     });
     const hud = page.locator("#review-hud");
     await expect(hud).toBeVisible();
-    await expect(hud.locator("#mode")).toHaveText("sentence", {
+    await expect(hud.locator("#mode")).toHaveText("Mode: sentence", {
       ignoreCase: true,
     });
     await expect(hud.locator(".review-hud-command").first()).toHaveText(
@@ -97,7 +97,23 @@ test("@navigation keyboard units, boundaries, focus, and reload are authoritativ
     await expect(hud.locator(".review-hud-help")).toHaveText("? Help");
     const hudBox = await hud.boundingBox();
     const viewport = page.viewportSize();
-    expect(viewport.height - hudBox.y - hudBox.height).toBeLessThanOrEqual(14);
+    const hudTypography = await hud.evaluate((element) => ({
+      borderRadius: getComputedStyle(element).borderRadius,
+      commandFontSize: getComputedStyle(
+        element.querySelector(".review-hud-command"),
+      ).fontSize,
+      modeFontSize: getComputedStyle(element.querySelector("#mode")).fontSize,
+    }));
+    expect(Math.abs(hudBox.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(hudBox.width - viewport.width)).toBeLessThanOrEqual(1);
+    expect(viewport.height - hudBox.y - hudBox.height).toBeLessThanOrEqual(1);
+    expect(hudTypography.borderRadius).toBe("0px");
+    expect(Number.parseFloat(hudTypography.modeFontSize)).toBeGreaterThanOrEqual(
+      23,
+    );
+    expect(
+      Number.parseFloat(hudTypography.commandFontSize),
+    ).toBeGreaterThanOrEqual(24);
 
     await page.keyboard.press("Space");
     await expect.poll(() => browserState(page)).toMatchObject({
@@ -105,7 +121,7 @@ test("@navigation keyboard units, boundaries, focus, and reload are authoritativ
       mode: "word",
       anchor: { node: 0, unit: "word", unitIndex: 0 },
     });
-    await expect(hud.locator("#mode")).toHaveText("word", {
+    await expect(hud.locator("#mode")).toHaveText("Mode: word", {
       ignoreCase: true,
     });
     await page.keyboard.press("j");
@@ -133,7 +149,7 @@ test("@navigation keyboard units, boundaries, focus, and reload are authoritativ
       revision: 8,
       anchor: { node: 1, unit: "section" },
     });
-    await expect(hud.locator("#mode")).toHaveText("section", {
+    await expect(hud.locator("#mode")).toHaveText("Mode: section", {
       ignoreCase: true,
     });
 

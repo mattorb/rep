@@ -49,10 +49,11 @@ body {
   color: color-mix(in srgb, #6366f1 82%, CanvasText);
   display: inline-flex;
   flex: none;
-  font-size: .72rem;
+  font-size: 1.44rem;
   font-weight: 700;
   letter-spacing: .04em;
-  padding: .18rem .45rem;
+  line-height: 1.2;
+  padding: .36rem .9rem;
   text-transform: uppercase;
 }
 
@@ -197,19 +198,21 @@ iframe.empty {
 
 .review-hud {
   align-items: center;
-  backdrop-filter: blur(12px);
-  background: color-mix(in srgb, Canvas 88%, transparent);
-  border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
-  border-radius: 999px;
-  bottom: max(.8rem, env(safe-area-inset-bottom));
-  box-shadow: 0 .45rem 1.4rem color-mix(in srgb, #000 22%, transparent);
+  backdrop-filter: blur(16px);
+  background: color-mix(in srgb, Canvas 94%, transparent);
+  border-top: 2px solid color-mix(in srgb, CanvasText 24%, transparent);
+  bottom: 0;
+  box-shadow: 0 -.45rem 1.4rem color-mix(in srgb, #000 22%, transparent);
   display: flex;
-  gap: .55rem;
-  left: 50%;
-  padding: .38rem .55rem;
+  gap: 1.1rem;
+  justify-content: center;
+  left: 0;
+  padding: .75rem max(1rem, env(safe-area-inset-right, 0px))
+    max(.75rem, env(safe-area-inset-bottom, 0px))
+    max(1rem, env(safe-area-inset-left, 0px));
   pointer-events: none;
   position: absolute;
-  transform: translateX(-50%);
+  right: 0;
   white-space: nowrap;
   z-index: 2;
 }
@@ -224,21 +227,22 @@ iframe.empty {
   align-items: center;
   color: color-mix(in srgb, CanvasText 78%, transparent);
   display: inline-flex;
-  font-size: .78rem;
+  font-size: 1.56rem;
   font-weight: 650;
-  gap: .3rem;
-  padding-right: .15rem;
+  gap: .6rem;
+  line-height: 1.2;
+  padding-right: .3rem;
 }
 
 .review-hud-command kbd {
   background: color-mix(in srgb, CanvasText 8%, Canvas);
   border: 1px solid color-mix(in srgb, CanvasText 25%, transparent);
-  border-bottom-width: 2px;
-  border-radius: .3rem;
+  border-bottom-width: 3px;
+  border-radius: .6rem;
   color: CanvasText;
-  font: 700 .74rem/1 ui-monospace, SFMono-Regular, Consolas, monospace;
-  min-width: 1.35rem;
-  padding: .2rem .3rem;
+  font: 700 1.48rem/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+  min-width: 2.7rem;
+  padding: .4rem .6rem;
   text-align: center;
 }
 
@@ -294,6 +298,22 @@ body.finished .completion:not([hidden]) {
 
 @media (max-width: 38rem) {
   .review-hud {
-    bottom: max(.5rem, env(safe-area-inset-bottom));
+    flex-wrap: wrap;
+    gap: .65rem 1rem;
+  }
+
+  .review-hud .mode {
+    flex-basis: 100%;
+    justify-content: center;
+  }
+
+  .review-hud-divider {
+    display: none;
+  }
+
+  .review-hud-command {
+    flex: 1;
+    justify-content: center;
+    padding: 0;
   }
 }

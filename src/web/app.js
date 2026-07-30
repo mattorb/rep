@@ -91,7 +91,9 @@ function renderState(next, scroll = true) {
   state = next;
   const empty = next.status === "empty";
   frame.classList.toggle("empty", empty);
-  mode.textContent = next.mode || (empty ? "No selection" : "Loading");
+  mode.textContent = `Mode: ${
+    next.mode || (empty ? "No selection" : "Loading")
+  }`;
   setStatus(readyStatus(next));
   overlay?.paint(
     next.selection || [],

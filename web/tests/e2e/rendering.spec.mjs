@@ -61,6 +61,26 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     const { running } = await openPlan(page, "layout.html");
     try {
+      const hud = page.locator("#review-hud");
+      const hudBox = await hud.boundingBox();
+      const viewportSize = page.viewportSize();
+      expect(Math.abs(hudBox.x)).toBeLessThanOrEqual(1);
+      expect(Math.abs(hudBox.width - viewportSize.width)).toBeLessThanOrEqual(1);
+      expect(
+        await page.evaluate(
+          () =>
+            document.documentElement.scrollWidth <=
+            document.documentElement.clientWidth,
+        ),
+      ).toBe(true);
+      if (viewport.name === "narrow") {
+        const modeBox = await hud.locator("#mode").boundingBox();
+        const commandBox = await hud
+          .locator(".review-hud-command")
+          .first()
+          .boundingBox();
+        expect(commandBox.y).toBeGreaterThan(modeBox.y);
+      }
       await page.screenshot({
         path: `gallery/layout-${viewport.name}.png`,
         fullPage: true,

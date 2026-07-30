@@ -882,6 +882,13 @@ async function installDemoActionCue(page) {
       zIndex: "2147483647",
     });
     document.documentElement.append(cue);
+    const hud = document.querySelector("#review-hud");
+    const placeAboveHud = () => {
+      const hudHeight = hud?.getBoundingClientRect().height || 0;
+      cue.style.bottom = `${Math.ceil(hudHeight) + 18}px`;
+    };
+    placeAboveHud();
+    if (hud) new ResizeObserver(placeAboveHud).observe(hud);
 
     let hideTimer;
     const show = (label) => {

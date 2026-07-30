@@ -46,6 +46,9 @@ Linux. Chromium is covered by the automated gate.
       across the five selection units.
 - [ ] Resize and scroll; confirm selection and annotation overlays stay aligned
       without changing the plan DOM layout.
+- [ ] Confirm the large full-width bottom bar remains pinned and legible,
+      prefixes the active selection with `Mode:`, and wraps without horizontal
+      overflow at narrow viewport widths.
 - [ ] Confirm the active selection fill, border, halo, and leading focus bar
       remain legible over both light and dark plan colors, while annotation
       patterns and badges remain distinguishable.
