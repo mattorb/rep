@@ -254,6 +254,37 @@ test("Claude HTML demo records the q handoff without owning the skill browser", 
   assert.match(recorderOrchestrator, /annotationCount === 2/);
 });
 
+test("Claude HTML demo conceals the source checkout from Claude", () => {
+  assert.match(
+    recorderScript,
+    /DEMO_WORKSPACE="\$\{REP_CLAUDE_DEMO_WORKSPACE:-\/tmp\/rep-html-demo\}"/,
+  );
+  assert.match(
+    recorderScript,
+    /DEMO_REP_SKILL_SRC="\$DEMO_WORKSPACE\/\.claude\/skills\/rep"/,
+  );
+  assert.match(
+    recorderScript,
+    /REP_BIN="\$DEMO_WORKSPACE\/target\/release\/rep"/,
+  );
+  assert.match(
+    recorderScript,
+    /REP_CLAUDE_DEMO_WORKSPACE="\$DEMO_WORKSPACE"/,
+  );
+  assert.match(
+    recorderOrchestrator,
+    /const workspace = requiredEnvironment\("REP_CLAUDE_DEMO_WORKSPACE"\)/,
+  );
+  assert.match(
+    recorderOrchestrator,
+    /"-c",\s+workspace,/,
+  );
+  assert.doesNotMatch(
+    recorderOrchestrator,
+    /const repo = path\.resolve\(import\.meta\.dirname, "\.\.\/\.\."\)/,
+  );
+});
+
 test("Claude HTML demo visibly types browser annotations and pauses before Rep", () => {
   assert.doesNotMatch(
     recorderOrchestrator,

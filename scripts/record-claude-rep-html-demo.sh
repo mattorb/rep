@@ -24,6 +24,7 @@ VHS, tmux, ttyd, ffmpeg, and gifsicle tooling through mise/pkgx when needed.
 Environment:
   REP_CLAUDE_DEMO_MODEL       Claude model alias (default: sonnet)
   REP_CLAUDE_DEMO_TIMEOUT_MS  Per-stage timeout (default: 300000)
+  REP_CLAUDE_DEMO_WORKSPACE   Short disposable workspace (default: /tmp/rep-html-demo)
   REP_DEMO_MP4_CRF            H.264 quality setting (default: 24)
 USAGE
 }
@@ -84,7 +85,47 @@ VHS_INITIAL_VISIBLE_LEAD_MS=4000
 # 2500ms pause + 20 characters at 70ms + 400ms confirmation + 1200ms beat.
 VHS_REP_VISIBLE_LEAD_MS=5500
 CLAUDE_PLAN_PROMPT="Create a rollout plan for checkout recovery as demo-plan.html"
-HTML_PLAN_FIXTURE="$ROOT_DIR/scripts/claude-rep-html-demo-plan.html"
+# Use a real short directory so Claude's physical cwd cannot expose the source checkout.
+DEMO_WORKSPACE="${REP_CLAUDE_DEMO_WORKSPACE:-/tmp/rep-html-demo}"
+HTML_PLAN_FIXTURE=""
+demo_plan_path=""
+
+validate_demo_workspace() {
+  local workspace_parent
+  local workspace_name
+
+  if [[ "$DEMO_WORKSPACE" != /* ]]; then
+    printf 'error: REP_CLAUDE_DEMO_WORKSPACE must be an absolute path, got: %s\n' \
+      "$DEMO_WORKSPACE" >&2
+    exit 2
+  fi
+
+  workspace_parent="$(cd -- "$(dirname -- "$DEMO_WORKSPACE")" && pwd -P)"
+  workspace_name="$(basename -- "$DEMO_WORKSPACE")"
+  if [[ -z "$workspace_name" || "$workspace_name" == "." || "$workspace_name" == ".." ]]; then
+    printf 'error: unsafe REP_CLAUDE_DEMO_WORKSPACE name: %s\n' "$DEMO_WORKSPACE" >&2
+    exit 2
+  fi
+  DEMO_WORKSPACE="${workspace_parent%/}/$workspace_name"
+
+  case "$DEMO_WORKSPACE" in
+    /|/tmp|/private/tmp|"$ROOT_DIR"|"$HOME")
+      printf 'error: refusing unsafe REP_CLAUDE_DEMO_WORKSPACE: %s\n' \
+        "$DEMO_WORKSPACE" >&2
+      exit 2
+      ;;
+  esac
+  if [[ -e "$DEMO_WORKSPACE" || -L "$DEMO_WORKSPACE" ]]; then
+    printf 'error: demo workspace already exists: %s\n' "$DEMO_WORKSPACE" >&2
+    printf 'Remove it or set REP_CLAUDE_DEMO_WORKSPACE to another short, disposable path.\n' >&2
+    exit 2
+  fi
+
+  HTML_PLAN_FIXTURE="$DEMO_WORKSPACE/scripts/claude-rep-html-demo-plan.html"
+  demo_plan_path="$DEMO_WORKSPACE/demo-plan.html"
+}
+
+validate_demo_workspace
 
 find_tool() {
   local root="$1"
@@ -112,20 +153,13 @@ for resolved in "$VHS_BIN" "$TMUX_BIN"; do
 done
 
 REP_SKILL_SRC="$ROOT_DIR/.agents/skills/rep"
-PROJECT_SKILLS_LINK="$ROOT_DIR/.claude/skills"
-PROJECT_SKILLS_BACKUP="$ROOT_DIR/.claude/skills.rep-html-vhs-demo-backup-$$"
 DEMO_REP_SKILL_SRC=""
-DEMO_PROJECT_SKILLS_ROOT=""
 DEMO_TEMP_DIR=""
 TMUX_SOCKET="rep-claude-html-vhs-$$"
-project_skills_existed=0
-project_skills_installed=0
+created_demo_workspace=0
 orchestrator_pid=""
 caffeinate_pid=""
 preflight_pid=""
-demo_plan_path="$ROOT_DIR/demo-plan.html"
-demo_plan_backup=""
-demo_plan_existed=0
 
 cleanup() {
   if [[ -n "$DEMO_TEMP_DIR" && -e "$DEMO_TEMP_DIR/browser.mov.ready" ]]; then
@@ -147,23 +181,8 @@ cleanup() {
     kill "$preflight_pid" >/dev/null 2>&1 || true
   fi
   TMUX="" "$TMUX_BIN" -L "$TMUX_SOCKET" kill-server >/dev/null 2>&1 || true
-  if [[ "$project_skills_installed" == 1 ]]; then
-    rm -f "$PROJECT_SKILLS_LINK"
-  fi
-  if [[ "$project_skills_existed" == 1 ]] &&
-    [[ -e "$PROJECT_SKILLS_BACKUP" || -L "$PROJECT_SKILLS_BACKUP" ]]; then
-    mv "$PROJECT_SKILLS_BACKUP" "$PROJECT_SKILLS_LINK"
-  fi
-  if [[ -n "$DEMO_PROJECT_SKILLS_ROOT" ]]; then
-    rm -rf "$DEMO_PROJECT_SKILLS_ROOT"
-  fi
-  if [[ -n "$DEMO_REP_SKILL_SRC" ]]; then
-    rm -rf "$DEMO_REP_SKILL_SRC"
-  fi
-  if [[ "$demo_plan_existed" == 1 ]]; then
-    mv "$demo_plan_backup" "$demo_plan_path"
-  else
-    rm -f "$demo_plan_path"
+  if [[ "$created_demo_workspace" == 1 ]]; then
+    rm -rf -- "$DEMO_WORKSPACE"
   fi
   if [[ -n "$DEMO_TEMP_DIR" ]]; then
     rm -rf "$DEMO_TEMP_DIR"
@@ -171,45 +190,39 @@ cleanup() {
 }
 trap cleanup EXIT
 
+prepare_demo_workspace() {
+  mkdir "$DEMO_WORKSPACE"
+  created_demo_workspace=1
+  mkdir -p \
+    "$DEMO_WORKSPACE/scripts" \
+    "$DEMO_WORKSPACE/target/release" \
+    "$DEMO_WORKSPACE/.claude/skills/rep"
+  cp scripts/claude-rep-html-demo-plan.html "$HTML_PLAN_FIXTURE"
+  cp scripts/claude-rep-skill-demo-claude-settings.json \
+    "$DEMO_WORKSPACE/scripts/claude-settings.json"
+  cp target/release/rep "$DEMO_WORKSPACE/target/release/rep"
+}
+
 prepare_demo_skill() {
-  DEMO_REP_SKILL_SRC="$(mktemp -d "${TMPDIR:-/tmp}/rep-html-vhs-skill.XXXXXX")"
+  DEMO_REP_SKILL_SRC="$DEMO_WORKSPACE/.claude/skills/rep"
   cp -R "$REP_SKILL_SRC"/. "$DEMO_REP_SKILL_SRC"/
-}
-
-install_demo_project_skill() {
-  DEMO_PROJECT_SKILLS_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/rep-html-vhs-project-skills.XXXXXX")"
-  ln -s "$DEMO_REP_SKILL_SRC" "$DEMO_PROJECT_SKILLS_ROOT/rep"
-  if [[ -e "$PROJECT_SKILLS_LINK" || -L "$PROJECT_SKILLS_LINK" ]]; then
-    mv "$PROJECT_SKILLS_LINK" "$PROJECT_SKILLS_BACKUP"
-    project_skills_existed=1
-  fi
-  ln -s "$DEMO_PROJECT_SKILLS_ROOT" "$PROJECT_SKILLS_LINK"
-  project_skills_installed=1
-}
-
-protect_demo_plan() {
-  if [[ -e "$demo_plan_path" || -L "$demo_plan_path" ]]; then
-    demo_plan_backup="$(mktemp "${TMPDIR:-/tmp}/rep-html-vhs-plan-backup.XXXXXX")"
-    rm -f "$demo_plan_backup"
-    mv "$demo_plan_path" "$demo_plan_backup"
-    demo_plan_existed=1
-  fi
 }
 
 render_tape() {
   sed \
-    -e "s|__REP_DEMO_ROOT__|$ROOT_DIR|g" \
+    -e "s|__REP_DEMO_ROOT__|$DEMO_WORKSPACE|g" \
     -e "s|__TERMINAL_OUTPUT__|$DEMO_TEMP_DIR/terminal|g" \
     -e "s|__VHS_START_FILE__|$DEMO_TEMP_DIR/vhs-start-ms|g" \
     -e "s|__TMUX_BIN__|$TMUX_BIN|g" \
     -e "s|__TMUX_SOCKET__|$TMUX_SOCKET|g" \
     -e "s|__CLAUDE_PLAN_PROMPT__|$CLAUDE_PLAN_PROMPT|g" \
     scripts/claude-rep-html-demo.tape >"$DEMO_TEMP_DIR/demo.tape"
+  if grep -Fq "$ROOT_DIR" "$DEMO_TEMP_DIR/demo.tape"; then
+    printf 'error: rendered tape exposes the source checkout path: %s\n' "$ROOT_DIR" >&2
+    exit 2
+  fi
 }
 
-prepare_demo_skill
-install_demo_project_skill
-protect_demo_plan
 DEMO_TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/rep-claude-html-vhs.XXXXXX")"
 mkdir -p "$DEMO_TEMP_DIR/captures" "$(dirname -- "$OUTPUT_PREFIX")"
 caffeinate -dimsu &
@@ -275,8 +288,10 @@ printf '%s\n' \
 render_tape
 
 mise exec -- cargo build --release --locked
+prepare_demo_workspace
+prepare_demo_skill
 
-REP_BIN="$ROOT_DIR/target/release/rep" \
+REP_BIN="$DEMO_WORKSPACE/target/release/rep" \
 REP_BROWSER_MANAGED_EXTERNALLY=1 \
 REP_CAPTURE_DIR="$DEMO_TEMP_DIR/captures" \
 REP_DEMO_DIAGNOSTICS="$DEMO_TEMP_DIR/rep.stderr" \
@@ -291,10 +306,11 @@ REP_CLAUDE_DEMO_MODEL="${REP_CLAUDE_DEMO_MODEL:-sonnet}" \
 REP_CLAUDE_DEMO_TIMEOUT_MS="${REP_CLAUDE_DEMO_TIMEOUT_MS:-300000}" \
 REP_CLAUDE_DEMO_PLAN="$demo_plan_path" \
 REP_CLAUDE_DEMO_PLAN_FIXTURE="$HTML_PLAN_FIXTURE" \
-REP_CLAUDE_DEMO_SETTINGS="$ROOT_DIR/scripts/claude-rep-skill-demo-claude-settings.json" \
+REP_CLAUDE_DEMO_SETTINGS="$DEMO_WORKSPACE/scripts/claude-settings.json" \
 REP_CLAUDE_DEMO_TMUX_BIN="$TMUX_BIN" \
 REP_CLAUDE_DEMO_TMUX_CONFIG="$DEMO_TEMP_DIR/tmux.conf" \
 REP_CLAUDE_DEMO_TMUX_SOCKET="$TMUX_SOCKET" \
+REP_CLAUDE_DEMO_WORKSPACE="$DEMO_WORKSPACE" \
 mise exec -- node web/tests/record-claude-html-demo.mjs \
   >"$DEMO_TEMP_DIR/orchestrator.log" 2>&1 &
 orchestrator_pid=$!

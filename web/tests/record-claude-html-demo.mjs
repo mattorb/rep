@@ -220,7 +220,7 @@ function hasAttribute(html, name, value) {
 }
 
 async function main() {
-  const repo = path.resolve(import.meta.dirname, "../..");
+  const workspace = requiredEnvironment("REP_CLAUDE_DEMO_WORKSPACE");
   const plan = requiredEnvironment("REP_CLAUDE_DEMO_PLAN");
   const planFixture = requiredEnvironment("REP_CLAUDE_DEMO_PLAN_FIXTURE");
   const settings = requiredEnvironment("REP_CLAUDE_DEMO_SETTINGS");
@@ -257,12 +257,12 @@ async function main() {
   try {
     startClaudeSession({
       model,
-      repo,
       session,
       settings,
       tmux,
       tmuxConfig,
       tmuxSocket,
+      workspace,
     });
     await waitForClaudeReady({ session, timeout, tmux, tmuxSocket });
     await waitForFile(vhsStartFile, timeout, "VHS capture marker");
@@ -420,12 +420,12 @@ function parsePositiveInteger(value, name) {
 
 function startClaudeSession({
   model,
-  repo,
   session,
   settings,
   tmux,
   tmuxConfig,
   tmuxSocket,
+  workspace,
 }) {
   const claude = [
     "claude",
@@ -457,7 +457,7 @@ function startClaudeSession({
       "-s",
       session,
       "-c",
-      repo,
+      workspace,
       command,
     ],
   );
