@@ -17,12 +17,13 @@ captured actions to the source plan.
    - any other extension or an ambiguous path: stop before launch.
 3. Do not edit unless this turn produces a new `REP_CAPTURE_FILE=...` path.
 4. Parse actions only from that capture file.
-5. Launch `run_rep_and_capture.sh` without forcing a PTY. Rep owns terminal or
-   browser launch and fallback behavior.
+5. Launch `run_rep_and_capture.sh` without forcing a PTY. For HTML, the runner
+   owns an isolated temporary browser session and closes it after receiving
+   the capture.
 6. Keep polling indefinitely until the foreground process exits. Quiet output
    means the user is still reviewing; it is not evidence of a hang.
 7. Never inspect, drive, kill, or send keys to rep's tmux panes, windows,
-   browser, or server.
+   browser, or server. Let the runner perform its scoped browser cleanup.
 8. If launch or rep exits non-zero, stop and report the failure.
 9. Treat an empty capture as silent discard and make no edits. Treat
    `No actions.` as a completed review with no edits.
@@ -39,7 +40,9 @@ captured actions to the source plan.
    - Use `scripts/plan_mode.sh <plan-file>` when deterministic format routing
      is useful.
 3. Start with a short yield (about 200–500 ms), then poll the same process
-   until it exits and emits `REP_CAPTURE_FILE=...`.
+   until it exits and emits `REP_CAPTURE_FILE=...`. In HTML mode, the user
+   presses `q` and confirms; the page shows the handoff state, and the runner
+   closes its temporary browser before emitting the capture marker.
 4. Read only that capture:
    - empty: report silent discard;
    - `No actions.`: report no edits;
@@ -96,8 +99,11 @@ HTML blocks contain `FORMAT: html` and `LOCATOR:`.
 
 ## Runner Scripts
 
-- `scripts/run_rep_and_capture.sh`: required foreground runner and fresh
-  capture writer; accepts extra rep arguments after the plan path.
+- `scripts/run_rep_and_capture.sh`: required foreground runner, fresh capture
+  writer, and owner of the temporary HTML browser lifecycle; accepts extra rep
+  arguments after the plan path.
+- `scripts/browser_session.sh`: launches an isolated HTML review window and
+  terminates only that temporary browser profile when the runner signals.
 - `scripts/plan_mode.sh`: deterministic Markdown/HTML/unsupported classifier.
 - `scripts/rep.sh`: executable resolver for direct/manual debugging.
 

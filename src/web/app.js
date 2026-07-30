@@ -9,8 +9,9 @@ const status = document.querySelector("#status");
 const mode = document.querySelector("#mode");
 const frame = document.querySelector("#plan");
 const interactionLayer = document.querySelector("#interaction-layer");
-const submit = document.querySelector("#submit");
-const discard = document.querySelector("#discard");
+const completion = document.querySelector("#completion");
+const completionTitle = document.querySelector("#completion-title");
+const completionMessage = document.querySelector("#completion-message");
 const modal = document.querySelector("#modal");
 const modalForm = document.querySelector("#modal-form");
 const modalTitle = document.querySelector("#modal-title");
@@ -27,6 +28,7 @@ let heartbeatTimer = null;
 let modalAction = null;
 let commandQueue = Promise.resolve();
 let planClick = null;
+let finishing = false;
 const planClickEvents = [];
 
 const MULTI_CLICK_INTERVAL_MS = 500;
@@ -274,7 +276,7 @@ function openHelp() {
     "e — edit the applicable change or feedback",
     "I / O — outline / links",
     "r — copy current action output",
-    "q / Q — submit with confirmation / discard silently",
+    "q / Q — send feedback with confirmation / discard silently",
   ];
   openModal({
     title: "Keyboard help",
@@ -305,7 +307,7 @@ function confirmFinish(kind, title, message) {
   openModal({
     title,
     content: message,
-    confirm: kind === "finish" ? "Submit" : "Discard",
+    confirm: kind === "finish" ? "Send" : "Discard",
     action: () => finish(kind),
   });
 }
@@ -423,7 +425,11 @@ function onKeydown(event) {
     O: openLinks,
     r: copyOutput,
     q: () =>
-      confirmFinish("finish", "Submit review?", "Submit all current annotations?"),
+      confirmFinish(
+        "finish",
+        "Send feedback?",
+        "Send all current revisions and feedback back to the Rep skill?",
+      ),
     Q: () => finish("discard"),
   };
   const action = actions[event.key];
@@ -518,21 +524,33 @@ function onPlanWheel(event) {
 }
 
 async function finish(kind) {
+  if (finishing) return;
+  finishing = true;
   closeModal();
-  submit.disabled = true;
-  discard.disabled = true;
-  setStatus(kind === "finish" ? "Submitting…" : "Discarding…");
+  completionTitle.textContent =
+    kind === "finish" ? "Sending feedback to Rep skill" : "Discarding review";
+  completionMessage.textContent =
+    kind === "finish"
+      ? "This tab will close automatically when it has been received."
+      : "This temporary review tab will close automatically.";
+  document.body.classList.add("finished");
+  completion.hidden = false;
   try {
     await commandQueue;
     await api(kind, { method: "POST", body: "{}" });
     clearInterval(heartbeatTimer);
     heartbeatTimer = null;
-    document.body.classList.add("finished");
-    document.querySelector("#completion").hidden = false;
+    completionMessage.textContent =
+      kind === "finish"
+        ? "Feedback received. Closing this temporary tab…"
+        : "Review discarded. Closing this temporary tab…";
+    setTimeout(() => window.close(), 1_500);
   } catch (error) {
-    submit.disabled = false;
-    discard.disabled = false;
+    finishing = false;
+    document.body.classList.remove("finished");
+    completion.hidden = true;
     setStatus(`Could not complete review: ${error.message}`);
+    interactionLayer.focus({ preventScroll: true });
   }
 }
 
@@ -564,18 +582,6 @@ interactionLayer.addEventListener("pointerdown", () => {
 });
 interactionLayer.addEventListener("click", onPlanClick);
 interactionLayer.addEventListener("wheel", onPlanWheel, { passive: false });
-submit.addEventListener("click", () => finish("finish"));
-discard.addEventListener("click", () => {
-  if (state?.annotationCount) {
-    confirmFinish(
-      "discard",
-      "Discard review?",
-      "Discard all annotations without producing action output?",
-    );
-  } else {
-    finish("discard");
-  }
-});
 frame.addEventListener(
   "load",
   () => {

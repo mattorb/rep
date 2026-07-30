@@ -46,7 +46,8 @@ try {
   await page.keyboard.press("I");
   await pause(1_000);
   await page.keyboard.press("Escape");
-  await page.locator("#submit").click();
+  await page.keyboard.press("q");
+  await page.locator("#modal-confirm").click();
   await page.locator("#completion").waitFor();
   await pause(1_000);
 } finally {

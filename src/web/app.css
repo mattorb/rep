@@ -23,7 +23,7 @@ body {
   border-bottom: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
   display: grid;
   gap: 1rem;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr;
   min-height: 3.25rem;
   padding: .55rem .8rem;
 }
@@ -62,8 +62,6 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.actions { display: flex; gap: .5rem; }
 
 button {
   border: 1px solid color-mix(in srgb, CanvasText 22%, transparent);
@@ -222,7 +220,7 @@ iframe.empty {
   width: 1px;
 }
 
-.review-hud-help {
+.review-hud-command {
   align-items: center;
   color: color-mix(in srgb, CanvasText 78%, transparent);
   display: inline-flex;
@@ -232,7 +230,7 @@ iframe.empty {
   padding-right: .15rem;
 }
 
-.review-hud-help kbd {
+.review-hud-command kbd {
   background: color-mix(in srgb, CanvasText 8%, Canvas);
   border: 1px solid color-mix(in srgb, CanvasText 25%, transparent);
   border-bottom-width: 2px;
@@ -245,15 +243,43 @@ iframe.empty {
 }
 
 .completion {
+  align-items: center;
   align-self: center;
+  display: none;
+  gap: .8rem;
   justify-self: center;
   max-width: 30rem;
   padding: 2rem;
   text-align: center;
 }
 
+.completion h1,
+.completion p {
+  margin: 0;
+}
+
+.completion p {
+  color: color-mix(in srgb, CanvasText 72%, transparent);
+  line-height: 1.5;
+}
+
+.completion-spinner {
+  animation: completion-spin .9s linear infinite;
+  border: 3px solid color-mix(in srgb, #6366f1 22%, transparent);
+  border-radius: 50%;
+  border-top-color: #6366f1;
+  height: 2rem;
+  justify-self: center;
+  width: 2rem;
+}
+
+@keyframes completion-spin {
+  to { transform: rotate(360deg); }
+}
+
 body.finished {
   display: grid;
+  grid-template-rows: 1fr;
   place-items: center;
 }
 
@@ -262,15 +288,12 @@ body.finished .workspace {
   display: none;
 }
 
-body.finished .completion {
-  display: block;
+body.finished .completion:not([hidden]) {
+  display: grid;
 }
 
 @media (max-width: 38rem) {
-  .toolbar {
-    grid-template-columns: auto 1fr;
-  }
-  .actions {
-    grid-column: 1 / -1;
+  .review-hud {
+    bottom: max(.5rem, env(safe-area-inset-bottom));
   }
 }

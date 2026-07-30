@@ -459,8 +459,8 @@ pub(crate) fn draw_help(frame: &mut Frame, area: Rect) {
             key_action("Copy annotations to the clipboard")
         )),
         Line::from(format!(
-            "  {}       quit; printing changes to stdout",
-            key_action("Quit and print annotations to stdout")
+            "  {}       quit and send annotations",
+            key_action("Quit and send annotations")
         )),
         Line::from(format!(
             "  {}       silent quit (discard annotations)",

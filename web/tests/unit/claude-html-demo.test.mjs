@@ -30,6 +30,10 @@ const recorderTape = readFileSync(
   new URL("../../../scripts/claude-rep-html-demo.tape", import.meta.url),
   "utf8",
 );
+const recorderOrchestrator = readFileSync(
+  new URL("../record-claude-html-demo.mjs", import.meta.url),
+  "utf8",
+);
 
 const browserCapture = {
   windowId: 731,
@@ -181,6 +185,14 @@ test("Claude HTML demo swaps a deterministic plan and hides before cleanup", () 
   assert.ok(revisionReady >= 0);
   assert.ok(hidden > revisionReady);
   assert.ok(cleanupQuit > hidden);
+});
+
+test("Claude HTML demo records the q handoff without owning the skill browser", () => {
+  assert.match(recorderScript, /REP_BROWSER_MANAGED_EXTERNALLY=1/);
+  assert.match(recorderScript, /REP_DIAGNOSTICS_FILE=/);
+  assert.match(recorderOrchestrator, /keyboard\.press\("q"\)/);
+  assert.match(recorderOrchestrator, /locator\("#completion"\)\.waitFor\(\)/);
+  assert.doesNotMatch(recorderOrchestrator, /locator\("#submit"\)/);
 });
 
 test("Claude HTML demo verifies both actions and preserved layout structure", () => {

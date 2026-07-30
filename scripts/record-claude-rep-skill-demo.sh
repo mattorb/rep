@@ -73,18 +73,6 @@ require_tool() {
 prepare_demo_skill() {
   DEMO_REP_SKILL_SRC="$(mktemp -d "${TMPDIR:-/tmp}/rep-demo-skill.XXXXXX")"
   cp -R "$REP_SKILL_SRC"/. "$DEMO_REP_SKILL_SRC"/
-
-  local runner="$DEMO_REP_SKILL_SRC/scripts/run_rep_and_capture.sh"
-  local patched_runner="$runner.tmp"
-  while IFS= read -r line; do
-    if [[ "$line" == '"$script_dir/rep.sh" "$@" | tee "$capture_file"' ]]; then
-      printf '%s\n' '"$script_dir/rep.sh" "$@" --show-keys | tee "$capture_file"'
-    else
-      printf '%s\n' "$line"
-    fi
-  done <"$runner" >"$patched_runner"
-  mv "$patched_runner" "$runner"
-  chmod +x "$runner"
 }
 
 ensure_claude_skill() {

@@ -106,7 +106,7 @@ fn load_initializes_app_state_from_first_content_node() {
     assert_eq!(app.current_anchor(), (1, "Sentence", 0));
     assert_eq!(
         app.status,
-        "Loaded file. Press q to quit and print annotations."
+        "Loaded file. Press q to quit and send annotations."
     );
     assert!(!app.should_quit);
     assert!(!app.silent_quit);

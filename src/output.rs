@@ -153,7 +153,7 @@ pub(crate) fn keybinding_doc_rows() -> Vec<KeyBindingDocRow> {
         },
         KeyBindingDocRow {
             keys: format!("`{}`", keymap.quit),
-            action: "Quit and print annotations to stdout".to_string(),
+            action: "Quit and send annotations".to_string(),
         },
         KeyBindingDocRow {
             keys: format!("`{}`", keymap.quit_silent),

@@ -65,8 +65,13 @@ test("@skill bundled runner launches HTML review, captures output, and supports 
     await page.locator("#modal-input").press("Enter");
     await expect(page.locator("#modal")).not.toBeVisible();
 
-    await page.locator("#submit").click();
+    await page.keyboard.press("q");
+    await expect(page.locator("#modal-title")).toHaveText("Send feedback?");
+    await page.locator("#modal-confirm").click();
     await expect(page.locator("#completion")).toBeVisible();
+    await expect(page.locator("#completion-message")).toContainText(
+      "Feedback received",
+    );
     if (child.exitCode === null) await once(child, "exit");
     expect(child.exitCode).toBe(0);
 
@@ -93,8 +98,6 @@ test("@skill bundled runner launches HTML review, captures output, and supports 
     expect(await readFile(plan, "utf8")).toContain(
       "<strong>inline markup</strong>",
     );
-    await page.setContent(edited);
-    await expect(page.locator("#title")).toHaveText("Revised plan");
   } finally {
     if (child.exitCode === null) child.kill("SIGTERM");
     await rm(temporary, { recursive: true, force: true });

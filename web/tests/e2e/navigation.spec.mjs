@@ -91,6 +91,9 @@ test("@navigation keyboard units, boundaries, focus, and reload are authoritativ
     await expect(hud.locator("#mode")).toHaveText("sentence", {
       ignoreCase: true,
     });
+    await expect(hud.locator(".review-hud-command").first()).toHaveText(
+      "q Done",
+    );
     await expect(hud.locator(".review-hud-help")).toHaveText("? Help");
     const hudBox = await hud.boundingBox();
     const viewport = page.viewportSize();

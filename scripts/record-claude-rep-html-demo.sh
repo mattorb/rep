@@ -171,18 +171,6 @@ trap cleanup EXIT
 prepare_demo_skill() {
   DEMO_REP_SKILL_SRC="$(mktemp -d "${TMPDIR:-/tmp}/rep-html-vhs-skill.XXXXXX")"
   cp -R "$REP_SKILL_SRC"/. "$DEMO_REP_SKILL_SRC"/
-
-  local runner="$DEMO_REP_SKILL_SRC/scripts/run_rep_and_capture.sh"
-  local patched_runner="$runner.tmp"
-  while IFS= read -r line; do
-    if [[ "$line" == '"$script_dir/rep.sh" "$@" | tee "$capture_file"' ]]; then
-      printf '%s\n' '"$script_dir/rep.sh" "$@" --no-open 2> >(tee "${REP_DEMO_DIAGNOSTICS:?}" >&2) | tee "$capture_file"'
-    else
-      printf '%s\n' "$line"
-    fi
-  done <"$runner" >"$patched_runner"
-  mv "$patched_runner" "$runner"
-  chmod +x "$runner"
 }
 
 install_demo_project_skill() {
@@ -286,8 +274,10 @@ render_tape
 mise exec -- cargo build --release --locked
 
 REP_BIN="$ROOT_DIR/target/release/rep" \
+REP_BROWSER_MANAGED_EXTERNALLY=1 \
 REP_CAPTURE_DIR="$DEMO_TEMP_DIR/captures" \
 REP_DEMO_DIAGNOSTICS="$DEMO_TEMP_DIR/rep.stderr" \
+REP_DIAGNOSTICS_FILE="$DEMO_TEMP_DIR/rep.stderr" \
 REP_CLAUDE_DEMO_BROWSER_VIDEO="$DEMO_TEMP_DIR/browser.mov" \
 REP_CLAUDE_DEMO_DISPLAY_RECORDER="$display_recorder" \
 REP_CLAUDE_DEMO_TIMING_FILE="$DEMO_TEMP_DIR/timing.json" \

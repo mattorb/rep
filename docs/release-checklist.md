@@ -40,18 +40,21 @@ Linux. Chromium is covered by the automated gate.
 - [ ] Confirm plan scripts and inline event handlers do not execute; forms,
       frames, navigation, and downloads remain blocked.
 - [ ] Exercise keyboard-only movement, all five units, search, annotation
-      jumps, help, outline, links, copy, submit, and silent discard.
+      jumps, help, outline, links, copy, `q` confirmation, and silent discard.
 - [ ] Exercise single-, double-, and triple-click selection.
 - [ ] Add, edit, and clear change, feedback, before, after, and delete actions
       across the five selection units.
 - [ ] Resize and scroll; confirm selection and annotation overlays stay aligned
       without changing the plan DOM layout.
 - [ ] Reload, close/reopen the same URL, and confirm session state is retained.
-- [ ] Submit and inspect `WHERE`, `LOCATOR`, target/context, ordering, and
-      payloads; confirm the listener closes.
+- [ ] Press `q`, confirm the handoff screen appears, and inspect `WHERE`,
+      `LOCATOR`, target/context, ordering, and payloads; confirm the listener
+      closes.
 - [ ] Invoke the bundled skill for `.html` and `.HTM`; confirm the browser
-      opens, the agent waits, and fresh actions are applied to the original
-      HTML without damaging structure or inline markup.
+      opens in an isolated profile, the agent waits, and `q` returns fresh
+      actions to the agent. Confirm the temporary browser closes without
+      manual app switching before the original HTML is updated, and that
+      structure and inline markup remain intact.
 
 For a repeatable engine-level preview before the manual pass:
 
@@ -65,7 +68,9 @@ manual result.
 
 ## Failure and lifecycle paths
 
-- [ ] Browser opener failure leaves a usable manual URL.
+- [ ] Direct browser opener failure leaves a usable manual URL.
+- [ ] Skill browser preflight fails clearly when no supported executable is
+      available and never starts an orphaned Rep server.
 - [ ] Wrong format/flag combinations and missing, non-UTF-8, and oversized
       files fail before server launch.
 - [ ] Bad token, Host, Origin, method, content type, MIME, and request size fail
@@ -75,7 +80,7 @@ manual result.
 - [ ] SIGINT/SIGTERM, injected server failure, and inactivity timeout exit
       non-zero without partial action output.
 - [ ] A tab reload does not create duplicate output, and the first terminal
-      submit/discard action wins.
+      finish/discard action wins.
 
 ## Packaged release
 

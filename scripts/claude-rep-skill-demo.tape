@@ -17,6 +17,7 @@ Set TypingSpeed 0.057
 
 Env TERM "xterm-256color"
 Env COLORTERM "truecolor"
+Env REP_RUNNER_SHOW_KEYS "1"
 
 Hide
 Type "cd __REP_DEMO_ROOT__"

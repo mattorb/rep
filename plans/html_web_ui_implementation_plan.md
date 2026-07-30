@@ -16,16 +16,16 @@ The HTML review must:
 
 - render the plan with its original HTML layout and CSS;
 - retain Rep's selection units, annotation types, keyboard-driven workflow,
-  search, annotation jumping, help, link inspection, copy, submit, and discard
-  behaviors wherever the concepts apply to rendered HTML;
+  search, annotation jumping, help, link inspection, copy, `q` completion, and
+  silent-discard behaviors wherever the concepts apply to rendered HTML;
 - print the same human-readable action protocol to stdout when the user
-  submits;
+  presses `q` and confirms;
 - work with the bundled Rep skill so the invoking agent waits for the browser
-  review, captures the output, applies the requested HTML edits, and then
-  returns to the user;
+  review, captures the output, closes the temporary browser it launched,
+  applies the requested HTML edits, and then returns to the user;
 - keep the web server local, session-scoped, authenticated by an unguessable
-  URL token, and alive only until the review is submitted, discarded, aborted,
-  or timed out;
+  URL token, and alive only until the review is sent, discarded, aborted, or
+  timed out;
 - render document-provided CSS and local assets while preventing the reviewed
   HTML from executing JavaScript or controlling Rep's application shell.
 
@@ -168,7 +168,7 @@ These are implementation requirements, not open questions.
   or viewport changes do not change it.
 - Output ordering remains deterministic by document order and then annotation
   creation order.
-- A submitted review with no actions prints the existing `No actions.` form.
+- A completed review with no actions prints the existing `No actions.` form.
 - Silent discard produces no action output, matching the TUI's `Q` behavior.
 
 ### Browser and server lifecycle
@@ -183,11 +183,25 @@ These are implementation requirements, not open questions.
   tests never open a real browser.
 - If browser launch fails, keep the server alive, print the URL and manual-open
   instructions to stderr, and continue normally.
-- `q` asks for confirmation and then submits annotations.
+- `q` asks for confirmation and then sends annotations back to the caller.
 - `Q` silently discards without confirmation, matching the TUI.
-- The visible Discard button requires confirmation when annotations exist and
-  otherwise behaves like `Q`.
-- After submit/discard, the browser shows a self-contained completion state.
+- Do not expose separate Submit or Discard buttons; the persistent bottom HUD
+  advertises `q` for completion and `?` for help.
+- After `q` confirmation, the browser shows “Sending feedback to Rep skill”
+  and explains that the tab closes automatically after receipt. The page
+  updates the message when the finish response is acknowledged and makes a
+  best-effort `window.close()` call.
+- The bundled skill runner starts Rep with `--no-open`, parses the authenticated
+  loopback URL from diagnostics, and launches a dedicated temporary Chromium-
+  or Firefox-family profile. When Rep exits with the fresh capture, the runner
+  closes only that managed browser process before emitting
+  `REP_CAPTURE_FILE`.
+- Explicit `--no-open` is still the manual/SSH mode and does not claim managed
+  browser ownership. Demo automation can set an internal external-ownership
+  switch when its recorder already owns the headed browser.
+- If the skill runner cannot resolve a supported browser executable, it fails
+  preflight before starting Rep so it cannot orphan a local server.
+- After finish/discard, the browser shows a self-contained completion state.
   The foreground Rep process closes the listener, joins the server thread,
   prints output when appropriate, cleans session memory, and exits.
 - Closing or reloading the tab does not implicitly discard. The server keeps
@@ -211,8 +225,9 @@ These are implementation requirements, not open questions.
   in one Rep process.
 - Pixel, SVG-path, canvas, or image-region annotations.
 - Exact preservation of behavior that depends on JavaScript.
-- Automatic browser-tab closure; browsers do not reliably allow a
-  command-launched tab to close itself.
+- Closing or manipulating an existing user browser session. Automatic closure
+  is guaranteed only for the isolated process owned by the skill runner;
+  direct/manual tabs use best-effort self-closure.
 - Windows support in this feature; release support remains aligned with the
   current macOS/Linux matrix.
 
@@ -223,28 +238,34 @@ These are implementation requirements, not open questions.
 ```text
 agent skill
   -> run_rep_and_capture.sh plan.html --web
-  -> foreground rep process
+       -> preflight a supported browser executable
+       -> append --no-open
+       -> foreground rep process
        -> validate file and mode
        -> transform an in-memory served copy
        -> bind 127.0.0.1:0 and generate session token
-       -> launch browser
+       -> print authenticated review URL
+  -> runner launches an isolated temporary browser profile
        -> browser loads parent app + sandboxed document iframe
        -> browser posts visible-text manifest
        -> Rust builds HtmlReviewDocument + shared ReviewSession
        -> browser sends navigation/annotation commands
        -> Rust returns authoritative state snapshots
        -> browser paints selections/annotations as overlays
-       -> submit or discard
+       -> q + confirmation, or silent discard
+       -> show feedback handoff state
        -> HTTP response completes
        -> server shuts down
        -> rep prints actions to stdout and exits
+  -> runner closes only its isolated browser process
   -> capture file becomes available
   -> agent applies requested edits to the original HTML
 ```
 
-The server is not detached. There is no PID file and the skill does not kill a
-separate process. Normal completion is graceful shutdown of the same foreground
-process the capture script is already waiting on.
+The server is not detached and normal completion remains graceful shutdown of
+the foreground Rep process. The runner tracks only the separate browser process
+and unique profile that it created, allowing it to close the temporary review
+without touching the user's existing browser windows.
 
 ### Shared review core
 
@@ -940,8 +961,9 @@ source-addressable HTML action output.
    - `x` clear-then-strike/delete;
    - `e` edit the applicable change/feedback.
 4. Render distinct selection and annotation overlays.
-5. Implement `?`, `I`, `O`, `r`, Escape, Enter, q confirmation, Q discard, and
-   visible Submit/Discard controls.
+5. Implement `?`, `I`, `O`, `r`, Escape, Enter, `q` confirmation, and `Q`
+   discard. Keep a persistent bottom HUD with mode, `q` completion, and `?`
+   help indicators; do not add Submit/Discard controls.
 6. Extend `EmitModel` with `DocumentFormat` and optional `SourceLocator`.
 7. Render `FORMAT: html` and `LOCATOR:` only for HTML actions.
 8. Add HTML `ActionContext` generation from captured target and neighboring
@@ -967,8 +989,8 @@ source-addressable HTML action output.
   including inline markup, repeated targets, nested sections, and Unicode.
 - Explicit assertion that every existing Markdown emit golden is unchanged.
 - Browser tests for every key, modal focus/escape/enter behavior, editing,
-  search, jumps, popups, copy success/fallback, submit confirmation, Q discard,
-  and double-submit races.
+  search, jumps, popups, copy success/fallback, `q` confirmation, `Q` discard,
+  handoff acknowledgement/self-close, and duplicate-finish races.
 - Process tests asserting:
   - stdout stays empty during review;
   - stderr contains startup diagnostics only;
@@ -1018,8 +1040,15 @@ results, and safely apply HTML annotations in the same agent turn.
    - parse only the fresh capture file;
    - recognize silent discard as no edits;
    - require full captured output in the final response.
-2. Keep `run_rep_and_capture.sh` generic. Add tests proving it forwards
-   post-path `--web` and preserves the exit status/capture marker.
+2. Extend `run_rep_and_capture.sh` to own the HTML skill lifecycle:
+   - preserve generic Markdown forwarding;
+   - for HTML without an explicit `--no-open`, preflight a supported browser,
+     append `--no-open`, and launch an isolated temporary browser profile from
+     the emitted Review URL;
+   - after receipt, close only the browser process/profile it owns before
+     emitting the capture marker;
+   - preserve an explicit `--no-open` as manual mode;
+   - preserve the exit status and fresh capture marker in every mode.
 3. Update HTML action rules:
    - use source line as a hint;
    - resolve `LOCATOR` against the original HTML first;
@@ -1040,7 +1069,7 @@ results, and safely apply HTML annotations in the same agent turn.
      the source;
    - if locator, target, and context cannot identify one source location,
      stop and ask rather than guessing.
-4. Add a skill harness with a fake/test browser client that submits known
+4. Add a skill harness with a fake/test browser client that sends known
    annotations so CI can exercise launch -> capture -> parse -> fixture edit
    without human interaction.
 5. Add Markdown skill regression coverage so tmux/terminal fallback behavior
@@ -1062,7 +1091,8 @@ results, and safely apply HTML annotations in the same agent turn.
   - invoke the same runner the skill uses;
   - connect to the emitted web URL;
   - initialize the manifest;
-  - submit annotations;
+  - press `q`, confirm, and send annotations;
+  - verify the handoff state and temporary-browser shutdown;
   - wait for `REP_CAPTURE_FILE`;
   - assert captured output;
   - apply rules to a temporary HTML copy;
@@ -1079,8 +1109,9 @@ mise exec -- npm --prefix web run test:e2e -- --grep @skill
 
 - A real manual `$rep` Markdown run still opens the TUI and returns captured
   Markdown actions.
-- A real manual `$rep` HTML run opens the browser, shuts down on submit, and
-  returns captured HTML actions.
+- A real manual `$rep` HTML run opens the browser, shuts down after `q`
+  confirmation, automatically closes the skill-owned temporary browser, and
+  returns captured HTML actions without manual app switching.
 - Automated HTML fixture edits are structurally valid and render with the
   expected visible changes.
 
@@ -1199,15 +1230,17 @@ module-level tests.
 4. **HTML annotation matrix**
    - Add/change/edit/clear each annotation type at section, paragraph, line,
      sentence, and word units.
-   - Submit and inspect stable `WHERE`, `LOCATOR`, context, and payload output.
+   - Press `q`, confirm, and inspect stable `WHERE`, `LOCATOR`, context, and
+     payload output.
 
 5. **Skill loop**
    - Invoke the bundled skill once for Markdown and once for HTML.
    - Confirm the right UI launches.
    - Confirm the agent waits without attempting to manipulate the UI.
-   - Submit annotations.
-   - Confirm the server exits, capture becomes available, and the agent applies
-     only the fresh actions to the correct source file.
+   - Press `q` and confirm the feedback handoff appears.
+   - Confirm the server exits, the temporary browser closes, capture becomes
+     available, and the agent applies only the fresh actions to the correct
+     source file without requiring manual app switching.
 
 6. **Failure paths**
    - Browser opener missing.
@@ -1294,7 +1327,8 @@ The project is done only when all of the following are true:
 - All documented keys and annotation operations work for HTML.
 - HTML actions contain a reliable line hint, DOM locator, exact visible target,
   neighboring visible context, and payload.
-- Submit/discard shuts down the foreground server deterministically.
+- Finish/discard shuts down the foreground server deterministically; a skill
+  run also closes only its managed temporary browser.
 - The bundled skill chooses TUI for Markdown and web for HTML, waits for fresh
   output, and applies changes to the correct format.
 - Reload, browser-launch failure, malformed input, blocked assets, interruption,

@@ -109,7 +109,7 @@ test("@annotations search, help, outline, links, and annotation jumps use the sh
   }
 });
 
-test("@annotations create, edit, clear, strike, copy, and discard confirmation work", async ({
+test("@annotations create, edit, clear, strike, and copy work", async ({
   page,
   context,
   browserName,
@@ -169,13 +169,6 @@ test("@annotations create, edit, clear, strike, copy, and discard confirmation w
     }, browserName === "chromium");
     expect(copied).toContain("FORMAT: html");
 
-    await page.locator("#discard").click();
-    await expect(page.locator("#modal")).toBeVisible();
-    await expect(page.locator("#modal-content")).toContainText(
-      "Discard all annotations",
-    );
-    await page.locator("#modal-cancel").click();
-    await expect(page.locator("#modal")).not.toBeVisible();
   } finally {
     await finishRep(page, running);
   }
@@ -236,9 +229,16 @@ test("@annotations finish emits one HTML action protocol and closes the listener
 
   await page.keyboard.press("q");
   await expect(page.locator("#modal")).toBeVisible();
-  await expect(page.locator("#modal-title")).toHaveText("Submit review?");
+  await expect(page.locator("#modal-title")).toHaveText("Send feedback?");
+  await expect(page.locator("#modal-confirm")).toHaveText("Send");
   await page.locator("#modal-confirm").click();
   await expect(page.locator("#completion")).toBeVisible();
+  await expect(page.locator("#completion-title")).toHaveText(
+    "Sending feedback to Rep skill",
+  );
+  await expect(page.locator("#completion-message")).toContainText(
+    "Feedback received",
+  );
   const output = await waitForRep(running);
 
   expect(output).toContain("FILE:");
@@ -259,15 +259,23 @@ test("@annotations uppercase Q silently discards without confirmation", async ({
   await saveModal(page, "c", "Change this.");
   await page.keyboard.press("Shift+Q");
   await expect(page.locator("#completion")).toBeVisible();
+  await expect(page.locator("#completion-message")).toContainText(
+    "Review discarded",
+  );
   expect(await waitForRep(running)).toBe("");
 });
 
-test("@annotations no-action submit emits the HTML no-actions form", async ({
+test("@annotations no-action q handoff emits the HTML no-actions form", async ({
   page,
 }) => {
   const { running } = await openPlan(page, "empty.html");
-  await page.locator("#submit").click();
+  await page.keyboard.press("q");
+  await expect(page.locator("#modal-title")).toHaveText("Send feedback?");
+  await page.locator("#modal-confirm").click();
   await expect(page.locator("#completion")).toBeVisible();
+  await expect(page.locator("#completion-message")).toContainText(
+    "Feedback received",
+  );
   const output = await waitForRep(running);
   expect(output).toContain("FORMAT: html");
   expect(output).toContain("No actions.");

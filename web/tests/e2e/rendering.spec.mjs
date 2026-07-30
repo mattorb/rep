@@ -14,6 +14,7 @@ test("@rendering preserves original linked CSS, SVG, and layout", async ({ page 
       .poll(() => frame.locator("header img").evaluate((image) => image.naturalWidth))
       .toBeGreaterThan(0);
     await expect(page.locator(".toolbar")).toHaveCSS("display", "grid");
+    await expect(page.locator("#submit, #discard")).toHaveCount(0);
   } finally {
     await finishRep(page, running);
   }

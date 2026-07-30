@@ -203,6 +203,8 @@ grep -q -- '--web' "$extract_dir/.agents/skills/rep/SKILL.md" ||
   fail "Bundled skill did not contain HTML --web routing"
 [ -x "$extract_dir/.agents/skills/rep/scripts/plan_mode.sh" ] ||
   fail "Bundled skill did not contain executable plan_mode.sh"
+[ -x "$extract_dir/.agents/skills/rep/scripts/browser_session.sh" ] ||
+  fail "Bundled skill did not contain executable browser_session.sh"
 if [ "$("$extract_dir/.agents/skills/rep/scripts/plan_mode.sh" "$TMP_DIR/sample.HTML")" != "html" ]; then
   fail "Bundled skill did not route a case-insensitive HTML path"
 fi

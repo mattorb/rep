@@ -23,4 +23,4 @@ expression: render(&mut app)
 │                                                                      │
 │                                                                      │
 └──────────────────────────────────────────────────────────────────────┘
- mode: sentence      Loaded file. Press q to quit and print annotations.
+ mode: sentence       Loaded file. Press q to quit and send annotations.

@@ -61,10 +61,19 @@ rep --web --no-open plan.html
 ```
 
 Rep prints the authenticated loopback URL to stderr. Keep the foreground
-process running, open that exact URL, and submit or discard the review in the
-browser. A compact HUD stays visible at the bottom of the review, showing the
-current selection mode and the `?` help shortcut. `--debug` validates and
-describes an HTML launch without binding a server or opening a browser.
+process running, open that exact URL, and press `q` then confirm to send the
+review, or press `Q` to discard it silently. The page acknowledges the handoff
+and attempts to close itself. A compact HUD stays visible at the bottom of the
+review, showing the current selection mode plus the `q` completion and `?`
+help shortcuts. `--debug` validates and describes an HTML launch without
+binding a server or opening a browser.
+
+The bundled Rep skill owns the complete HTML handoff. Its runner starts Rep
+without the built-in opener, launches an isolated Chromium- or Firefox-family
+browser profile, waits for the `q` confirmation and fresh capture, then closes
+only that temporary browser process before the agent applies the actions. An
+explicit `--no-open` remains available for manual and SSH-forwarded browser
+sessions.
 
 The built-in `rep --demo` remains Markdown/TUI-only. An HTML example lives at
 [`examples/demo-plan.html`](examples/demo-plan.html); the opt-in
@@ -169,24 +178,31 @@ current selection.
 | `I` | Open or close the document structure view |
 | `O` | Reveal links for the current selection |
 | `r` | Copy annotations to the clipboard |
-| `q` | Quit and print annotations to stdout |
+| `q` | Quit and send annotations |
 | `Q` | Quit silently and discard annotations |
 | `Enter` | Save text in change, feedback, insert, edit, or search modes |
 | `Esc` | Cancel the current input mode or close an open popup |
 
 ## Completion and troubleshooting
 
-Submitting prints all actions to stdout, closes the listener, and leaves a
-self-contained completion message in the tab. Silent discard prints nothing.
-Closing or reloading the tab does not end the foreground process; reopen the
-same URL to restore the in-memory session. An open review tab sends a
-background heartbeat; a session with neither browser nor HTTP activity times
+Pressing `q` and confirming prints all actions to stdout, closes the listener,
+and shows a “Sending feedback to Rep skill” handoff while receipt is
+acknowledged. The bundled skill runner then closes its isolated temporary
+browser and resumes the agent loop; direct/manual browser sessions make a
+best-effort attempt to close their tab. Silent discard prints nothing. Before
+completion, closing or reloading the tab does not end the foreground process;
+reopen the same URL to restore the in-memory session. An open review tab sends
+a background heartbeat; a session with neither browser nor HTTP activity times
 out after 24 hours, and interruption exits without partial actions. If
 clipboard permission is denied, `r` opens the complete output in a selectable
 fallback dialog with a Copy button.
 
 - If the browser opener is unavailable, Rep prints the URL and keeps serving;
   open it manually or start with `--no-open`.
+- The bundled skill requires Chromium, Chrome, Edge, Brave, or Firefox so it
+  can own and safely close an isolated temporary browser process. Set
+  `REP_BROWSER_BIN` to an alternate executable when automatic detection is
+  unavailable.
 - When a resource is reported blocked, make it relative to the plan directory
   and keep its canonical target inside that directory. Remote and
   root-relative URLs are intentionally unsupported.

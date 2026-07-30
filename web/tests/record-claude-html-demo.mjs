@@ -344,7 +344,10 @@ async function main() {
     );
     await pause(1_200);
 
-    await page.locator("#submit").click();
+    await page.keyboard.press("q");
+    await page.locator("#modal").waitFor();
+    await pause(700);
+    await page.locator("#modal-confirm").click();
     await page.locator("#completion").waitFor();
     await pause(1_200);
     await stopNativeDisplayRecording(nativeRecording);

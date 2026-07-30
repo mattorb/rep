@@ -147,7 +147,7 @@ impl App {
             feedback_buffer: String::new(),
             insert_buffer: String::new(),
             search_buffer: String::new(),
-            status: "Loaded file. Press q to quit and print annotations.".to_string(),
+            status: "Loaded file. Press q to quit and send annotations.".to_string(),
             should_quit: false,
             silent_quit: false,
             quit_confirm_pending: false,
