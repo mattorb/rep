@@ -40,7 +40,7 @@ Hide
 Wait+Screen@300s /plan-ready/
 Show
 
-Sleep 800ms
+Sleep 2500ms
 Set TypingSpeed 0.07
 Type "/rep @demo-plan.html"
 Enter

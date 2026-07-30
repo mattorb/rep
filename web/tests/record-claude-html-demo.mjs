@@ -17,6 +17,7 @@ const ORIGINAL_GATE =
   "Launch to all customers as soon as integration tests pass.";
 const ORIGINAL_OWNERSHIP =
   "The checkout platform group will monitor failures after launch.";
+const BROWSER_TYPING_DELAY_MS = 35;
 const NATIVE_WINDOW_LOOKUP_SOURCE = `
 import CoreGraphics
 import Foundation
@@ -325,18 +326,17 @@ async function main() {
 
     await focusPlanElement(page, "#launch-gate");
     await page.keyboard.press("c");
-    await page.locator("#modal-input").fill(REQUIRED_GATE);
+    await typeBrowserDialogText(page, REQUIRED_GATE);
     await pause(900);
     await commitModal(page);
     await pause(900);
 
     await focusPlanElement(page, "#ownership");
     await page.keyboard.press("f");
-    await page
-      .locator("#modal-input")
-      .fill(
-        "Name the owning team and the authoritative checkout-session state source.",
-      );
+    await typeBrowserDialogText(
+      page,
+      "Name the owning team and the authoritative checkout-session state source.",
+    );
     await pause(900);
     await commitModal(page);
     await page.waitForFunction(
@@ -398,6 +398,12 @@ async function main() {
     if (browser) await browser.close();
     if (!completed) abortClaude({ session, tmux, tmuxSocket });
   }
+}
+
+async function typeBrowserDialogText(page, text) {
+  await page
+    .locator("#modal-input")
+    .pressSequentially(text, { delay: BROWSER_TYPING_DELAY_MS });
 }
 
 function requiredEnvironment(name) {

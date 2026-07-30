@@ -195,6 +195,22 @@ test("Claude HTML demo records the q handoff without owning the skill browser", 
   assert.doesNotMatch(recorderOrchestrator, /locator\("#submit"\)/);
 });
 
+test("Claude HTML demo visibly types browser annotations and pauses before Rep", () => {
+  assert.doesNotMatch(
+    recorderOrchestrator,
+    /locator\("#modal-input"\)[\s\S]{0,80}\.fill\(/,
+  );
+  assert.match(
+    recorderOrchestrator,
+    /locator\("#modal-input"\)[\s\S]{0,80}\.pressSequentially\(text, \{ delay: BROWSER_TYPING_DELAY_MS \}\)/,
+  );
+  assert.match(recorderOrchestrator, /const BROWSER_TYPING_DELAY_MS = 35;/);
+  assert.match(
+    recorderTape,
+    /Sleep 2500ms\s+Set TypingSpeed 0\.07\s+Type "\/rep @demo-plan\.html"/,
+  );
+});
+
 test("Claude HTML demo verifies both actions and preserved layout structure", () => {
   assert.doesNotThrow(() => validateOriginalHtml(original));
   assert.doesNotThrow(() =>
