@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   elementSummary,
+  focusScrimRects,
   logicalLineRanges,
   normalizePieces,
   scalarToUtf16,
@@ -62,4 +63,27 @@ test("element summaries retain tag, id, and bounded class context", () => {
     }),
     "p.c0.c1.c2.c3.c4.c5.c6.c7",
   );
+});
+
+test("focus scrims dim the viewport complement without covering selected text", () => {
+  const scrims = focusScrimRects(
+    [
+      { left: 20, top: 30, right: 40, bottom: 50 },
+      { left: 46, top: 30, right: 70, bottom: 50 },
+    ],
+    { width: 100, height: 80 },
+  );
+  const contains = (rect, x, y) =>
+    rect.left <= x &&
+    x < rect.left + rect.width &&
+    rect.top <= y &&
+    y < rect.top + rect.height;
+
+  assert.ok(scrims.length > 1);
+  assert.equal(scrims.some((rect) => contains(rect, 30, 40)), false);
+  assert.equal(scrims.some((rect) => contains(rect, 43, 40)), false);
+  assert.equal(scrims.some((rect) => contains(rect, 10, 40)), true);
+  assert.equal(scrims.some((rect) => contains(rect, 90, 70)), true);
+  assert.deepEqual(focusScrimRects([], { width: 100, height: 80 }), []);
+  assert.deepEqual(focusScrimRects([], { width: 0, height: 80 }), []);
 });

@@ -7,6 +7,57 @@ async function browserState(page) {
   return page.evaluate(() => window.__repTest.state);
 }
 
+async function expectSelectionSpotlight(frame) {
+  const geometry = await frame
+    .locator("[data-rep-overlay]")
+    .evaluate((host) => {
+      const scrims = Array.from(
+        host.shadowRoot.querySelectorAll(".focus-scrim"),
+        (element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            bottom: rect.bottom,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+          };
+        },
+      );
+      const selections = Array.from(
+        host.shadowRoot.querySelectorAll(".selection"),
+        (element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+          };
+        },
+      );
+      const contains = (rect, point) =>
+        rect.left <= point.x &&
+        point.x < rect.right &&
+        rect.top <= point.y &&
+        point.y < rect.bottom;
+      const style = getComputedStyle(
+        host.shadowRoot.querySelector(".focus-scrim"),
+      );
+      return {
+        backdropFilter: style.backdropFilter,
+        background: style.backgroundColor,
+        scrimCount: scrims.length,
+        selectedCentersDimmed: selections.map((point) =>
+          scrims.some((rect) => contains(rect, point)),
+        ),
+        selectionCount: selections.length,
+      };
+    });
+  expect(geometry.scrimCount).toBeGreaterThan(1);
+  expect(geometry.selectionCount).toBeGreaterThan(0);
+  expect(geometry.selectedCentersDimmed.every((dimmed) => !dimmed)).toBe(true);
+  expect(geometry.background).not.toBe("rgba(0, 0, 0, 0)");
+  expect(geometry.backdropFilter).not.toBe("none");
+}
+
 async function clickPlanElement(page, selector, clickCount, xOffset) {
   const point = await page.evaluate((selector) => {
     const iframe = document.querySelector("#plan");
@@ -92,6 +143,7 @@ test("@navigation keyboard units, boundaries, focus, and reload are authoritativ
     await expect(hud.locator("#mode")).toHaveText("Mode (Space): sentence", {
       ignoreCase: true,
     });
+    await expectSelectionSpotlight(frame);
     await expect(hud.locator(".review-hud-command")).toHaveText([
       "j/k = next/prev",
       "x = strike",
@@ -132,6 +184,7 @@ test("@navigation keyboard units, boundaries, focus, and reload are authoritativ
     await expect(hud.locator("#mode")).toHaveText("Mode (Space): word", {
       ignoreCase: true,
     });
+    await expectSelectionSpotlight(frame);
     await page.keyboard.press("j");
     await expect.poll(() => browserState(page)).toMatchObject({
       revision: 3,
@@ -142,16 +195,28 @@ test("@navigation keyboard units, boundaries, focus, and reload are authoritativ
       revision: 4,
       mode: "sentence",
     });
+    await expectSelectionSpotlight(frame);
 
     await page.locator("#interaction-layer").focus();
     await page.keyboard.press("Backspace");
+    await expect.poll(() => browserState(page)).toMatchObject({
+      revision: 5,
+      mode: "line",
+    });
+    await expectSelectionSpotlight(frame);
     await page.keyboard.press("Backspace");
+    await expect.poll(() => browserState(page)).toMatchObject({
+      revision: 6,
+      mode: "paragraph",
+    });
+    await expectSelectionSpotlight(frame);
     await page.keyboard.press("Backspace");
     await expect.poll(() => browserState(page)).toMatchObject({
       revision: 7,
       mode: "section",
       anchor: { node: 0, unit: "section" },
     });
+    await expectSelectionSpotlight(frame);
     await page.keyboard.press("j");
     await expect.poll(() => browserState(page)).toMatchObject({
       revision: 8,

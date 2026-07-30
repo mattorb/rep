@@ -481,6 +481,86 @@ export function selectionPoint(models, doc, x, y, target = null) {
   return null;
 }
 
+const FOCUS_PADDING_PX = 5;
+const FOCUS_INLINE_GAP_PX = 12;
+
+export function focusScrimRects(rects, viewport) {
+  const width = Number(viewport?.width);
+  const height = Number(viewport?.height);
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return [];
+  }
+  const holes = rects
+    .map((rect) => {
+      const rawLeft = Number(rect?.left);
+      const rawTop = Number(rect?.top);
+      const rawRight = Number.isFinite(Number(rect?.right))
+        ? Number(rect.right)
+        : rawLeft + Number(rect?.width);
+      const rawBottom = Number.isFinite(Number(rect?.bottom))
+        ? Number(rect.bottom)
+        : rawTop + Number(rect?.height);
+      if (
+        ![rawLeft, rawTop, rawRight, rawBottom].every(Number.isFinite)
+      ) {
+        return null;
+      }
+      return {
+        left: Math.max(0, rawLeft - FOCUS_PADDING_PX),
+        top: Math.max(0, rawTop - FOCUS_PADDING_PX),
+        right: Math.min(width, rawRight + FOCUS_PADDING_PX),
+        bottom: Math.min(height, rawBottom + FOCUS_PADDING_PX),
+      };
+    })
+    .filter(
+      (rect) =>
+        rect &&
+        rect.left < rect.right &&
+        rect.top < rect.bottom,
+    );
+  if (!holes.length) return [];
+
+  const yEdges = Array.from(
+    new Set([0, height, ...holes.flatMap((rect) => [rect.top, rect.bottom])]),
+  ).sort((left, right) => left - right);
+  const scrims = [];
+  for (let index = 0; index < yEdges.length - 1; index += 1) {
+    const top = yEdges[index];
+    const bottom = yEdges[index + 1];
+    if (bottom <= top) continue;
+    const intervals = holes
+      .filter((rect) => rect.top < bottom && rect.bottom > top)
+      .map((rect) => ({ left: rect.left, right: rect.right }))
+      .sort((left, right) => left.left - right.left);
+    let cursor = 0;
+    for (const interval of intervals) {
+      if (interval.left > cursor + FOCUS_INLINE_GAP_PX) {
+        scrims.push({
+          left: cursor,
+          top,
+          width: interval.left - cursor,
+          height: bottom - top,
+        });
+      }
+      cursor = Math.max(cursor, interval.right);
+    }
+    if (cursor < width) {
+      scrims.push({
+        left: cursor,
+        top,
+        width: width - cursor,
+        height: bottom - top,
+      });
+    }
+  }
+  return scrims;
+}
+
 export class SelectionOverlay {
   constructor(doc, models) {
     this.doc = doc;
@@ -503,9 +583,9 @@ export class SelectionOverlay {
     style.textContent = `
       :host { all: initial !important; }
       .focus-scrim {
-        backdrop-filter: saturate(.72) brightness(.84);
-        background: rgb(15 23 42 / 18%);
-        inset: 0;
+        backdrop-filter: grayscale(.28) saturate(.5) brightness(.58);
+        background: rgb(15 23 42 / 34%);
+        box-sizing: border-box;
         position: fixed;
       }
       .selection {
@@ -607,9 +687,25 @@ export class SelectionOverlay {
     }
     this.layer.replaceChildren();
     if (firstModel) {
-      const scrim = this.doc.createElement("div");
-      scrim.className = "focus-scrim";
-      this.layer.append(scrim);
+      const focusRects = selection.flatMap((slice) => {
+        const model = this.models[slice.node];
+        return model
+          ? textRectsForSlice(model, slice.start, slice.end)
+          : [];
+      });
+      const view = this.doc.defaultView;
+      for (const rect of focusScrimRects(focusRects, {
+        width: view.innerWidth,
+        height: view.innerHeight,
+      })) {
+        const scrim = this.doc.createElement("div");
+        scrim.className = "focus-scrim";
+        scrim.style.left = `${rect.left}px`;
+        scrim.style.top = `${rect.top}px`;
+        scrim.style.width = `${rect.width}px`;
+        scrim.style.height = `${rect.height}px`;
+        this.layer.append(scrim);
+      }
     }
     const badges = {
       change: "C",

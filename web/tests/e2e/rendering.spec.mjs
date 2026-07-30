@@ -138,3 +138,36 @@ for (const viewport of [
     }
   });
 }
+
+test("@gallery focus spotlight modes", async ({ page }) => {
+  await page.setViewportSize({ width: 1120, height: 780 });
+  const { running } = await openPlan(page, "semantic.html");
+  try {
+    const capture = async (mode) => {
+      await expect
+        .poll(() => page.evaluate(() => window.__repTest.state.mode))
+        .toBe(mode);
+      await page.screenshot({
+        path: `gallery/focus-${mode}.png`,
+        fullPage: true,
+      });
+    };
+    await page.keyboard.press("j");
+    await page.keyboard.press("j");
+    await expect
+      .poll(() => page.evaluate(() => window.__repTest.state.anchor.node))
+      .toBe(2);
+    await capture("sentence");
+    await page.keyboard.press("Space");
+    await capture("word");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Backspace");
+    await capture("line");
+    await page.keyboard.press("Backspace");
+    await capture("paragraph");
+    await page.keyboard.press("Backspace");
+    await capture("section");
+  } finally {
+    await finishRep(page, running);
+  }
+});
