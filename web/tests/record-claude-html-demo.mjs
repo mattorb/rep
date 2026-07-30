@@ -236,7 +236,7 @@ async function main() {
   const tmuxConfig = requiredEnvironment("REP_CLAUDE_DEMO_TMUX_CONFIG");
   const tmuxSocket = requiredEnvironment("REP_CLAUDE_DEMO_TMUX_SOCKET");
   const initialVisibleLead = parsePositiveInteger(
-    process.env.REP_CLAUDE_DEMO_VHS_INITIAL_VISIBLE_LEAD_MS || "4000",
+    process.env.REP_CLAUDE_DEMO_VHS_INITIAL_VISIBLE_LEAD_MS || "5500",
     "REP_CLAUDE_DEMO_VHS_INITIAL_VISIBLE_LEAD_MS",
   );
   const repVisibleLead = parsePositiveInteger(

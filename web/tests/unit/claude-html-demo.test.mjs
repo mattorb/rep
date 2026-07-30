@@ -180,6 +180,10 @@ test("Claude HTML demo swaps a deterministic plan and hides before cleanup", () 
     recorderScript,
     /CLAUDE_PLAN_PROMPT="Create a rollout plan for checkout recovery as demo-plan\.html\. Stop after writing the file\."/,
   );
+  assert.match(
+    recorderTape,
+    /Type "__CLAUDE_PLAN_PROMPT__"\s+Sleep 1500ms\s+Enter/,
+  );
   const revisionReady = recorderTape.indexOf(
     "Wait+Screen@300s /revision-ready/",
   );
@@ -327,7 +331,7 @@ test("Claude HTML demo clips the browser launch wait after a visible beat", () =
   );
   assert.match(
     recorderScript,
-    /VHS_INITIAL_VISIBLE_LEAD_MS=4000[\s\S]*VHS_REP_VISIBLE_LEAD_MS=7000/,
+    /VHS_INITIAL_VISIBLE_LEAD_MS=5500[\s\S]*VHS_REP_VISIBLE_LEAD_MS=7000/,
   );
   const browserReady = recorderOrchestrator.indexOf(
     'setDemoStage({ session, tmux, tmuxSocket }, "browser-ready")',

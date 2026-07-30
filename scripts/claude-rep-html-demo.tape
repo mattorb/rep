@@ -33,6 +33,7 @@ Wait+Screen@30s /permissions on/
 Sleep 500ms
 Set TypingSpeed 0.015
 Type "__CLAUDE_PLAN_PROMPT__"
+Sleep 1500ms
 Enter
 Set TypingSpeed 0.001
 Sleep 4s

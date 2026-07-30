@@ -81,7 +81,8 @@ FFMPEG_VERSION="8.1.1"
 GIFSICLE_VERSION="1.96"
 PKGX_VERSION="2.11.0"
 LIBWEBSOCKETS_VERSION="4.3.6"
-VHS_INITIAL_VISIBLE_LEAD_MS=4000
+# 1500ms typed-prompt hold + 4000ms response beat.
+VHS_INITIAL_VISIBLE_LEAD_MS=5500
 # 2500ms pause + 20 characters at 70ms + 1500ms typed-command hold +
 # 400ms confirmation + 1200ms beat.
 VHS_REP_VISIBLE_LEAD_MS=7000
