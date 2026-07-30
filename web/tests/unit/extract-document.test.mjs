@@ -28,6 +28,7 @@ test("manifest nodes carry the full shape the Rust validator consumes", () => {
       selector: "#plan",
       textFragment: null,
       headingLevel: 1,
+      sectionStart: 0,
       listId: null,
       topLevelOrderedListItem: false,
       links: [],
