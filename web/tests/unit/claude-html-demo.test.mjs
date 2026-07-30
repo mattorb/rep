@@ -184,7 +184,7 @@ test("Claude HTML demo swaps a deterministic plan and hides before cleanup", () 
     "Wait+Screen@300s /revision-ready/",
   );
   const verifiedResultHold = recorderTape.indexOf(
-    "Sleep 5s",
+    "Sleep 8s",
     revisionReady,
   );
   const hidden = recorderTape.indexOf("\nHide\n", revisionReady);
