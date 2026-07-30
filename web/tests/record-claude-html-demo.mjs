@@ -429,6 +429,8 @@ function startClaudeSession({
   workspace,
 }) {
   const claude = [
+    "env",
+    "IS_DEMO=1",
     "claude",
     "--model",
     model,

@@ -178,7 +178,7 @@ test("Claude HTML demo swaps a deterministic plan and hides before cleanup", () 
   );
   assert.match(
     recorderScript,
-    /CLAUDE_PLAN_PROMPT="Create a rollout plan for checkout recovery as demo-plan\.html"/,
+    /CLAUDE_PLAN_PROMPT="Create a rollout plan for checkout recovery as demo-plan\.html\. Stop after writing the file\."/,
   );
   const revisionReady = recorderTape.indexOf(
     "Wait+Screen@300s /revision-ready/",
@@ -204,6 +204,10 @@ test("Claude HTML demo waits for stable final output before the visible hold", (
     recorderOrchestrator,
     /Date\.now\(\) - stableSince >= CLAUDE_IDLE_STABILITY_MS/,
   );
+});
+
+test("Claude HTML demo asks Claude Code to conceal account identity", () => {
+  assert.match(recorderOrchestrator, /"env",\s+"IS_DEMO=1",\s+"claude"/);
 });
 
 test("Claude HTML demo losslessly optimizes the generated GIF", () => {
