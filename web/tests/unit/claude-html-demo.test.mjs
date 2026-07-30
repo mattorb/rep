@@ -175,7 +175,7 @@ test("Claude HTML demo swaps a deterministic plan and hides before cleanup", () 
   );
   assert.match(
     recorderScript,
-    /CLAUDE_PLAN_PROMPT="Create a polished, responsive, valid standalone HTML5 rollout plan for checkout recovery and write it to demo-plan\.html\."/,
+    /CLAUDE_PLAN_PROMPT="Create a rollout plan for checkout recovery as demo-plan\.html"/,
   );
   const revisionReady = recorderTape.indexOf(
     "Wait+Screen@300s /revision-ready/",

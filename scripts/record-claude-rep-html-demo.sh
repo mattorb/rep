@@ -80,7 +80,7 @@ FFMPEG_VERSION="8.1.1"
 PKGX_VERSION="2.11.0"
 LIBWEBSOCKETS_VERSION="4.3.6"
 VHS_VISIBLE_LEAD_MS=4000
-CLAUDE_PLAN_PROMPT="Create a polished, responsive, valid standalone HTML5 rollout plan for checkout recovery and write it to demo-plan.html."
+CLAUDE_PLAN_PROMPT="Create a rollout plan for checkout recovery as demo-plan.html"
 HTML_PLAN_FIXTURE="$ROOT_DIR/scripts/claude-rep-html-demo-plan.html"
 
 find_tool() {
