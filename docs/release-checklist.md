@@ -46,6 +46,9 @@ Linux. Chromium is covered by the automated gate.
       across the five selection units.
 - [ ] Resize and scroll; confirm selection and annotation overlays stay aligned
       without changing the plan DOM layout.
+- [ ] Confirm the active selection fill, border, halo, and leading focus bar
+      remain legible over both light and dark plan colors, while annotation
+      patterns and badges remain distinguishable.
 - [ ] Reload, close/reopen the same URL, and confirm session state is retained.
 - [ ] Press `q`, confirm the handoff screen appears, and inspect `WHERE`,
       `LOCATOR`, target/context, ordering, and payloads; confirm the listener

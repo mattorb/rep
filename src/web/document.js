@@ -503,11 +503,29 @@ export class SelectionOverlay {
     style.textContent = `
       :host { all: initial !important; }
       .selection {
-        background: color-mix(in srgb, #6366f1 28%, transparent);
-        border: 1px solid color-mix(in srgb, #4f46e5 68%, transparent);
-        border-radius: 3px;
+        background: color-mix(in srgb, #6366f1 34%, transparent);
+        border: 2px solid color-mix(in srgb, #4f46e5 78%, CanvasText);
+        border-radius: 4px;
         box-sizing: border-box;
+        box-shadow:
+          0 0 0 1px color-mix(in srgb, Canvas 88%, transparent),
+          0 0 0 4px color-mix(in srgb, #6366f1 24%, transparent),
+          0 3px 10px rgb(30 27 75 / 28%);
+        outline: 1px solid color-mix(in srgb, #818cf8 75%, transparent);
+        outline-offset: 1px;
         position: fixed;
+      }
+      .selection.focus-start::after {
+        background: color-mix(in srgb, #4338ca 84%, CanvasText);
+        border: 1px solid color-mix(in srgb, Canvas 92%, transparent);
+        border-radius: 999px;
+        bottom: 1px;
+        box-shadow: 0 0 0 2px color-mix(in srgb, #6366f1 34%, transparent);
+        content: "";
+        left: -7px;
+        position: absolute;
+        top: 1px;
+        width: 4px;
       }
       .annotation {
         border-bottom: 3px solid;
@@ -593,23 +611,32 @@ export class SelectionOverlay {
         slice.first ? badges[slice.kind] : null,
       );
     }
+    let focusPainted = false;
     for (const slice of selection) {
       const model = this.models[slice.node];
       if (!model) continue;
-      this.paintSlice(slice, "selection");
+      const painted = this.paintSlice(
+        slice,
+        "selection",
+        null,
+        !focusPainted,
+      );
+      focusPainted ||= painted > 0;
     }
   }
 
-  paintSlice(slice, className, badge = null) {
+  paintSlice(slice, className, badge = null, markFocus = false) {
     const model = this.models[slice.node];
-    if (!model) return;
-    for (const [index, rect] of textRectsForSlice(
+    if (!model) return 0;
+    const rects = textRectsForSlice(
       model,
       slice.start,
       slice.end,
-    ).entries()) {
+    );
+    for (const [index, rect] of rects.entries()) {
       const marker = this.doc.createElement("div");
-      marker.className = className;
+      marker.className =
+        markFocus && index === 0 ? `${className} focus-start` : className;
       marker.style.left = `${rect.left}px`;
       marker.style.top = `${rect.top}px`;
       marker.style.width = `${rect.width}px`;
@@ -622,5 +649,6 @@ export class SelectionOverlay {
       }
       this.layer.append(marker);
     }
+    return rects.length;
   }
 }

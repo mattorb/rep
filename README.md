@@ -148,7 +148,9 @@ the whole review block.
 
 Selections and annotations are painted as isolated overlay rectangles rather
 than wrappers inserted into the plan DOM, so responsive layout and original
-CSS selectors remain intact.
+CSS selectors remain intact. The active selection combines a tinted fill,
+adaptive border, outer halo, and one leading focus bar; annotations retain
+their separate patterns, colors, and badges.
 
 ## Keybindings
 

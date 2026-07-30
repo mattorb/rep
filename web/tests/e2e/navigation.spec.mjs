@@ -309,8 +309,15 @@ test("@navigation selection overlay paints text runs without blank-space boxes",
           host.shadowRoot.querySelectorAll(".selection"),
           (marker) => {
             const rect = marker.getBoundingClientRect();
+            const style = getComputedStyle(marker);
             return {
+              background: style.backgroundColor,
+              borderWidth: style.borderTopWidth,
+              boxShadow: style.boxShadow,
+              focusCue: getComputedStyle(marker, "::after").content,
+              focused: marker.classList.contains("focus-start"),
               left: rect.left,
+              outlineStyle: style.outlineStyle,
               right: rect.right,
               width: rect.width,
             };
@@ -327,6 +334,19 @@ test("@navigation selection overlay paints text runs without blank-space boxes",
       geometry.markers[1].left,
     );
     expect(geometry.markers.every((marker) => marker.width > 0)).toBe(true);
+    expect(
+      geometry.markers.every(
+        (marker) =>
+          marker.background !== "rgba(0, 0, 0, 0)" &&
+          marker.borderWidth === "2px" &&
+          marker.boxShadow !== "none" &&
+          marker.outlineStyle === "solid",
+      ),
+    ).toBe(true);
+    expect(geometry.markers.filter((marker) => marker.focused)).toHaveLength(1);
+    expect(
+      geometry.markers.find((marker) => marker.focused).focusCue,
+    ).toBe('""');
   } finally {
     await finishRep(page, running);
   }
