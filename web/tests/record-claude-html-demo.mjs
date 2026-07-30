@@ -18,6 +18,7 @@ const ORIGINAL_GATE =
 const ORIGINAL_OWNERSHIP =
   "The checkout platform group will monitor failures after launch.";
 const BROWSER_TYPING_DELAY_MS = 35;
+const CLAUDE_IDLE_STABILITY_MS = 3_000;
 const NATIVE_WINDOW_LOOKUP_SOURCE = `
 import CoreGraphics
 import Foundation
@@ -481,9 +482,20 @@ async function waitForClaudeReady({ session, timeout, tmux, tmuxSocket }) {
 
 async function waitForClaudePrompt({ session, timeout, tmux, tmuxSocket }) {
   const deadline = Date.now() + timeout;
+  let stablePane = "";
+  let stableSince = Date.now();
   while (Date.now() < deadline) {
     const pane = captureClaude({ session, tmux, tmuxSocket });
-    if (claudeAtPrompt(pane)) return;
+    if (pane !== stablePane) {
+      stablePane = pane;
+      stableSince = Date.now();
+    }
+    if (
+      claudeAtPrompt(pane) &&
+      Date.now() - stableSince >= CLAUDE_IDLE_STABILITY_MS
+    ) {
+      return;
+    }
     if (!tmuxSessionExists({ session, tmux, tmuxSocket })) {
       throw new Error(`Claude Code exited before returning to its prompt:\n${pane}`);
     }
@@ -532,7 +544,9 @@ async function waitForClaudePlan({
 }
 
 function claudeAtPrompt(pane) {
-  return pane.split("\n").some((line) => line.trim() === "❯");
+  return pane
+    .split("\n")
+    .some((line) => /^❯(?:\s|$)/u.test(line.trimStart()));
 }
 
 function setDemoStage({ session, tmux, tmuxSocket }, stage) {

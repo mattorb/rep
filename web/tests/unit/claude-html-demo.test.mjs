@@ -196,6 +196,16 @@ test("Claude HTML demo swaps a deterministic plan and hides before cleanup", () 
   assert.ok(cleanupQuit > hidden);
 });
 
+test("Claude HTML demo waits for stable final output before the visible hold", () => {
+  assert.match(recorderOrchestrator, /CLAUDE_IDLE_STABILITY_MS = 3_000/);
+  assert.match(recorderOrchestrator, /if \(pane !== stablePane\)/);
+  assert.match(recorderOrchestrator, /\/\^❯\(\?:\\s\|\$\)\/u/);
+  assert.match(
+    recorderOrchestrator,
+    /Date\.now\(\) - stableSince >= CLAUDE_IDLE_STABILITY_MS/,
+  );
+});
+
 test("Claude HTML demo losslessly optimizes the generated GIF", () => {
   assert.match(recorderScript, /GIFSICLE_VERSION="1\.96"/);
   assert.match(recorderScript, /palettegen=max_colors=128:stats_mode=diff/);
