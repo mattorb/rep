@@ -226,6 +226,10 @@ test("Claude HTML demo visibly types browser annotations and pauses before Rep",
     recorderTape,
     /Sleep 2500ms\s+Set TypingSpeed 0\.07\s+Type "\/rep @demo-plan\.html"/,
   );
+  assert.match(
+    recorderOrchestrator,
+    /target instanceof HTMLInputElement[\s\S]*target instanceof HTMLTextAreaElement[\s\S]*target instanceof HTMLSelectElement[\s\S]*target\.isContentEditable[\s\S]*hide\(\);\s+return;/,
+  );
 });
 
 test("Claude HTML demo clips the browser launch wait after a visible beat", () => {

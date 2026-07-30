@@ -899,19 +899,31 @@ async function installDemoActionCue(page) {
     if (hud) new ResizeObserver(placeAboveHud).observe(hud);
 
     let hideTimer;
+    const hide = () => {
+      clearTimeout(hideTimer);
+      cue.style.opacity = "0";
+      cue.style.transform = "translateY(8px)";
+    };
     const show = (label) => {
       cue.textContent = label;
       cue.style.opacity = "1";
       cue.style.transform = "translateY(0)";
       clearTimeout(hideTimer);
-      hideTimer = setTimeout(() => {
-        cue.style.opacity = "0";
-        cue.style.transform = "translateY(8px)";
-      }, 1_400);
+      hideTimer = setTimeout(hide, 1_400);
     };
     window.addEventListener(
       "keydown",
       (event) => {
+        const target = event.target;
+        if (
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLSelectElement ||
+          (target instanceof HTMLElement && target.isContentEditable)
+        ) {
+          hide();
+          return;
+        }
         const key =
           event.key === " "
             ? "Space"
