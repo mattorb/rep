@@ -11,8 +11,6 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { chromium } from "@playwright/test";
 
-const REQUIRED_GATE =
-  "Launch at 10% only after recovered-cart deltas remain below 0.5% for 24 hours.";
 const ORIGINAL_GATE =
   "Launch to all customers as soon as integration tests pass.";
 const ORIGINAL_OWNERSHIP =
@@ -188,11 +186,8 @@ export function validateOriginalHtml(html) {
 export function validateRevisedHtml(original, revised) {
   const failures = [];
   if (original === revised) failures.push("Claude Code did not change the plan");
-  if (!revised.includes(REQUIRED_GATE)) {
-    failures.push("the literal launch-gate change was not applied");
-  }
-  if (revised.includes(ORIGINAL_GATE)) {
-    failures.push("the original launch gate is still present");
+  if (!revised.includes(ORIGINAL_GATE)) {
+    failures.push("the original launch gate was changed");
   }
   if (revised.includes(ORIGINAL_OWNERSHIP)) {
     failures.push("the ownership feedback was not incorporated");
@@ -329,16 +324,9 @@ async function main() {
 
     await searchForPlanElement(
       page,
-      "#launch-gate",
-      "Launch to all customers",
+      "#ownership",
+      "The checkout platform group",
     );
-    await page.keyboard.press("c");
-    await typeBrowserDialogText(page, REQUIRED_GATE);
-    await pause(900);
-    await commitModal(page);
-    await pause(900);
-
-    await navigateToPlanElement(page, "#ownership");
     await page.keyboard.press("f");
     await typeBrowserDialogText(
       page,
@@ -347,7 +335,7 @@ async function main() {
     await pause(900);
     await commitModal(page);
     await page.waitForFunction(
-      () => window.__repTest?.state?.annotationCount === 2,
+      () => window.__repTest?.state?.annotationCount === 1,
     );
     await pause(1_200);
 
@@ -972,38 +960,6 @@ async function searchForPlanElement(page, selector, query) {
     targetNode,
   );
   await pause(700);
-}
-
-async function navigateToPlanElement(page, selector) {
-  const navigation = await page.evaluate((target) => {
-    const rep = window.__repTest;
-    const targetNode = rep?.manifest?.nodes?.findIndex(
-      (candidate) => candidate.selector === target,
-    );
-    const currentNode = rep?.state?.anchor?.node;
-    if (targetNode < 0 || !Number.isInteger(currentNode)) {
-      throw new Error(`Review target is unavailable: ${target}`);
-    }
-    return {
-      count: Math.abs(targetNode - currentNode),
-      key: targetNode >= currentNode ? "j" : "k",
-      targetNode,
-    };
-  }, selector);
-  if (navigation.count > 12) {
-    throw new Error(
-      `Review target ${selector} is too far away for a concise keyboard demo`,
-    );
-  }
-  for (let index = 0; index < navigation.count; index += 1) {
-    await page.keyboard.press(navigation.key);
-    await pause(650);
-  }
-  await page.waitForFunction(
-    (node) => window.__repTest?.state?.anchor?.node === node,
-    navigation.targetNode,
-  );
-  await pause(500);
 }
 
 function pause(milliseconds) {
