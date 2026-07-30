@@ -317,16 +317,7 @@ async function main() {
     setDemoStage({ session, tmux, tmuxSocket }, "browser-ready");
     await pause(1_000);
 
-    for (const key of ["j", "j", "Space", "j"]) {
-      await page.keyboard.press(key);
-      await pause(800);
-    }
-
-    await searchForPlanElement(
-      page,
-      "#ownership",
-      "The checkout platform group",
-    );
+    await navigateBySectionToPlanElement(page, "#ownership");
     await page.keyboard.press("f");
     await typeBrowserDialogText(
       page,
@@ -942,22 +933,60 @@ async function commitModal(page) {
   }
 }
 
-async function searchForPlanElement(page, selector, query) {
-  const targetNode = await page.evaluate((target) => {
+async function navigateBySectionToPlanElement(page, selector) {
+  const navigation = await page.evaluate((target) => {
     const rep = window.__repTest;
-    const node = rep?.manifest?.nodes?.findIndex(
+    if (rep?.state?.mode !== "section") {
+      throw new Error("The HTML demo must begin in section mode");
+    }
+    const nodes = rep?.manifest?.nodes;
+    const targetNode = nodes?.findIndex(
       (candidate) => candidate.selector === target,
     );
-    if (node < 0) throw new Error(`Review target is missing: ${target}`);
-    return node;
+    if (targetNode < 0) {
+      throw new Error(`Review target is missing: ${target}`);
+    }
+    const targetSection = nodes.findLastIndex(
+      (candidate, node) =>
+        candidate.headingLevel !== null && node <= targetNode,
+    );
+    if (targetSection < 0) {
+      throw new Error(`Section navigation is unavailable for: ${target}`);
+    }
+    return {
+      limit: nodes.length,
+      targetNode,
+      targetSection,
+    };
   }, selector);
-  await page.keyboard.press("/");
-  await typeBrowserDialogText(page, query);
-  await pause(500);
-  await commitModal(page);
+
+  for (let index = 0; index < navigation.limit; index += 1) {
+    const state = await page.evaluate(() => window.__repTest?.state);
+    if (state.anchor.node === navigation.targetSection) break;
+    const key = state.anchor.node < navigation.targetSection ? "j" : "k";
+    await page.keyboard.press(key);
+    await page.waitForFunction(
+      (revision) => window.__repTest?.state?.revision > revision,
+      state.revision,
+    );
+    await pause(500);
+  }
   await page.waitForFunction(
-    (node) => window.__repTest?.state?.anchor?.node === node,
-    targetNode,
+    (node) =>
+      window.__repTest?.state?.mode === "section" &&
+      window.__repTest?.state?.anchor?.node === node,
+    navigation.targetSection,
+  );
+  await pause(700);
+
+  await page.keyboard.press("Space");
+  await pause(700);
+  await page.keyboard.press("j");
+  await page.waitForFunction(
+    (node) =>
+      window.__repTest?.state?.mode === "paragraph" &&
+      window.__repTest?.state?.anchor?.node === node,
+    navigation.targetNode,
   );
   await pause(700);
 }

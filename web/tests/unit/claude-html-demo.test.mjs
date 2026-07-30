@@ -212,11 +212,19 @@ test("Claude HTML demo records the q handoff without owning the skill browser", 
   );
   assert.doesNotMatch(recorderOrchestrator, /keyboard\.press\("\?"\)/);
   assert.doesNotMatch(recorderOrchestrator, /keyboard\.press\("c"\)/);
+  assert.doesNotMatch(
+    recorderOrchestrator,
+    /searchForPlanElement|keyboard\.press\("\/"\)/,
+  );
   assert.doesNotMatch(recorderOrchestrator, /Backspace|pointerdown|\.mouse\.|\.click\(/);
   assert.doesNotMatch(recorderOrchestrator, /locator\("#submit"\)/);
   assert.match(
     recorderOrchestrator,
-    /searchForPlanElement\(\s*page,\s*"#ownership",\s*"The checkout platform group"/,
+    /navigateBySectionToPlanElement\(page, "#ownership"\)/,
+  );
+  assert.match(
+    recorderOrchestrator,
+    /state\?\.mode !== "section"[\s\S]*findLastIndex[\s\S]*keyboard\.press\(key\)[\s\S]*keyboard\.press\("Space"\)[\s\S]*keyboard\.press\("j"\)/,
   );
   assert.match(recorderOrchestrator, /annotationCount === 1/);
 });
@@ -254,7 +262,7 @@ test("Claude HTML demo clips the browser launch wait after a visible beat", () =
     'setDemoStage({ session, tmux, tmuxSocket }, "browser-ready")',
   );
   const firstBrowserAction = recorderOrchestrator.indexOf(
-    'for (const key of ["j", "j", "Space", "j"])',
+    'navigateBySectionToPlanElement(page, "#ownership")',
   );
   assert.ok(browserReady >= 0);
   assert.ok(firstBrowserAction > browserReady);
