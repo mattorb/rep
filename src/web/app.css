@@ -161,7 +161,6 @@ dialog::backdrop {
 
 .workspace {
   border: 0;
-  height: 100%;
   min-height: 0;
   overflow: hidden;
   position: relative;

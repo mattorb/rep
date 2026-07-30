@@ -67,10 +67,15 @@ for (const viewport of [
       expect(Math.abs(hudBox.x)).toBeLessThanOrEqual(1);
       expect(Math.abs(hudBox.width - viewportSize.width)).toBeLessThanOrEqual(1);
       expect(
+        Math.abs(viewportSize.height - hudBox.y - hudBox.height),
+      ).toBeLessThanOrEqual(1);
+      expect(
         await page.evaluate(
           () =>
             document.documentElement.scrollWidth <=
-            document.documentElement.clientWidth,
+              document.documentElement.clientWidth &&
+            document.documentElement.scrollHeight <=
+              document.documentElement.clientHeight,
         ),
       ).toBe(true);
       if (viewport.name === "narrow") {

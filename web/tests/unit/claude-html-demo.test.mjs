@@ -175,7 +175,7 @@ test("Claude HTML demo swaps a deterministic plan and hides before cleanup", () 
   );
   assert.match(
     recorderScript,
-    /CLAUDE_PLAN_PROMPT="Create a polished, responsive HTML rollout plan for checkout recovery and write it to demo-plan\.html\."/,
+    /CLAUDE_PLAN_PROMPT="Create a polished, responsive, valid standalone HTML5 rollout plan for checkout recovery and write it to demo-plan\.html\."/,
   );
   const revisionReady = recorderTape.indexOf(
     "Wait+Screen@300s /revision-ready/",
@@ -190,6 +190,14 @@ test("Claude HTML demo swaps a deterministic plan and hides before cleanup", () 
 test("Claude HTML demo records the q handoff without owning the skill browser", () => {
   assert.match(recorderScript, /REP_BROWSER_MANAGED_EXTERNALLY=1/);
   assert.match(recorderScript, /REP_DIAGNOSTICS_FILE=/);
+  assert.match(
+    recorderOrchestrator,
+    /args: \["--window-position=40,40", "--window-size=1120,780"\]/,
+  );
+  assert.match(
+    recorderOrchestrator,
+    /viewport: \{ width: 1120, height: 620 \}/,
+  );
   assert.match(recorderOrchestrator, /keyboard\.press\("q"\)/);
   assert.match(recorderOrchestrator, /locator\("#completion"\)\.waitFor\(\)/);
   assert.match(
