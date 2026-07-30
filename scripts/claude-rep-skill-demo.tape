@@ -1,6 +1,6 @@
 Output docs/rep-claude-skill-demo.gif
 
-Require ./target/release/rep
+Require __REP_DEMO_ROOT__/target/release/rep
 Require claude
 Require tmux
 
