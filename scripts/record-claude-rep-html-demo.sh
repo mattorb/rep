@@ -82,8 +82,9 @@ GIFSICLE_VERSION="1.96"
 PKGX_VERSION="2.11.0"
 LIBWEBSOCKETS_VERSION="4.3.6"
 VHS_INITIAL_VISIBLE_LEAD_MS=4000
-# 2500ms pause + 20 characters at 70ms + 400ms confirmation + 1200ms beat.
-VHS_REP_VISIBLE_LEAD_MS=5500
+# 2500ms pause + 20 characters at 70ms + 1500ms typed-command hold +
+# 400ms confirmation + 1200ms beat.
+VHS_REP_VISIBLE_LEAD_MS=7000
 CLAUDE_PLAN_PROMPT="Create a rollout plan for checkout recovery as demo-plan.html. Stop after writing the file."
 # Use a real short directory so Claude's physical cwd cannot expose the source checkout.
 DEMO_WORKSPACE="${REP_CLAUDE_DEMO_WORKSPACE:-/tmp/rep-html-demo}"

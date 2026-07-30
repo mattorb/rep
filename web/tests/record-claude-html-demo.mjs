@@ -240,7 +240,7 @@ async function main() {
     "REP_CLAUDE_DEMO_VHS_INITIAL_VISIBLE_LEAD_MS",
   );
   const repVisibleLead = parsePositiveInteger(
-    process.env.REP_CLAUDE_DEMO_VHS_REP_VISIBLE_LEAD_MS || "5500",
+    process.env.REP_CLAUDE_DEMO_VHS_REP_VISIBLE_LEAD_MS || "7000",
     "REP_CLAUDE_DEMO_VHS_REP_VISIBLE_LEAD_MS",
   );
   const model = process.env.REP_CLAUDE_DEMO_MODEL || "sonnet";

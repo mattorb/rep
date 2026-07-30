@@ -312,7 +312,7 @@ test("Claude HTML demo visibly types browser annotations and pauses before Rep",
   assert.match(recorderOrchestrator, /const BROWSER_TYPING_DELAY_MS = 35;/);
   assert.match(
     recorderTape,
-    /Sleep 2500ms\s+Set TypingSpeed 0\.07\s+Type "\/rep @demo-plan\.html"/,
+    /Sleep 2500ms\s+Set TypingSpeed 0\.07\s+Type "\/rep @demo-plan\.html"\s+Sleep 1500ms\s+Enter/,
   );
   assert.match(
     recorderOrchestrator,
@@ -327,7 +327,7 @@ test("Claude HTML demo clips the browser launch wait after a visible beat", () =
   );
   assert.match(
     recorderScript,
-    /VHS_INITIAL_VISIBLE_LEAD_MS=4000[\s\S]*VHS_REP_VISIBLE_LEAD_MS=5500/,
+    /VHS_INITIAL_VISIBLE_LEAD_MS=4000[\s\S]*VHS_REP_VISIBLE_LEAD_MS=7000/,
   );
   const browserReady = recorderOrchestrator.indexOf(
     'setDemoStage({ session, tmux, tmuxSocket }, "browser-ready")',
