@@ -19,7 +19,7 @@ outputs are:
 Claude Code must be installed and authenticated. Grant Screen & System Audio
 Recording permission to the app running this script, restart it if macOS
 requests it, and keep the macOS desktop unlocked. The script installs pinned
-VHS, tmux, ttyd, and ffmpeg tooling through mise/pkgx when needed.
+VHS, tmux, ttyd, ffmpeg, and gifsicle tooling through mise/pkgx when needed.
 
 Environment:
   REP_CLAUDE_DEMO_MODEL       Claude model alias (default: sonnet)
@@ -77,6 +77,7 @@ VHS_VERSION="0.11.0"
 TMUX_VERSION="3.6a"
 TTYD_VERSION="1.7.7"
 FFMPEG_VERSION="8.1.1"
+GIFSICLE_VERSION="1.96"
 PKGX_VERSION="2.11.0"
 LIBWEBSOCKETS_VERSION="4.3.6"
 VHS_INITIAL_VISIBLE_LEAD_MS=4000
@@ -377,9 +378,10 @@ browser_capture_filter="$(
 
 mp4_tmp="$DEMO_TEMP_DIR/composite.mp4"
 gif_tmp="$DEMO_TEMP_DIR/composite.gif"
+gif_optimized_tmp="$DEMO_TEMP_DIR/composite-optimized.gif"
 media_cmd=(
   mise x "aqua:pkgxdev/pkgx@$PKGX_VERSION" --
-  pkgx "+ffmpeg@$FFMPEG_VERSION" --
+  pkgx "+ffmpeg@$FFMPEG_VERSION" "+gifsicle@$GIFSICLE_VERSION" --
 )
 "${media_cmd[@]}" ffmpeg \
   -y \
@@ -402,12 +404,19 @@ media_cmd=(
   -loop 0 \
   "$gif_tmp"
 
+"${media_cmd[@]}" gifsicle -O3 "$gif_tmp" -o "$gif_optimized_tmp"
+
 "${media_cmd[@]}" ffprobe \
   -v error \
   -show_entries stream=codec_name,width,height \
   -of csv=p=0 \
   "$mp4_tmp" >/dev/null
+"${media_cmd[@]}" ffprobe \
+  -v error \
+  -show_entries stream=codec_name,width,height \
+  -of csv=p=0 \
+  "$gif_optimized_tmp" >/dev/null
 mv "$mp4_tmp" "${OUTPUT_PREFIX}.mp4"
-mv "$gif_tmp" "${OUTPUT_PREFIX}.gif"
+mv "$gif_optimized_tmp" "${OUTPUT_PREFIX}.gif"
 printf 'Recorded %s.mp4 and %s.gif (browser overlay starts at %ss)\n' \
   "$OUTPUT_PREFIX" "$OUTPUT_PREFIX" "$overlay_offset"

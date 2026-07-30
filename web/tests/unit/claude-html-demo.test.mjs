@@ -196,6 +196,18 @@ test("Claude HTML demo swaps a deterministic plan and hides before cleanup", () 
   assert.ok(cleanupQuit > hidden);
 });
 
+test("Claude HTML demo losslessly optimizes the generated GIF", () => {
+  assert.match(recorderScript, /GIFSICLE_VERSION="1\.96"/);
+  assert.match(
+    recorderScript,
+    /gifsicle -O3 "\$gif_tmp" -o "\$gif_optimized_tmp"/,
+  );
+  assert.match(
+    recorderScript,
+    /mv "\$gif_optimized_tmp" "\$\{OUTPUT_PREFIX\}\.gif"/,
+  );
+});
+
 test("Claude HTML demo records the q handoff without owning the skill browser", () => {
   assert.match(recorderScript, /REP_BROWSER_MANAGED_EXTERNALLY=1/);
   assert.match(recorderScript, /REP_DIAGNOSTICS_FILE=/);
