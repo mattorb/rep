@@ -315,19 +315,23 @@ async function main() {
     );
     await pause(1_000);
 
-    for (const key of ["j", "j", "Space", "j", "Backspace"]) {
+    for (const key of ["j", "j", "Space", "j"]) {
       await page.keyboard.press(key);
       await pause(800);
     }
 
-    await focusPlanElement(page, "#launch-gate");
+    await searchForPlanElement(
+      page,
+      "#launch-gate",
+      "Launch to all customers",
+    );
     await page.keyboard.press("c");
     await typeBrowserDialogText(page, REQUIRED_GATE);
     await pause(900);
     await commitModal(page);
     await pause(900);
 
-    await focusPlanElement(page, "#ownership");
+    await navigateToPlanElement(page, "#ownership");
     await page.keyboard.press("f");
     await typeBrowserDialogText(
       page,
@@ -343,7 +347,7 @@ async function main() {
     await page.keyboard.press("q");
     await page.locator("#modal").waitFor();
     await pause(700);
-    await page.locator("#modal-confirm").click();
+    await page.keyboard.press("Enter");
     await page.locator("#completion").waitFor();
     await pause(1_200);
     await stopNativeDisplayRecording(nativeRecording);
@@ -903,14 +907,11 @@ async function installDemoActionCue(page) {
         const key =
           event.key === " "
             ? "Space"
-            : event.key === "Backspace"
-              ? "Backspace"
-              : event.key;
+            : event.key;
         show(`Press “${key}”`);
       },
       true,
     );
-    window.addEventListener("pointerdown", () => show("Click"), true);
   });
 }
 
@@ -933,58 +934,56 @@ async function commitModal(page) {
   }
 }
 
-async function focusPlanElement(page, selector) {
+async function searchForPlanElement(page, selector, query) {
   const targetNode = await page.evaluate((target) => {
     const rep = window.__repTest;
     const node = rep?.manifest?.nodes?.findIndex(
       (candidate) => candidate.selector === target,
     );
     if (node < 0) throw new Error(`Review target is missing: ${target}`);
-    const iframe = document.querySelector("#plan");
-    iframe.contentDocument.querySelector(target).scrollIntoView({
-      behavior: "instant",
-      block: "center",
-    });
     return node;
   }, selector);
-  await pause(700);
-  for (const horizontalPosition of [0.05, 0.5, 0.95]) {
-    const point = await page.evaluate(
-      ({ position, target }) => {
-        const iframe = document.querySelector("#plan");
-        const element = iframe.contentDocument.querySelector(target);
-        const iframeRect = iframe.getBoundingClientRect();
-        const elementRect = element.getBoundingClientRect();
-        return {
-          x:
-            iframeRect.left +
-            elementRect.left +
-            elementRect.width * position,
-          y: iframeRect.top + elementRect.top + elementRect.height / 2,
-        };
-      },
-      { position: horizontalPosition, target: selector },
-    );
-    await page.mouse.click(point.x, point.y);
-    try {
-      await page.waitForFunction(
-        (node) => window.__repTest?.state?.anchor?.node === node,
-        targetNode,
-        { timeout: 2_000 },
-      );
-      await pause(500);
-      return;
-    } catch {
-      // Try a different point in case another rendered element overlaps the text.
-    }
-  }
-  const diagnostics = await page.evaluate(() => ({
-    anchor: window.__repTest?.state?.anchor,
-    clicks: window.__repTest?.clickEvents?.slice(-3),
-  }));
-  throw new Error(
-    `Could not focus ${selector}: ${JSON.stringify(diagnostics)}`,
+  await page.keyboard.press("/");
+  await typeBrowserDialogText(page, query);
+  await pause(500);
+  await commitModal(page);
+  await page.waitForFunction(
+    (node) => window.__repTest?.state?.anchor?.node === node,
+    targetNode,
   );
+  await pause(700);
+}
+
+async function navigateToPlanElement(page, selector) {
+  const navigation = await page.evaluate((target) => {
+    const rep = window.__repTest;
+    const targetNode = rep?.manifest?.nodes?.findIndex(
+      (candidate) => candidate.selector === target,
+    );
+    const currentNode = rep?.state?.anchor?.node;
+    if (targetNode < 0 || !Number.isInteger(currentNode)) {
+      throw new Error(`Review target is unavailable: ${target}`);
+    }
+    return {
+      count: Math.abs(targetNode - currentNode),
+      key: targetNode >= currentNode ? "j" : "k",
+      targetNode,
+    };
+  }, selector);
+  if (navigation.count > 12) {
+    throw new Error(
+      `Review target ${selector} is too far away for a concise keyboard demo`,
+    );
+  }
+  for (let index = 0; index < navigation.count; index += 1) {
+    await page.keyboard.press(navigation.key);
+    await pause(650);
+  }
+  await page.waitForFunction(
+    (node) => window.__repTest?.state?.anchor?.node === node,
+    navigation.targetNode,
+  );
+  await pause(500);
 }
 
 function pause(milliseconds) {

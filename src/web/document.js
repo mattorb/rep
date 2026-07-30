@@ -502,30 +502,39 @@ export class SelectionOverlay {
     const style = doc.createElement("style");
     style.textContent = `
       :host { all: initial !important; }
+      .focus-scrim {
+        backdrop-filter: saturate(.72) brightness(.84);
+        background: rgb(15 23 42 / 18%);
+        inset: 0;
+        position: fixed;
+      }
       .selection {
-        background: color-mix(in srgb, #6366f1 34%, transparent);
-        border: 2px solid color-mix(in srgb, #4f46e5 78%, CanvasText);
-        border-radius: 4px;
+        backdrop-filter: brightness(1.28) saturate(1.65);
+        background: color-mix(in srgb, #6366f1 48%, transparent);
+        border: 3px solid color-mix(in srgb, #4338ca 88%, CanvasText);
+        border-radius: 5px;
         box-sizing: border-box;
         box-shadow:
-          0 0 0 1px color-mix(in srgb, Canvas 88%, transparent),
-          0 0 0 4px color-mix(in srgb, #6366f1 24%, transparent),
-          0 3px 10px rgb(30 27 75 / 28%);
-        outline: 1px solid color-mix(in srgb, #818cf8 75%, transparent);
-        outline-offset: 1px;
+          0 0 0 2px color-mix(in srgb, Canvas 92%, transparent),
+          0 0 0 7px color-mix(in srgb, #818cf8 42%, transparent),
+          0 5px 18px rgb(30 27 75 / 46%);
+        outline: 2px solid color-mix(in srgb, #c7d2fe 88%, transparent);
+        outline-offset: 2px;
         position: fixed;
       }
       .selection.focus-start::after {
-        background: color-mix(in srgb, #4338ca 84%, CanvasText);
+        background: color-mix(in srgb, #312e81 92%, CanvasText);
         border: 1px solid color-mix(in srgb, Canvas 92%, transparent);
         border-radius: 999px;
         bottom: 1px;
-        box-shadow: 0 0 0 2px color-mix(in srgb, #6366f1 34%, transparent);
+        box-shadow:
+          0 0 0 3px color-mix(in srgb, #818cf8 48%, transparent),
+          0 0 16px 4px color-mix(in srgb, #6366f1 44%, transparent);
         content: "";
-        left: -7px;
+        left: -10px;
         position: absolute;
         top: 1px;
-        width: 4px;
+        width: 6px;
       }
       .annotation {
         border-bottom: 3px solid;
@@ -597,6 +606,11 @@ export class SelectionOverlay {
       firstModel.owner.scrollIntoView({ block: "center", inline: "nearest" });
     }
     this.layer.replaceChildren();
+    if (firstModel) {
+      const scrim = this.doc.createElement("div");
+      scrim.className = "focus-scrim";
+      this.layer.append(scrim);
+    }
     const badges = {
       change: "C",
       feedback: "F",

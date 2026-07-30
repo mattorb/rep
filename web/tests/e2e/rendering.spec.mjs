@@ -53,7 +53,7 @@ test("@rendering blocks document code and unsafe resources without rewriting sou
   expect(await readFile(fixture("security.html"), "utf8")).toBe(original);
 });
 
-test("@rendering demo viewport keeps the command legend on one contained line", async ({
+test("@rendering demo viewport keeps the command legend in two contained rows", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1120, height: 620 });
@@ -69,14 +69,11 @@ test("@rendering demo viewport keeps the command legend on one contained line", 
           return { bottom: box.bottom, top: box.top };
         }),
       );
-    expect(commandBoxes).toHaveLength(5);
-    expect(
-      commandBoxes.every(
-        (box) =>
-          Math.abs(box.top - commandBoxes[0].top) <= 1 &&
-          Math.abs(box.bottom - commandBoxes[0].bottom) <= 1,
-      ),
-    ).toBe(true);
+    expect(commandBoxes).toHaveLength(7);
+    const commandRows = new Set(
+      commandBoxes.map((box) => Math.round(box.top)),
+    );
+    expect(commandRows.size).toBe(2);
     expect(
       Math.abs(
         (commandBoxes[0].top + commandBoxes[0].bottom) / 2 -
@@ -127,7 +124,7 @@ for (const viewport of [
           .first()
           .boundingBox();
         expect(commandBox.y).toBeGreaterThan(modeBox.y);
-        await expect(hud.locator(".review-hud-commands")).toHaveCSS(
+        await expect(hud).toHaveCSS(
           "grid-template-columns",
           /.+ .+/,
         );

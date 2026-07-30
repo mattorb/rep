@@ -202,8 +202,9 @@ iframe.empty {
   border-top: 2px solid color-mix(in srgb, CanvasText 24%, transparent);
   bottom: 0;
   box-shadow: 0 -.45rem 1.4rem color-mix(in srgb, #000 22%, transparent);
-  display: flex;
+  display: grid;
   gap: clamp(.55rem, 1vw, 1rem);
+  grid-template-columns: repeat(4, max-content);
   justify-content: center;
   left: 0;
   padding: .65rem max(.65rem, env(safe-area-inset-right, 0px))
@@ -217,10 +218,7 @@ iframe.empty {
 }
 
 .review-hud-commands {
-  align-items: center;
-  display: flex;
-  gap: clamp(.45rem, 1vw, .9rem);
-  justify-content: center;
+  display: contents;
 }
 
 .review-hud-command {
@@ -297,24 +295,23 @@ body.finished .completion:not([hidden]) {
 
 @media (max-width: 38rem) {
   .review-hud {
-    display: grid;
     gap: .55rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     padding-inline: .75rem;
   }
 
   .review-hud .mode {
+    grid-column: 1 / -1;
     justify-content: center;
   }
 
   .review-hud-commands {
-    display: grid;
-    gap: .45rem .7rem;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    white-space: normal;
+    display: contents;
   }
 
   .review-hud-command {
     font-size: .86rem;
+    white-space: normal;
   }
 
   .review-hud-command:last-child {

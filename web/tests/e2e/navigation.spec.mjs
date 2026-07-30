@@ -97,7 +97,9 @@ test("@navigation keyboard units, boundaries, focus, and reload are authoritativ
       "x = strike",
       "c = change literal",
       "f = feedback intent",
+      "b/a = insert before/after",
       "q = submit & quit",
+      "? = help",
     ]);
     const hudBox = await hud.boundingBox();
     const viewport = page.viewportSize();
@@ -327,6 +329,8 @@ test("@navigation selection overlay paints text runs without blank-space boxes",
     const geometry = await frame
       .locator("[data-rep-overlay]")
       .evaluate((host) => {
+        const scrim = host.shadowRoot.querySelector(".focus-scrim");
+        const scrimStyle = getComputedStyle(scrim);
         const markers = Array.from(
           host.shadowRoot.querySelectorAll(".selection"),
           (marker) => {
@@ -349,9 +353,22 @@ test("@navigation selection overlay paints text runs without blank-space boxes",
           .querySelector("#delivery")
           .textContent.trim()
           .split(/\s+/u);
-        return { markers, words };
+        return {
+          markers,
+          scrim: {
+            backdropFilter: scrimStyle.backdropFilter,
+            background: scrimStyle.backgroundColor,
+            position: scrimStyle.position,
+          },
+          words,
+        };
       });
     expect(geometry.markers).toHaveLength(geometry.words.length);
+    expect(geometry.scrim).toMatchObject({
+      position: "fixed",
+    });
+    expect(geometry.scrim.background).not.toBe("rgba(0, 0, 0, 0)");
+    expect(geometry.scrim.backdropFilter).not.toBe("none");
     expect(geometry.markers[0].right).toBeLessThan(
       geometry.markers[1].left,
     );
@@ -360,7 +377,7 @@ test("@navigation selection overlay paints text runs without blank-space boxes",
       geometry.markers.every(
         (marker) =>
           marker.background !== "rgba(0, 0, 0, 0)" &&
-          marker.borderWidth === "2px" &&
+          marker.borderWidth === "3px" &&
           marker.boxShadow !== "none" &&
           marker.outlineStyle === "solid",
       ),
