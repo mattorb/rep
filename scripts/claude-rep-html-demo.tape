@@ -57,7 +57,7 @@ Hide
 Wait+Screen@300s /revision-ready/
 Show
 
-Sleep 2s
+Sleep 5s
 Hide
 Set TypingSpeed 0.07
 Type "/quit"
