@@ -16,6 +16,21 @@ fi
 
 browser_bin="${REP_BROWSER_BIN:-}"
 
+validate_window_bounds() {
+  local bounds="$1"
+  local x="" y="" width="" height="" extra=""
+  IFS=, read -r x y width height extra <<<"$bounds"
+  if [[ -n "${extra:-}" ]] ||
+    [[ ! "$x" =~ ^-?[0-9]+$ ]] ||
+    [[ ! "$y" =~ ^-?[0-9]+$ ]] ||
+    [[ ! "$width" =~ ^[0-9]+$ ]] ||
+    [[ ! "$height" =~ ^[0-9]+$ ]] ||
+    ((width < 1 || height < 1)); then
+    return 1
+  fi
+  printf '%s,%s,%s,%s\n' "$x" "$y" "$width" "$height"
+}
+
 resolve_browser() {
   if [[ -n "$browser_bin" ]]; then
     if [[ ! -x "$browser_bin" ]]; then
@@ -69,11 +84,69 @@ if [[ "${1:-}" == "--check" ]]; then
     usage >&2
     exit 2
   fi
+  if [[ -n "${REP_AGENT_WINDOW_BOUNDS:-}" ]] &&
+    ! validate_window_bounds "$REP_AGENT_WINDOW_BOUNDS" >/dev/null; then
+    printf 'browser_session.sh: invalid REP_AGENT_WINDOW_BOUNDS: %s\n' \
+      "$REP_AGENT_WINDOW_BOUNDS" >&2
+    exit 2
+  fi
   exit 0
 fi
 if [[ "$#" -ne 2 ]]; then
   usage >&2
   exit 2
+fi
+
+frontmost_macos_window_bounds() {
+  if [[ "$(uname -s)" != "Darwin" ]] || ! command -v xcrun >/dev/null 2>&1; then
+    return 1
+  fi
+  xcrun swift -e '
+    import AppKit
+    import CoreGraphics
+
+    guard
+      let application = NSWorkspace.shared.frontmostApplication,
+      let windows = CGWindowListCopyWindowInfo(
+        [.optionOnScreenOnly, .excludeDesktopElements],
+        kCGNullWindowID
+      ) as? [[String: Any]]
+    else {
+      exit(1)
+    }
+    let pid = Int(application.processIdentifier)
+    let candidate = windows.first { window in
+      let ownerPid = window[kCGWindowOwnerPID as String] as? Int ?? -1
+      let layer = window[kCGWindowLayer as String] as? Int ?? -1
+      let alpha = window[kCGWindowAlpha as String] as? Double ?? 0
+      return ownerPid == pid && layer == 0 && alpha > 0
+    }
+    guard
+      let window = candidate,
+      let rawBounds = window[kCGWindowBounds as String] as? [String: Any],
+      let bounds = CGRect(dictionaryRepresentation: rawBounds as CFDictionary),
+      bounds.width > 0,
+      bounds.height > 0
+    else {
+      exit(1)
+    }
+    print(
+      "\(Int(bounds.minX.rounded())),\(Int(bounds.minY.rounded()))," +
+      "\(Int(bounds.width.rounded())),\(Int(bounds.height.rounded()))"
+    )
+  ' 2>/dev/null
+}
+
+window_bounds=""
+if [[ -n "${REP_AGENT_WINDOW_BOUNDS:-}" ]]; then
+  if ! window_bounds="$(validate_window_bounds "$REP_AGENT_WINDOW_BOUNDS")"; then
+    printf 'browser_session.sh: invalid REP_AGENT_WINDOW_BOUNDS: %s\n' \
+      "$REP_AGENT_WINDOW_BOUNDS" >&2
+    exit 2
+  fi
+else
+  detected_bounds="$(frontmost_macos_window_bounds || true)"
+  window_bounds="$(validate_window_bounds "$detected_bounds" || true)"
 fi
 
 review_url="$1"
@@ -153,12 +226,26 @@ trap 'exit 143' TERM
 
 browser_name="$(basename "$browser_bin" | tr '[:upper:]' '[:lower:]')"
 if [[ "$browser_name" == *firefox* ]]; then
+  firefox_geometry=()
+  if [[ -n "$window_bounds" ]]; then
+    IFS=, read -r _ _ window_width window_height <<<"$window_bounds"
+    firefox_geometry+=(--width "$window_width" --height "$window_height")
+  fi
   "$browser_bin" \
     --no-remote \
     --profile "$profile_dir" \
+    "${firefox_geometry[@]}" \
     --new-window "$review_url" \
     >/dev/null 2>&1 &
 else
+  chromium_geometry=()
+  if [[ -n "$window_bounds" ]]; then
+    IFS=, read -r window_x window_y window_width window_height <<<"$window_bounds"
+    chromium_geometry+=(
+      "--window-position=$window_x,$window_y"
+      "--window-size=$window_width,$window_height"
+    )
+  fi
   "$browser_bin" \
     --user-data-dir="$profile_dir" \
     --no-first-run \
@@ -166,6 +253,7 @@ else
     --disable-background-networking \
     --disable-component-update \
     --disable-sync \
+    "${chromium_geometry[@]}" \
     --new-window "$review_url" \
     >/dev/null 2>&1 &
 fi

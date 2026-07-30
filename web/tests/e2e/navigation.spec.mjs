@@ -23,39 +23,23 @@ async function expectSelectionSpotlight(frame) {
           };
         },
       );
-      const selections = Array.from(
-        host.shadowRoot.querySelectorAll(".selection"),
-        (element) => {
-          const rect = element.getBoundingClientRect();
-          return {
-            x: rect.left + rect.width / 2,
-            y: rect.top + rect.height / 2,
-          };
-        },
-      );
-      const contains = (rect, point) =>
-        rect.left <= point.x &&
-        point.x < rect.right &&
-        rect.top <= point.y &&
-        point.y < rect.bottom;
       const style = getComputedStyle(
         host.shadowRoot.querySelector(".focus-scrim"),
       );
       return {
         backdropFilter: style.backdropFilter,
         background: style.backgroundColor,
+        clipPath: style.clipPath,
         scrimCount: scrims.length,
-        selectedCentersDimmed: selections.map((point) =>
-          scrims.some((rect) => contains(rect, point)),
-        ),
-        selectionCount: selections.length,
+        selectionCount:
+          host.shadowRoot.querySelectorAll(".selection").length,
       };
     });
-  expect(geometry.scrimCount).toBeGreaterThan(1);
-  expect(geometry.selectionCount).toBeGreaterThan(0);
-  expect(geometry.selectedCentersDimmed.every((dimmed) => !dimmed)).toBe(true);
+  expect(geometry.scrimCount).toBe(1);
+  expect(geometry.selectionCount).toBe(1);
   expect(geometry.background).not.toBe("rgba(0, 0, 0, 0)");
   expect(geometry.backdropFilter).not.toBe("none");
+  expect(geometry.clipPath).toContain("evenodd");
 }
 
 async function clickPlanElement(page, selector, clickCount, xOffset) {
@@ -397,7 +381,7 @@ test("@navigation mouse selection, logical lines, Unicode, and overlays remain a
   }
 });
 
-test("@navigation selection overlay paints text runs without blank-space boxes", async ({
+test("@navigation selection overlay paints one rounded focus region", async ({
   page,
 }) => {
   const { frame, running } = await openPlan(page, "semantic.html");
@@ -415,61 +399,51 @@ test("@navigation selection overlay paints text runs without blank-space boxes",
       .evaluate((host) => {
         const scrim = host.shadowRoot.querySelector(".focus-scrim");
         const scrimStyle = getComputedStyle(scrim);
-        const markers = Array.from(
-          host.shadowRoot.querySelectorAll(".selection"),
-          (marker) => {
-            const rect = marker.getBoundingClientRect();
-            const style = getComputedStyle(marker);
-            return {
-              background: style.backgroundColor,
-              borderWidth: style.borderTopWidth,
-              boxShadow: style.boxShadow,
-              focusCue: getComputedStyle(marker, "::after").content,
-              focused: marker.classList.contains("focus-start"),
-              left: rect.left,
-              outlineStyle: style.outlineStyle,
-              right: rect.right,
-              width: rect.width,
-            };
-          },
+        const marker = host.shadowRoot.querySelector(".selection");
+        const markerRect = marker.getBoundingClientRect();
+        const markerStyle = getComputedStyle(marker);
+        const selected = host.ownerDocument.querySelector("#delivery");
+        const range = host.ownerDocument.createRange();
+        range.selectNodeContents(selected);
+        const textRects = Array.from(range.getClientRects()).filter(
+          (rect) => rect.width > 0 && rect.height > 0,
         );
-        const words = host.ownerDocument
-          .querySelector("#delivery")
-          .textContent.trim()
-          .split(/\s+/u);
         return {
-          markers,
+          marker: {
+            background: markerStyle.backgroundColor,
+            borderRadius: markerStyle.borderRadius,
+            borderWidth: markerStyle.borderTopWidth,
+            boxShadow: markerStyle.boxShadow,
+            containsSelection: textRects.every(
+              (rect) =>
+                markerRect.left <= rect.left &&
+                markerRect.top <= rect.top &&
+                markerRect.right >= rect.right &&
+                markerRect.bottom >= rect.bottom,
+            ),
+          },
+          markerCount:
+            host.shadowRoot.querySelectorAll(".selection").length,
           scrim: {
             backdropFilter: scrimStyle.backdropFilter,
             background: scrimStyle.backgroundColor,
             position: scrimStyle.position,
           },
-          words,
         };
       });
-    expect(geometry.markers).toHaveLength(geometry.words.length);
+    expect(geometry.markerCount).toBe(1);
     expect(geometry.scrim).toMatchObject({
       position: "fixed",
     });
     expect(geometry.scrim.background).not.toBe("rgba(0, 0, 0, 0)");
     expect(geometry.scrim.backdropFilter).not.toBe("none");
-    expect(geometry.markers[0].right).toBeLessThan(
-      geometry.markers[1].left,
-    );
-    expect(geometry.markers.every((marker) => marker.width > 0)).toBe(true);
-    expect(
-      geometry.markers.every(
-        (marker) =>
-          marker.background !== "rgba(0, 0, 0, 0)" &&
-          marker.borderWidth === "3px" &&
-          marker.boxShadow !== "none" &&
-          marker.outlineStyle === "solid",
-      ),
-    ).toBe(true);
-    expect(geometry.markers.filter((marker) => marker.focused)).toHaveLength(1);
-    expect(
-      geometry.markers.find((marker) => marker.focused).focusCue,
-    ).toBe('""');
+    expect(geometry.marker).toMatchObject({
+      borderRadius: "18px",
+      borderWidth: "2px",
+      containsSelection: true,
+    });
+    expect(geometry.marker.background).not.toBe("rgba(0, 0, 0, 0)");
+    expect(geometry.marker.boxShadow).not.toBe("none");
   } finally {
     await finishRep(page, running);
   }

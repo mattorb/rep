@@ -481,10 +481,9 @@ export function selectionPoint(models, doc, x, y, target = null) {
   return null;
 }
 
-const FOCUS_PADDING_PX = 5;
-const FOCUS_INLINE_GAP_PX = 12;
+const FOCUS_PADDING_PX = 10;
 
-export function focusScrimRects(rects, viewport) {
+export function focusSelectionRect(rects, viewport) {
   const width = Number(viewport?.width);
   const height = Number(viewport?.height);
   if (
@@ -493,9 +492,9 @@ export function focusScrimRects(rects, viewport) {
     width <= 0 ||
     height <= 0
   ) {
-    return [];
+    return null;
   }
-  const holes = rects
+  const visible = rects
     .map((rect) => {
       const rawLeft = Number(rect?.left);
       const rawTop = Number(rect?.top);
@@ -511,10 +510,10 @@ export function focusScrimRects(rects, viewport) {
         return null;
       }
       return {
-        left: Math.max(0, rawLeft - FOCUS_PADDING_PX),
-        top: Math.max(0, rawTop - FOCUS_PADDING_PX),
-        right: Math.min(width, rawRight + FOCUS_PADDING_PX),
-        bottom: Math.min(height, rawBottom + FOCUS_PADDING_PX),
+        left: rawLeft,
+        top: rawTop,
+        right: rawRight,
+        bottom: rawBottom,
       };
     })
     .filter(
@@ -523,42 +522,90 @@ export function focusScrimRects(rects, viewport) {
         rect.left < rect.right &&
         rect.top < rect.bottom,
     );
-  if (!holes.length) return [];
+  if (!visible.length) return null;
 
-  const yEdges = Array.from(
-    new Set([0, height, ...holes.flatMap((rect) => [rect.top, rect.bottom])]),
-  ).sort((left, right) => left - right);
-  const scrims = [];
-  for (let index = 0; index < yEdges.length - 1; index += 1) {
-    const top = yEdges[index];
-    const bottom = yEdges[index + 1];
-    if (bottom <= top) continue;
-    const intervals = holes
-      .filter((rect) => rect.top < bottom && rect.bottom > top)
-      .map((rect) => ({ left: rect.left, right: rect.right }))
-      .sort((left, right) => left.left - right.left);
-    let cursor = 0;
-    for (const interval of intervals) {
-      if (interval.left > cursor + FOCUS_INLINE_GAP_PX) {
-        scrims.push({
-          left: cursor,
-          top,
-          width: interval.left - cursor,
-          height: bottom - top,
-        });
-      }
-      cursor = Math.max(cursor, interval.right);
-    }
-    if (cursor < width) {
-      scrims.push({
-        left: cursor,
-        top,
-        width: width - cursor,
-        height: bottom - top,
-      });
+  const left = Math.max(
+    0,
+    Math.min(width, Math.min(...visible.map((rect) => rect.left)) - FOCUS_PADDING_PX),
+  );
+  const top = Math.max(
+    0,
+    Math.min(height, Math.min(...visible.map((rect) => rect.top)) - FOCUS_PADDING_PX),
+  );
+  const right = Math.max(
+    0,
+    Math.min(width, Math.max(...visible.map((rect) => rect.right)) + FOCUS_PADDING_PX),
+  );
+  const bottom = Math.max(
+    0,
+    Math.min(height, Math.max(...visible.map((rect) => rect.bottom)) + FOCUS_PADDING_PX),
+  );
+  if (left >= right || top >= bottom) return null;
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width: right - left,
+    height: bottom - top,
+  };
+}
+
+export function focusScrimPolygon(focus, viewport) {
+  if (!focus) return "";
+  const width = Number(viewport.width);
+  const height = Number(viewport.height);
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return "";
+  }
+  const radius = Math.min(18, focus.width / 2, focus.height / 2);
+  const points = [
+    [0, 0],
+    [width, 0],
+    [width, height],
+    [0, height],
+    [0, 0],
+  ];
+  const inner = [];
+  for (const { centerX, centerY, startAngle } of [
+    {
+      centerX: focus.left + radius,
+      centerY: focus.top + radius,
+      startAngle: Math.PI,
+    },
+    {
+      centerX: focus.right - radius,
+      centerY: focus.top + radius,
+      startAngle: -Math.PI / 2,
+    },
+    {
+      centerX: focus.right - radius,
+      centerY: focus.bottom - radius,
+      startAngle: 0,
+    },
+    {
+      centerX: focus.left + radius,
+      centerY: focus.bottom - radius,
+      startAngle: Math.PI / 2,
+    },
+  ]) {
+    for (let step = 0; step <= 4; step += 1) {
+      const angle = startAngle + (step * Math.PI) / 8;
+      inner.push([
+        centerX + Math.cos(angle) * radius,
+        centerY + Math.sin(angle) * radius,
+      ]);
     }
   }
-  return scrims;
+  points.push(...inner, inner[0], [0, 0]);
+  return `polygon(evenodd, ${points
+    .map(([x, y]) => `${x.toFixed(2)}px ${y.toFixed(2)}px`)
+    .join(", ")})`;
 }
 
 export class SelectionOverlay {
@@ -586,35 +633,19 @@ export class SelectionOverlay {
         backdrop-filter: grayscale(.28) saturate(.5) brightness(.58);
         background: rgb(15 23 42 / 34%);
         box-sizing: border-box;
+        inset: 0;
         position: fixed;
       }
       .selection {
-        backdrop-filter: brightness(1.28) saturate(1.65);
-        background: color-mix(in srgb, #6366f1 48%, transparent);
-        border: 3px solid color-mix(in srgb, #4338ca 88%, CanvasText);
-        border-radius: 5px;
+        backdrop-filter: brightness(1.12) saturate(1.3);
+        background: color-mix(in srgb, #6366f1 27%, transparent);
+        border: 2px solid color-mix(in srgb, #6366f1 74%, CanvasText);
+        border-radius: 18px;
         box-sizing: border-box;
         box-shadow:
-          0 0 0 2px color-mix(in srgb, Canvas 92%, transparent),
-          0 0 0 7px color-mix(in srgb, #818cf8 42%, transparent),
-          0 5px 18px rgb(30 27 75 / 46%);
-        outline: 2px solid color-mix(in srgb, #c7d2fe 88%, transparent);
-        outline-offset: 2px;
+          inset 0 0 0 1px color-mix(in srgb, Canvas 48%, transparent),
+          0 8px 30px rgb(30 27 75 / 34%);
         position: fixed;
-      }
-      .selection.focus-start::after {
-        background: color-mix(in srgb, #312e81 92%, CanvasText);
-        border: 1px solid color-mix(in srgb, Canvas 92%, transparent);
-        border-radius: 999px;
-        bottom: 1px;
-        box-shadow:
-          0 0 0 3px color-mix(in srgb, #818cf8 48%, transparent),
-          0 0 16px 4px color-mix(in srgb, #6366f1 44%, transparent);
-        content: "";
-        left: -10px;
-        position: absolute;
-        top: 1px;
-        width: 6px;
       }
       .annotation {
         border-bottom: 3px solid;
@@ -686,24 +717,24 @@ export class SelectionOverlay {
       firstModel.owner.scrollIntoView({ block: "center", inline: "nearest" });
     }
     this.layer.replaceChildren();
+    let focus = null;
     if (firstModel) {
-      const focusRects = selection.flatMap((slice) => {
+      const textRects = selection.flatMap((slice) => {
         const model = this.models[slice.node];
         return model
           ? textRectsForSlice(model, slice.start, slice.end)
           : [];
       });
       const view = this.doc.defaultView;
-      for (const rect of focusScrimRects(focusRects, {
+      const viewport = {
         width: view.innerWidth,
         height: view.innerHeight,
-      })) {
+      };
+      focus = focusSelectionRect(textRects, viewport);
+      if (focus) {
         const scrim = this.doc.createElement("div");
         scrim.className = "focus-scrim";
-        scrim.style.left = `${rect.left}px`;
-        scrim.style.top = `${rect.top}px`;
-        scrim.style.width = `${rect.width}px`;
-        scrim.style.height = `${rect.height}px`;
+        scrim.style.clipPath = focusScrimPolygon(focus, viewport);
         this.layer.append(scrim);
       }
     }
@@ -721,21 +752,18 @@ export class SelectionOverlay {
         slice.first ? badges[slice.kind] : null,
       );
     }
-    let focusPainted = false;
-    for (const slice of selection) {
-      const model = this.models[slice.node];
-      if (!model) continue;
-      const painted = this.paintSlice(
-        slice,
-        "selection",
-        null,
-        !focusPainted,
-      );
-      focusPainted ||= painted > 0;
+    if (focus) {
+      const marker = this.doc.createElement("div");
+      marker.className = "selection";
+      marker.style.left = `${focus.left}px`;
+      marker.style.top = `${focus.top}px`;
+      marker.style.width = `${focus.width}px`;
+      marker.style.height = `${focus.height}px`;
+      this.layer.append(marker);
     }
   }
 
-  paintSlice(slice, className, badge = null, markFocus = false) {
+  paintSlice(slice, className, badge = null) {
     const model = this.models[slice.node];
     if (!model) return 0;
     const rects = textRectsForSlice(
@@ -745,8 +773,7 @@ export class SelectionOverlay {
     );
     for (const [index, rect] of rects.entries()) {
       const marker = this.doc.createElement("div");
-      marker.className =
-        markFocus && index === 0 ? `${className} focus-start` : className;
+      marker.className = className;
       marker.style.left = `${rect.left}px`;
       marker.style.top = `${rect.top}px`;
       marker.style.width = `${rect.width}px`;

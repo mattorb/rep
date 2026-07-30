@@ -3,7 +3,8 @@ import test from "node:test";
 
 import {
   elementSummary,
-  focusScrimRects,
+  focusScrimPolygon,
+  focusSelectionRect,
   logicalLineRanges,
   normalizePieces,
   scalarToUtf16,
@@ -65,25 +66,29 @@ test("element summaries retain tag, id, and bounded class context", () => {
   );
 });
 
-test("focus scrims dim the viewport complement without covering selected text", () => {
-  const scrims = focusScrimRects(
-    [
-      { left: 20, top: 30, right: 40, bottom: 50 },
-      { left: 46, top: 30, right: 70, bottom: 50 },
-    ],
-    { width: 100, height: 80 },
-  );
-  const contains = (rect, x, y) =>
-    rect.left <= x &&
-    x < rect.left + rect.width &&
-    rect.top <= y &&
-    y < rect.top + rect.height;
+test("focus uses one padded region and dims its viewport complement", () => {
+  const fragments = [
+    { left: 20, top: 30, right: 40, bottom: 50 },
+    { left: 46, top: 30, right: 70, bottom: 50 },
+  ];
+  const viewport = { width: 100, height: 80 };
+  const focus = focusSelectionRect(fragments, viewport);
+  const scrim = focusScrimPolygon(focus, viewport);
 
-  assert.ok(scrims.length > 1);
-  assert.equal(scrims.some((rect) => contains(rect, 30, 40)), false);
-  assert.equal(scrims.some((rect) => contains(rect, 43, 40)), false);
-  assert.equal(scrims.some((rect) => contains(rect, 10, 40)), true);
-  assert.equal(scrims.some((rect) => contains(rect, 90, 70)), true);
-  assert.deepEqual(focusScrimRects([], { width: 100, height: 80 }), []);
-  assert.deepEqual(focusScrimRects([], { width: 0, height: 80 }), []);
+  assert.deepEqual(focus, {
+    left: 10,
+    top: 20,
+    right: 80,
+    bottom: 60,
+    width: 70,
+    height: 40,
+  });
+  assert.match(scrim, /^polygon\(evenodd, /);
+  assert.match(scrim, /0\.00px 0\.00px/);
+  assert.match(scrim, /100\.00px 80\.00px/);
+  assert.match(scrim, /10\.00px 38\.00px/);
+  assert.match(scrim, /80\.00px 42\.00px/);
+  assert.equal(focusSelectionRect([], viewport), null);
+  assert.equal(focusScrimPolygon(null, viewport), "");
+  assert.equal(focusScrimPolygon(focus, { width: 0, height: 80 }), "");
 });

@@ -178,6 +178,38 @@ fn html_runner_fails_before_rep_when_it_cannot_own_a_browser() {
 }
 
 #[test]
+fn html_runner_rejects_invalid_agent_window_bounds_before_rep() {
+    let root = temp_dir("invalid-browser-bounds");
+    let plan = root.join("plan.html");
+    fs::write(&plan, "<h1>Plan</h1>").unwrap();
+    let args_file = root.join("args.txt");
+    let fake_rep = make_fake_rep(&root);
+    let fake_browser = make_fake_browser(&root);
+
+    let output = Command::new(script("run_rep_and_capture.sh"))
+        .arg(&plan)
+        .arg("--web")
+        .env("REP_BIN", fake_rep)
+        .env("REP_ARGS_FILE", &args_file)
+        .env("REP_CAPTURE_DIR", &root)
+        .env("REP_BROWSER_BIN", fake_browser)
+        .env("REP_AGENT_WINDOW_BOUNDS", "not-bounds")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        !args_file.exists(),
+        "Rep must not start with an invalid browser geometry override"
+    );
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("invalid REP_AGENT_WINDOW_BOUNDS")
+    );
+}
+
+#[test]
 fn html_runner_owns_and_stops_its_temporary_browser() {
     let root = temp_dir("browser-lifecycle");
     let plan = root.join("plan.html");
@@ -204,6 +236,7 @@ fn html_runner_owns_and_stops_its_temporary_browser() {
         .env("REP_FAKE_BROWSER_ARGS", &browser_args)
         .env("REP_FAKE_BROWSER_READY", &browser_ready)
         .env("REP_FAKE_BROWSER_STOPPED", &browser_stopped)
+        .env("REP_AGENT_WINDOW_BOUNDS", "41,53,1200,800")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -220,6 +253,8 @@ fn html_runner_owns_and_stops_its_temporary_browser() {
     let launched = fs::read_to_string(browser_args).unwrap();
     assert!(launched.contains("--user-data-dir="));
     assert!(launched.contains("--new-window"));
+    assert!(launched.contains("--window-position=41,53"));
+    assert!(launched.contains("--window-size=1200,800"));
     assert!(launched.contains("http://127.0.0.1:43117/session/"));
     let forwarded = fs::read_to_string(args_file).unwrap();
     assert_eq!(forwarded.lines().nth(2), Some("--no-open"));

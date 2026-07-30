@@ -289,10 +289,10 @@ async function main() {
 
     browser = await chromium.launch({
       headless: false,
-      args: ["--window-position=40,40", "--window-size=1120,780"],
+      args: ["--window-position=40,40", "--window-size=1120,700"],
     });
     context = await browser.newContext({
-      viewport: { width: 1120, height: 620 },
+      viewport: { width: 1120, height: 540 },
     });
     const page = await context.newPage();
     await page.goto(url);

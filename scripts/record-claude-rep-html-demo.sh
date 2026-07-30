@@ -386,7 +386,7 @@ media_cmd=(
   -i "$DEMO_TEMP_DIR/terminal.mp4" \
   -i "$DEMO_TEMP_DIR/browser.mov" \
   -filter_complex \
-  "[0:v]fps=24,format=yuv420p[terminal];[1:v]${browser_capture_filter},setpts=PTS-STARTPTS+${overlay_offset}/TB,scale=940:-2:flags=lanczos[browser];[terminal][browser]overlay=x=W-w-24:y=24:eof_action=pass:repeatlast=0:shortest=0,format=yuv420p[out]" \
+  "[0:v]fps=24,format=yuv420p[terminal];[1:v]${browser_capture_filter},setpts=PTS-STARTPTS+${overlay_offset}/TB,scale=1440:900:flags=lanczos[browser];[terminal][browser]overlay=x=0:y=0:eof_action=pass:repeatlast=0:shortest=0,format=yuv420p[out]" \
   -map "[out]" \
   -movflags +faststart \
   -c:v libx264 \

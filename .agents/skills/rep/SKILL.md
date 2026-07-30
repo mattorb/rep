@@ -18,8 +18,9 @@ captured actions to the source plan.
 3. Do not edit unless this turn produces a new `REP_CAPTURE_FILE=...` path.
 4. Parse actions only from that capture file.
 5. Launch `run_rep_and_capture.sh` without forcing a PTY. For HTML, the runner
-   owns an isolated temporary browser session and closes it after receiving
-   the capture.
+   owns an isolated temporary browser session, places a Chromium-family window
+   over the active agent window when macOS exposes those bounds, and closes it
+   after receiving the capture.
 6. Keep polling indefinitely until the foreground process exits. Quiet output
    means the user is still reviewing; it is not evidence of a hang.
 7. Never inspect, drive, kill, or send keys to rep's tmux panes, windows,
@@ -102,8 +103,10 @@ HTML blocks contain `FORMAT: html` and `LOCATOR:`.
 - `scripts/run_rep_and_capture.sh`: required foreground runner, fresh capture
   writer, and owner of the temporary HTML browser lifecycle; accepts extra rep
   arguments after the plan path.
-- `scripts/browser_session.sh`: launches an isolated HTML review window and
-  terminates only that temporary browser profile when the runner signals.
+- `scripts/browser_session.sh`: launches an isolated HTML review window,
+  positions Chromium-family windows over the active agent window on macOS when
+  possible, and terminates only that temporary browser profile when the runner
+  signals.
 - `scripts/plan_mode.sh`: deterministic Markdown/HTML/unsupported classifier.
 - `scripts/rep.sh`: executable resolver for direct/manual debugging.
 

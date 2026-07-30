@@ -65,16 +65,18 @@ process running, open that exact URL, and press `q` then confirm to send the
 review, or press `Q` to discard it silently. The page acknowledges the handoff
 and attempts to close itself. A large, full-width HUD stays visible at the
 bottom of the review, labels the current `Mode:`, and shows `Spacebar` to
-change mode alongside the `q` completion and `?` help shortcuts. `--debug`
-validates and describes an HTML launch without binding a server or opening a
-browser.
+change mode alongside the `q` completion and `?` help shortcuts. One tinted,
+rounded focus region encloses the current selection while the rest of the plan
+is dimmed. `--debug` validates and describes an HTML launch without binding a
+server or opening a browser.
 
 The bundled Rep skill owns the complete HTML handoff. Its runner starts Rep
 without the built-in opener, launches an isolated Chromium- or Firefox-family
-browser profile, waits for the `q` confirmation and fresh capture, then closes
-only that temporary browser process before the agent applies the actions. An
-explicit `--no-open` remains available for manual and SSH-forwarded browser
-sessions.
+browser profile, and on macOS positions Chromium-family windows over the active
+agent window when those bounds are available. It waits for the `q` confirmation
+and fresh capture, then closes only that temporary browser process before the
+agent applies the actions. An explicit `--no-open` remains available for
+manual and SSH-forwarded browser sessions.
 
 The built-in `rep --demo` remains Markdown/TUI-only. An HTML example lives at
 [`examples/demo-plan.html`](examples/demo-plan.html); the opt-in
@@ -90,9 +92,9 @@ it hides long Claude generation/application waits and ends before the cleanup
 `/quit`. After Claude creates a real draft,
 `scripts/claude-rep-html-demo-plan.html` replaces it with a deterministic plan,
 matching the Markdown demo's fixture-swap approach. The browser recording opens
-Rep's keyboard help and shows the actual keyboard and pointer events before
-Claude applies the fresh review actions. No synthetic terminal, browser chrome,
-or third-party screen recorder is used.
+over the Claude window and shows keyboard-driven navigation plus visibly typed
+annotations before Claude applies the fresh review actions. No synthetic
+terminal, browser chrome, or third-party screen recorder is used.
 
 The recorder requires an installed, authenticated Claude Code CLI and the
 locked web dependencies. Grant Screen & System Audio Recording permission to

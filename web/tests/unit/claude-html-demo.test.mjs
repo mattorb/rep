@@ -195,12 +195,14 @@ test("Claude HTML demo records the q handoff without owning the skill browser", 
   assert.match(recorderScript, /REP_DIAGNOSTICS_FILE=/);
   assert.match(
     recorderOrchestrator,
-    /args: \["--window-position=40,40", "--window-size=1120,780"\]/,
+    /args: \["--window-position=40,40", "--window-size=1120,700"\]/,
   );
   assert.match(
     recorderOrchestrator,
-    /viewport: \{ width: 1120, height: 620 \}/,
+    /viewport: \{ width: 1120, height: 540 \}/,
   );
+  assert.match(recorderScript, /scale=1440:900:flags=lanczos\[browser\]/);
+  assert.match(recorderScript, /overlay=x=0:y=0:eof_action=pass/);
   assert.match(recorderOrchestrator, /keyboard\.press\("q"\)/);
   assert.match(recorderOrchestrator, /locator\("#completion"\)\.waitFor\(\)/);
   assert.match(
