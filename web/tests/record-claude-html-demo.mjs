@@ -79,22 +79,24 @@ export function extractReviewUrl(diagnostics) {
   return diagnostics.match(/^Review URL: (http:\/\/127\.0\.0\.1:\d+\/[^\s]+)$/m)?.[1];
 }
 
-export function browserOverlayOffsetSeconds(timing, visibleLeadMs) {
+export function browserOverlayOffsetSeconds(
+  timing,
+  initialVisibleLeadMs,
+  repVisibleLeadMs,
+) {
   const values = [
     timing?.browserStartEpochMs,
     timing?.planReadyEpochMs,
-    visibleLeadMs,
+    initialVisibleLeadMs,
+    repVisibleLeadMs,
   ];
   if (values.some((value) => !Number.isFinite(value))) {
     throw new Error("Browser overlay timing values must be finite numbers");
   }
-  return Math.max(
-    0,
-    (visibleLeadMs +
-      timing.browserStartEpochMs -
-      timing.planReadyEpochMs) /
-      1000,
-  );
+  if (timing.browserStartEpochMs < timing.planReadyEpochMs) {
+    throw new Error("Browser recording cannot start before the plan is ready");
+  }
+  return Math.max(0, (initialVisibleLeadMs + repVisibleLeadMs) / 1000);
 }
 
 export function browserProcessId(processInfo) {
@@ -232,9 +234,13 @@ async function main() {
   const tmux = requiredEnvironment("REP_CLAUDE_DEMO_TMUX_BIN");
   const tmuxConfig = requiredEnvironment("REP_CLAUDE_DEMO_TMUX_CONFIG");
   const tmuxSocket = requiredEnvironment("REP_CLAUDE_DEMO_TMUX_SOCKET");
-  const visibleLead = parsePositiveInteger(
-    process.env.REP_CLAUDE_DEMO_VHS_VISIBLE_LEAD_MS || "4000",
-    "REP_CLAUDE_DEMO_VHS_VISIBLE_LEAD_MS",
+  const initialVisibleLead = parsePositiveInteger(
+    process.env.REP_CLAUDE_DEMO_VHS_INITIAL_VISIBLE_LEAD_MS || "4000",
+    "REP_CLAUDE_DEMO_VHS_INITIAL_VISIBLE_LEAD_MS",
+  );
+  const repVisibleLead = parsePositiveInteger(
+    process.env.REP_CLAUDE_DEMO_VHS_REP_VISIBLE_LEAD_MS || "5500",
+    "REP_CLAUDE_DEMO_VHS_REP_VISIBLE_LEAD_MS",
   );
   const model = process.env.REP_CLAUDE_DEMO_MODEL || "sonnet";
   const timeout = parsePositiveInteger(
@@ -313,6 +319,7 @@ async function main() {
       0,
       (browserStartEpochMs - nativeRecording.startedEpochMs) / 1_000,
     );
+    setDemoStage({ session, tmux, tmuxSocket }, "browser-ready");
     await pause(1_000);
 
     for (const key of ["j", "j", "Space", "j"]) {
@@ -365,7 +372,8 @@ async function main() {
           browserStartEpochMs,
           browserOverlayOffsetSeconds: browserOverlayOffsetSeconds(
             { browserStartEpochMs, planReadyEpochMs },
-            visibleLead,
+            initialVisibleLead,
+            repVisibleLead,
           ),
           browserCapture,
           browserVideoTrimSeconds,

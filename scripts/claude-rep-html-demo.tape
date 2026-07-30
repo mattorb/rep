@@ -47,6 +47,10 @@ Enter
 Sleep 400ms
 Enter
 Set TypingSpeed 0.001
+Sleep 1200ms
+Hide
+Wait+Screen@300s /browser-ready/
+Show
 Wait+Screen@300s /apply-running/
 Sleep 4s
 Hide

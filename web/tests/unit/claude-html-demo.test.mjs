@@ -85,22 +85,25 @@ test("Claude HTML demo maps browser time onto the cropped VHS timeline", () => {
         planReadyEpochMs: 60_000,
       },
       4_000,
+      5_500,
     ),
-    19,
-  );
-  assert.equal(
-    browserOverlayOffsetSeconds(
-      {
-        browserStartEpochMs: 59_000,
-        planReadyEpochMs: 60_000,
-      },
-      500,
-    ),
-    0,
+    9.5,
   );
   assert.throws(
-    () => browserOverlayOffsetSeconds({}, 4_000),
+    () => browserOverlayOffsetSeconds({}, 4_000, 5_500),
     /must be finite numbers/,
+  );
+  assert.throws(
+    () =>
+      browserOverlayOffsetSeconds(
+        {
+          browserStartEpochMs: 59_000,
+          planReadyEpochMs: 60_000,
+        },
+        4_000,
+        5_500,
+      ),
+    /cannot start before the plan is ready/,
   );
 });
 
@@ -223,6 +226,25 @@ test("Claude HTML demo visibly types browser annotations and pauses before Rep",
     recorderTape,
     /Sleep 2500ms\s+Set TypingSpeed 0\.07\s+Type "\/rep @demo-plan\.html"/,
   );
+});
+
+test("Claude HTML demo clips the browser launch wait after a visible beat", () => {
+  assert.match(
+    recorderTape,
+    /Type "\/rep @demo-plan\.html"[\s\S]*Sleep 1200ms\s+Hide\s+Wait\+Screen@300s \/browser-ready\/\s+Show\s+Wait\+Screen@300s \/apply-running\//,
+  );
+  assert.match(
+    recorderScript,
+    /VHS_INITIAL_VISIBLE_LEAD_MS=4000[\s\S]*VHS_REP_VISIBLE_LEAD_MS=5500/,
+  );
+  const browserReady = recorderOrchestrator.indexOf(
+    'setDemoStage({ session, tmux, tmuxSocket }, "browser-ready")',
+  );
+  const firstBrowserAction = recorderOrchestrator.indexOf(
+    'for (const key of ["j", "j", "Space", "j"])',
+  );
+  assert.ok(browserReady >= 0);
+  assert.ok(firstBrowserAction > browserReady);
 });
 
 test("Claude HTML demo verifies both actions and preserved layout structure", () => {

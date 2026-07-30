@@ -79,7 +79,9 @@ TTYD_VERSION="1.7.7"
 FFMPEG_VERSION="8.1.1"
 PKGX_VERSION="2.11.0"
 LIBWEBSOCKETS_VERSION="4.3.6"
-VHS_VISIBLE_LEAD_MS=4000
+VHS_INITIAL_VISIBLE_LEAD_MS=4000
+# 2500ms pause + 20 characters at 70ms + 400ms confirmation + 1200ms beat.
+VHS_REP_VISIBLE_LEAD_MS=5500
 CLAUDE_PLAN_PROMPT="Create a rollout plan for checkout recovery as demo-plan.html"
 HTML_PLAN_FIXTURE="$ROOT_DIR/scripts/claude-rep-html-demo-plan.html"
 
@@ -282,7 +284,8 @@ REP_CLAUDE_DEMO_BROWSER_VIDEO="$DEMO_TEMP_DIR/browser.mov" \
 REP_CLAUDE_DEMO_DISPLAY_RECORDER="$display_recorder" \
 REP_CLAUDE_DEMO_TIMING_FILE="$DEMO_TEMP_DIR/timing.json" \
 REP_CLAUDE_DEMO_VHS_START_FILE="$DEMO_TEMP_DIR/vhs-start-ms" \
-REP_CLAUDE_DEMO_VHS_VISIBLE_LEAD_MS="$VHS_VISIBLE_LEAD_MS" \
+REP_CLAUDE_DEMO_VHS_INITIAL_VISIBLE_LEAD_MS="$VHS_INITIAL_VISIBLE_LEAD_MS" \
+REP_CLAUDE_DEMO_VHS_REP_VISIBLE_LEAD_MS="$VHS_REP_VISIBLE_LEAD_MS" \
 REP_CLAUDE_DEMO_MODEL="${REP_CLAUDE_DEMO_MODEL:-sonnet}" \
 REP_CLAUDE_DEMO_TIMEOUT_MS="${REP_CLAUDE_DEMO_TIMEOUT_MS:-300000}" \
 REP_CLAUDE_DEMO_PLAN="$demo_plan_path" \
@@ -345,9 +348,19 @@ overlay_offset="$(
     import { readFileSync } from "node:fs";
     import { browserOverlayOffsetSeconds } from "./web/tests/record-claude-html-demo.mjs";
     const timing = JSON.parse(readFileSync(process.argv[1], "utf8"));
-    const visibleLead = Number(process.argv[2]);
-    process.stdout.write(browserOverlayOffsetSeconds(timing, visibleLead).toFixed(3));
-  ' "$DEMO_TEMP_DIR/timing.json" "$VHS_VISIBLE_LEAD_MS"
+    const initialVisibleLead = Number(process.argv[2]);
+    const repVisibleLead = Number(process.argv[3]);
+    process.stdout.write(
+      browserOverlayOffsetSeconds(
+        timing,
+        initialVisibleLead,
+        repVisibleLead,
+      ).toFixed(3),
+    );
+  ' \
+    "$DEMO_TEMP_DIR/timing.json" \
+    "$VHS_INITIAL_VISIBLE_LEAD_MS" \
+    "$VHS_REP_VISIBLE_LEAD_MS"
 )"
 browser_capture_filter="$(
   mise exec -- node --input-type=module -e '
