@@ -65,6 +65,11 @@ for (const name of [
             .map((node) => node.selector),
         ).toEqual(expected.unique_locators);
       }
+      if (name === "empty") {
+        await expect(page.locator("#review-hud")).toBeVisible();
+        await expect(page.locator("#mode")).toHaveText("No selection");
+        await expect(page.locator(".review-hud-help")).toHaveText("? Help");
+      }
     } finally {
       await finishRep(page, running);
     }
@@ -81,12 +86,24 @@ test("@navigation keyboard units, boundaries, focus, and reload are authoritativ
       mode: "sentence",
       anchor: { node: 0, unit: "sentence", unitIndex: 0 },
     });
+    const hud = page.locator("#review-hud");
+    await expect(hud).toBeVisible();
+    await expect(hud.locator("#mode")).toHaveText("sentence", {
+      ignoreCase: true,
+    });
+    await expect(hud.locator(".review-hud-help")).toHaveText("? Help");
+    const hudBox = await hud.boundingBox();
+    const viewport = page.viewportSize();
+    expect(viewport.height - hudBox.y - hudBox.height).toBeLessThanOrEqual(14);
 
     await page.keyboard.press("Space");
     await expect.poll(() => browserState(page)).toMatchObject({
       revision: 2,
       mode: "word",
       anchor: { node: 0, unit: "word", unitIndex: 0 },
+    });
+    await expect(hud.locator("#mode")).toHaveText("word", {
+      ignoreCase: true,
     });
     await page.keyboard.press("j");
     await expect.poll(() => browserState(page)).toMatchObject({
@@ -112,6 +129,9 @@ test("@navigation keyboard units, boundaries, focus, and reload are authoritativ
     await expect.poll(() => browserState(page)).toMatchObject({
       revision: 8,
       anchor: { node: 1, unit: "section" },
+    });
+    await expect(hud.locator("#mode")).toHaveText("section", {
+      ignoreCase: true,
     });
 
     const beforeReload = await browserState(page);
@@ -264,6 +284,46 @@ test("@navigation mouse selection, logical lines, Unicode, and overlays remain a
       .locator("#second")
       .evaluate((element) => element.textContent);
     expect(selectedText).toContain("🚀");
+  } finally {
+    await finishRep(page, running);
+  }
+});
+
+test("@navigation selection overlay paints text runs without blank-space boxes", async ({
+  page,
+}) => {
+  const { frame, running } = await openPlan(page, "semantic.html");
+  try {
+    await page.keyboard.press("j");
+    await expect.poll(() => browserState(page)).toMatchObject({
+      mode: "sentence",
+      anchor: { node: 1, unit: "sentence" },
+    });
+    const geometry = await frame
+      .locator("[data-rep-overlay]")
+      .evaluate((host) => {
+        const markers = Array.from(
+          host.shadowRoot.querySelectorAll(".selection"),
+          (marker) => {
+            const rect = marker.getBoundingClientRect();
+            return {
+              left: rect.left,
+              right: rect.right,
+              width: rect.width,
+            };
+          },
+        );
+        const words = host.ownerDocument
+          .querySelector("#delivery")
+          .textContent.trim()
+          .split(/\s+/u);
+        return { markers, words };
+      });
+    expect(geometry.markers).toHaveLength(geometry.words.length);
+    expect(geometry.markers[0].right).toBeLessThan(
+      geometry.markers[1].left,
+    );
+    expect(geometry.markers.every((marker) => marker.width > 0)).toBe(true);
   } finally {
     await finishRep(page, running);
   }

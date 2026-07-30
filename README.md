@@ -62,8 +62,9 @@ rep --web --no-open plan.html
 
 Rep prints the authenticated loopback URL to stderr. Keep the foreground
 process running, open that exact URL, and submit or discard the review in the
-browser. `--debug` validates and describes an HTML launch without binding a
-server or opening a browser.
+browser. A compact HUD stays visible at the bottom of the review, showing the
+current selection mode and the `?` help shortcut. `--debug` validates and
+describes an HTML launch without binding a server or opening a browser.
 
 The built-in `rep --demo` remains Markdown/TUI-only. An HTML example lives at
 [`examples/demo-plan.html`](examples/demo-plan.html); the opt-in

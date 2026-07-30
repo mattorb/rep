@@ -47,6 +47,7 @@ body {
   border: 1px solid color-mix(in srgb, #6366f1 38%, transparent);
   border-radius: 999px;
   color: color-mix(in srgb, #6366f1 82%, CanvasText);
+  display: inline-flex;
   flex: none;
   font-size: .72rem;
   font-weight: 700;
@@ -194,6 +195,53 @@ iframe.empty {
 
 #interaction-layer:focus-visible {
   box-shadow: inset 0 0 0 2px color-mix(in srgb, #6366f1 70%, transparent);
+}
+
+.review-hud {
+  align-items: center;
+  backdrop-filter: blur(12px);
+  background: color-mix(in srgb, Canvas 88%, transparent);
+  border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
+  border-radius: 999px;
+  bottom: max(.8rem, env(safe-area-inset-bottom));
+  box-shadow: 0 .45rem 1.4rem color-mix(in srgb, #000 22%, transparent);
+  display: flex;
+  gap: .55rem;
+  left: 50%;
+  padding: .38rem .55rem;
+  pointer-events: none;
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  z-index: 2;
+}
+
+.review-hud-divider {
+  align-self: stretch;
+  background: color-mix(in srgb, CanvasText 18%, transparent);
+  width: 1px;
+}
+
+.review-hud-help {
+  align-items: center;
+  color: color-mix(in srgb, CanvasText 78%, transparent);
+  display: inline-flex;
+  font-size: .78rem;
+  font-weight: 650;
+  gap: .3rem;
+  padding-right: .15rem;
+}
+
+.review-hud-help kbd {
+  background: color-mix(in srgb, CanvasText 8%, Canvas);
+  border: 1px solid color-mix(in srgb, CanvasText 25%, transparent);
+  border-bottom-width: 2px;
+  border-radius: .3rem;
+  color: CanvasText;
+  font: 700 .74rem/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+  min-width: 1.35rem;
+  padding: .2rem .3rem;
+  text-align: center;
 }
 
 .completion {

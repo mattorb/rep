@@ -363,6 +363,47 @@ export function domRangeForSlice(model, start, end) {
   return range;
 }
 
+export function textRectsForSlice(model, start, end) {
+  if (!domRangeForSlice(model, start, end)) return [];
+  const rects = [];
+  let run = null;
+  const flush = () => {
+    if (!run) return;
+    const range = model.owner.ownerDocument.createRange();
+    range.setStart(run.node, run.start);
+    range.setEnd(run.node, run.end);
+    for (const rect of range.getClientRects()) {
+      if (rect.width > 0 && rect.height > 0) rects.push(rect);
+    }
+    run = null;
+  };
+  for (const character of model.characters.slice(start, end)) {
+    const textNode =
+      character.start.node?.nodeType === Node.TEXT_NODE &&
+      character.start.node === character.end.node;
+    if (!textNode || /\s/u.test(character.character)) {
+      flush();
+      continue;
+    }
+    if (
+      run &&
+      run.node === character.start.node &&
+      run.end === character.start.offset
+    ) {
+      run.end = character.end.offset;
+    } else {
+      flush();
+      run = {
+        node: character.start.node,
+        start: character.start.offset,
+        end: character.end.offset,
+      };
+    }
+  }
+  flush();
+  return rects;
+}
+
 function pointToScalar(model, domNode, offset) {
   for (let index = 0; index < model.characters.length; index += 1) {
     const character = model.characters[index];
@@ -562,10 +603,11 @@ export class SelectionOverlay {
   paintSlice(slice, className, badge = null) {
     const model = this.models[slice.node];
     if (!model) return;
-    const range = domRangeForSlice(model, slice.start, slice.end);
-    if (!range) return;
-    for (const [index, rect] of Array.from(range.getClientRects()).entries()) {
-      if (!rect.width && !rect.height) continue;
+    for (const [index, rect] of textRectsForSlice(
+      model,
+      slice.start,
+      slice.end,
+    ).entries()) {
       const marker = this.doc.createElement("div");
       marker.className = className;
       marker.style.left = `${rect.left}px`;

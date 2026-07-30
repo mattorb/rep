@@ -10,7 +10,6 @@
   <header class="toolbar">
     <div class="brand">rep</div>
     <div class="review-state">
-      <span class="mode" id="mode" hidden></span>
       <span class="status" id="status" role="status" aria-live="polite">Loading document…</span>
     </div>
     <div class="actions">
@@ -26,6 +25,11 @@
       aria-label="HTML plan review surface"
       tabindex="0"
     ></div>
+    <aside id="review-hud" class="review-hud" aria-label="Selection controls">
+      <span class="mode" id="mode" aria-live="polite">Loading</span>
+      <span class="review-hud-divider" aria-hidden="true"></span>
+      <span class="review-hud-help"><kbd>?</kbd> Help</span>
+    </aside>
   </main>
   <section id="completion" class="completion" hidden>
     <h1>Review complete</h1>
