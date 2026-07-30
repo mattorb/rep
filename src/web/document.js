@@ -329,6 +329,7 @@ export function extractDocument(doc) {
       },
     };
   });
+  assignSectionStarts(models, doc);
 
   return {
     manifest: {
@@ -337,6 +338,54 @@ export function extractDocument(doc) {
     },
     models,
   };
+}
+
+function assignSectionStarts(models, doc) {
+  const headings = models.filter(
+    (model) => model.manifest.headingLevel !== null,
+  );
+  const headingCounts = new WeakMap();
+  const firstModelIndexes = new WeakMap();
+  for (const heading of headings) {
+    for (
+      let container = heading.owner.parentElement;
+      container &&
+      container !== doc.body &&
+      container !== doc.documentElement;
+      container = container.parentElement
+    ) {
+      headingCounts.set(container, (headingCounts.get(container) || 0) + 1);
+    }
+  }
+  for (const model of models) {
+    for (
+      let container = model.owner;
+      container &&
+      container !== doc.body &&
+      container !== doc.documentElement;
+      container = container.parentElement
+    ) {
+      if (!firstModelIndexes.has(container)) {
+        firstModelIndexes.set(container, model.nodeIndex);
+      }
+    }
+  }
+  for (const heading of headings) {
+    let sectionStart = heading.nodeIndex;
+    if (heading.manifest.headingLevel > 1) {
+      for (
+        let container = heading.owner.parentElement;
+        container &&
+        container !== doc.body &&
+        container !== doc.documentElement;
+        container = container.parentElement
+      ) {
+        if (headingCounts.get(container) !== 1) break;
+        sectionStart = firstModelIndexes.get(container) ?? sectionStart;
+      }
+    }
+    heading.manifest.sectionStart = sectionStart;
+  }
 }
 
 export function domRangeForSlice(model, start, end) {

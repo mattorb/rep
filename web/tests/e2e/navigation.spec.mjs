@@ -62,6 +62,7 @@ for (const name of [
   "layout",
   "malformed",
   "security",
+  "section-cards",
   "semantic",
   "unicode",
   "visibility",
@@ -444,6 +445,52 @@ test("@navigation selection overlay paints one rounded focus region", async ({
     });
     expect(geometry.marker.background).not.toBe("rgba(0, 0, 0, 0)");
     expect(geometry.marker.boxShadow).not.toBe("none");
+  } finally {
+    await finishRep(page, running);
+  }
+});
+
+test("@navigation adjacent card sections keep their own lead-in badges", async ({
+  page,
+}) => {
+  const { frame, running } = await openPlan(page, "section-cards.html");
+  try {
+    const manifest = await page.evaluate(() => window.__repTest.manifest);
+    expect(
+      manifest.nodes
+        .filter((node) => node.headingLevel)
+        .map((node) => ({
+          sectionStart: node.sectionStart,
+          text: node.text,
+        })),
+    ).toEqual([
+      { sectionStart: 0, text: "Instrument" },
+      { sectionStart: 3, text: "Shadow" },
+    ]);
+    expect(await browserState(page)).toMatchObject({
+      mode: "section",
+      anchor: { node: 1, unit: "section" },
+      selection: [{ node: 0 }, { node: 1 }, { node: 2 }],
+    });
+
+    const geometry = await frame
+      .locator("[data-rep-overlay]")
+      .evaluate((host) => {
+        const marker = host.shadowRoot.querySelector(".selection");
+        const markerRect = marker.getBoundingClientRect();
+        const firstCard = host.ownerDocument.querySelector("#card-one");
+        const secondCard = host.ownerDocument.querySelector("#card-two");
+        const firstRect = firstCard.getBoundingClientRect();
+        const secondRect = secondCard.getBoundingClientRect();
+        return {
+          markerLeft: markerRect.left,
+          markerRight: markerRect.right,
+          firstLeft: firstRect.left,
+          secondLeft: secondRect.left,
+        };
+      });
+    expect(geometry.markerLeft).toBeGreaterThanOrEqual(geometry.firstLeft);
+    expect(geometry.markerRight).toBeLessThan(geometry.secondLeft);
   } finally {
     await finishRep(page, running);
   }

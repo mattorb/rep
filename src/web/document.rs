@@ -37,6 +37,8 @@ pub(crate) struct HtmlManifestNode {
     pub(crate) selector: String,
     pub(crate) text_fragment: Option<usize>,
     pub(crate) heading_level: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) section_start: Option<usize>,
     pub(crate) list_id: Option<usize>,
     pub(crate) top_level_ordered_list_item: bool,
     pub(crate) links: Vec<ManifestLink>,
@@ -100,6 +102,7 @@ impl HtmlReviewDocument {
                     sentence_ranges: segment_sentences(&node.text),
                     word_ranges: segment_words(&node.text),
                     heading_level: node.heading_level,
+                    section_start_node_idx: node.section_start,
                     list_id: node.list_id,
                     is_top_level_ordered_list_item: node.top_level_ordered_list_item,
                     has_content: !node.text.trim().is_empty(),
@@ -185,7 +188,7 @@ impl HtmlReviewDocument {
                 .sections
                 .iter()
                 .find(|section| {
-                    section.start_node_idx <= node_idx && node_idx <= section.end_node_idx
+                    section.selection_start_node_idx <= node_idx && node_idx <= section.end_node_idx
                 })
                 .map(|_| 0),
         }?;
@@ -307,13 +310,14 @@ impl ReviewDocument for HtmlReviewDocument {
     }
 
     fn section_span_for_start(&self, node_idx: usize) -> Range<usize> {
-        let end = self
-            .selection_index
+        self.selection_index
             .sections
             .iter()
             .find(|section| section.start_node_idx == node_idx)
-            .map_or_else(|| self.node_count(), |section| section.end_node_idx + 1);
-        node_idx..end
+            .map_or_else(
+                || node_idx..self.node_count(),
+                |section| section.selection_start_node_idx..section.end_node_idx + 1,
+            )
     }
 
     fn sentence_count_for_node(&self, node_idx: usize) -> usize {
@@ -482,6 +486,7 @@ fn validate_manifest(manifest: &HtmlManifest) -> Result<()> {
         bail!("manifest exceeds {MAX_MANIFEST_NODES} review nodes");
     }
     let mut source_ids = BTreeSet::new();
+    let mut previous_heading = None;
     for (index, node) in manifest.nodes.iter().enumerate() {
         if !source_ids.insert((node.source_id, node.text_fragment)) {
             bail!("manifest node {index} has a duplicate sourceId/textFragment pair");
@@ -521,6 +526,16 @@ fn validate_manifest(manifest: &HtmlManifest) -> Result<()> {
             .is_some_and(|level| !(1..=6).contains(&level))
         {
             bail!("manifest node {index} has an invalid headingLevel");
+        }
+        if let Some(section_start) = node.section_start
+            && (node.heading_level.is_none()
+                || section_start > index
+                || previous_heading.is_some_and(|previous| section_start <= previous))
+        {
+            bail!("manifest node {index} has an invalid sectionStart");
+        }
+        if node.heading_level.is_some() {
+            previous_heading = Some(index);
         }
         if node.top_level_ordered_list_item && node.list_id.is_none() {
             bail!("manifest node {index} top-level list item is missing listId");
@@ -611,6 +626,7 @@ mod tests {
             selector: "#plan".to_string(),
             text_fragment: None,
             heading_level: None,
+            section_start: None,
             list_id: None,
             top_level_ordered_list_item: false,
             links: Vec::new(),
@@ -690,6 +706,21 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("duplicate sourceId")
+        );
+
+        let mut non_heading_start = node("not a heading");
+        non_heading_start.section_start = Some(0);
+        assert!(
+            HtmlReviewDocument::from_manifest(
+                PathBuf::from("plan.html"),
+                HtmlManifest {
+                    version: 1,
+                    nodes: vec![non_heading_start]
+                }
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("sectionStart")
         );
     }
 

@@ -21,11 +21,13 @@ pub(crate) enum SectionKind {
     PreHeading,
 }
 
-/// A section spans a contiguous run of `node_idx` values. Both endpoints
-/// are inclusive; the contiguity invariant is asserted at index-build time.
+/// A section is navigated from `start_node_idx` and selects a contiguous run
+/// beginning at `selection_start_node_idx`. Both selection endpoints are
+/// inclusive; HTML can attach a visual lead-in immediately before a heading.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Section {
     pub start_node_idx: usize,
+    pub selection_start_node_idx: usize,
     pub end_node_idx: usize,
     pub kind: SectionKind,
 }
@@ -42,6 +44,7 @@ pub(crate) struct SelectionNodeInput {
     pub sentence_ranges: Vec<Range<usize>>,
     pub word_ranges: Vec<Range<usize>>,
     pub heading_level: Option<u8>,
+    pub section_start_node_idx: Option<usize>,
     pub list_id: Option<usize>,
     pub is_top_level_ordered_list_item: bool,
     pub has_content: bool,
@@ -133,7 +136,9 @@ impl SelectionIndex {
         debug_assert!(
             sections
                 .iter()
-                .all(|s| s.start_node_idx <= s.end_node_idx && s.end_node_idx < inputs.len()),
+                .all(|s| s.selection_start_node_idx <= s.start_node_idx
+                    && s.start_node_idx <= s.end_node_idx
+                    && s.end_node_idx < inputs.len()),
             "section endpoints out of range"
         );
 
@@ -194,6 +199,7 @@ fn markdown_node_input(node: &DocNode, source_lines: &[String]) -> SelectionNode
         sentence_ranges,
         word_ranges,
         heading_level,
+        section_start_node_idx: None,
         list_id,
         is_top_level_ordered_list_item,
     }
@@ -457,26 +463,33 @@ fn build_section_table(inputs: &[SelectionNodeInput]) -> Vec<Section> {
         return sections;
     }
 
-    // Carry the heading level alongside each starter so end_node_idx can
-    // later be computed using "next equal-or-shallower heading" per
-    // modular_plan §"Section unit". OL starters use level u8::MAX (no
-    // heading-nesting interaction; OL section ends at next heading or
-    // end of doc). PreHeading uses level 0 conceptually but never plays
-    // into the close-out logic since it's emitted separately below.
-    let mut starters: Vec<(usize, SectionKind, u8)> = Vec::new();
+    // Carry both the navigation anchor and visual selection start alongside
+    // each starter. HTML headings can own a lead-in immediately before the
+    // heading (for example a card badge); Markdown keeps both indexes equal.
+    // OL starters use level u8::MAX (no heading-nesting interaction; OL
+    // section ends at the next heading or end of doc).
+    let mut starters: Vec<(usize, usize, SectionKind, u8)> = Vec::new();
     let mut seen_heading = false;
     let mut current_top_ol_list_id: Option<usize> = None;
+    let mut previous_heading = None;
     for (i, input) in inputs.iter().enumerate() {
         if let Some(level) = input.heading_level {
-            starters.push((i, SectionKind::Heading, level));
+            let selection_start = input
+                .section_start_node_idx
+                .filter(|start| {
+                    *start <= i && previous_heading.is_none_or(|previous| *start > previous)
+                })
+                .unwrap_or(i);
+            starters.push((i, selection_start, SectionKind::Heading, level));
             seen_heading = true;
             current_top_ol_list_id = None;
+            previous_heading = Some(i);
         } else if input.is_top_level_ordered_list_item {
             let list_id = input
                 .list_id
                 .expect("top-level ordered list item must carry a list id");
             if !seen_heading && current_top_ol_list_id != Some(list_id) {
-                starters.push((i, SectionKind::Ol, u8::MAX));
+                starters.push((i, i, SectionKind::Ol, u8::MAX));
                 current_top_ol_list_id = Some(list_id);
             }
         } else if input.list_id == current_top_ol_list_id {
@@ -493,7 +506,7 @@ fn build_section_table(inputs: &[SelectionNodeInput]) -> Vec<Section> {
     // first_starter > 0 is true but no real sections follow); skip
     // emitting a PreHeading in that case so prose-only docs end up with
     // an empty section table.
-    let first_starter = starters.first().map_or(n, |(i, _, _)| *i);
+    let first_starter = starters.first().map_or(n, |(_, start, _, _)| *start);
     let pre_has_content = inputs[..first_starter]
         .iter()
         .any(|input| input.has_content && !input.plain_text.is_empty());
@@ -501,12 +514,13 @@ fn build_section_table(inputs: &[SelectionNodeInput]) -> Vec<Section> {
     if first_starter > 0 && pre_has_content && has_real_starters {
         sections.push(Section {
             start_node_idx: 0,
+            selection_start_node_idx: 0,
             end_node_idx: first_starter - 1,
             kind: SectionKind::PreHeading,
         });
     }
 
-    for (i, &(start, kind, level)) in starters.iter().enumerate() {
+    for (i, &(anchor, selection_start, kind, level)) in starters.iter().enumerate() {
         // A heading at level L ends at the NEXT starter at level <= L,
         // so subordinate (deeper) headings don't close the parent's
         // section span. OL starters and (conceptually) PreHeading use
@@ -514,11 +528,12 @@ fn build_section_table(inputs: &[SelectionNodeInput]) -> Vec<Section> {
         let next_start = starters
             .iter()
             .skip(i + 1)
-            .find(|(_, _, l)| *l <= level)
-            .map_or(n, |(j, _, _)| *j);
+            .find(|(_, _, _, candidate_level)| *candidate_level <= level)
+            .map_or(n, |(_, start, _, _)| *start);
         let end = next_start - 1;
         sections.push(Section {
-            start_node_idx: start,
+            start_node_idx: anchor,
+            selection_start_node_idx: selection_start,
             end_node_idx: end,
             kind,
         });
@@ -549,6 +564,7 @@ mod tests {
             sentence_ranges,
             word_ranges,
             heading_level,
+            section_start_node_idx: None,
             list_id: None,
             is_top_level_ordered_list_item: false,
             has_content: !text.is_empty(),
@@ -599,6 +615,30 @@ mod tests {
         assert_eq!(idx.sections[2].start_node_idx, 3);
         assert_eq!(idx.sections[2].end_node_idx, 4);
         assert_eq!(idx.sections[3].start_node_idx, 5);
+    }
+
+    #[test]
+    fn section_leads_move_out_of_the_previous_peer_section() {
+        let mut first_heading = neutral_node("Instrument", Some(2), 1);
+        first_heading.section_start_node_idx = Some(0);
+        let mut second_heading = neutral_node("Shadow", Some(2), 4);
+        second_heading.section_start_node_idx = Some(3);
+        let idx = SelectionIndex::from_nodes(vec![
+            neutral_node("Phase 1", None, 0),
+            first_heading,
+            neutral_node("First body.", None, 2),
+            neutral_node("Phase 2", None, 3),
+            second_heading,
+            neutral_node("Second body.", None, 5),
+        ]);
+
+        assert_eq!(idx.sections.len(), 2);
+        assert_eq!(idx.sections[0].start_node_idx, 1);
+        assert_eq!(idx.sections[0].selection_start_node_idx, 0);
+        assert_eq!(idx.sections[0].end_node_idx, 2);
+        assert_eq!(idx.sections[1].start_node_idx, 4);
+        assert_eq!(idx.sections[1].selection_start_node_idx, 3);
+        assert_eq!(idx.sections[1].end_node_idx, 5);
     }
 
     #[test]

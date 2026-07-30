@@ -150,10 +150,9 @@ fn clamp_within_node(
     target: SelectionUnit,
 ) -> Option<SelectionAnchor> {
     if target == SelectionUnit::Section {
-        let section = index
-            .sections
-            .iter()
-            .find(|s| s.start_node_idx <= anchor.node_idx && anchor.node_idx <= s.end_node_idx)?;
+        let section = index.sections.iter().find(|s| {
+            s.selection_start_node_idx <= anchor.node_idx && anchor.node_idx <= s.end_node_idx
+        })?;
         return Some(SelectionAnchor::new(
             section.start_node_idx,
             SelectionUnit::Section,

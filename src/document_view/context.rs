@@ -182,7 +182,7 @@ impl DocumentView {
             .iter()
             .find(|s| s.start_node_idx == node_idx)?;
         let mut parts: Vec<String> = Vec::new();
-        for i in section.start_node_idx..=section.end_node_idx {
+        for i in section.selection_start_node_idx..=section.end_node_idx {
             if let Some(n) = self.selection_index.nodes.get(i)
                 && !n.selection_plain_text.is_empty()
             {

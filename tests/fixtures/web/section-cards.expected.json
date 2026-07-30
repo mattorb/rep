@@ -1,0 +1,12 @@
+{
+  "purpose": "lead-in badges stay inside adjacent card sections",
+  "visible_text": [
+    "Phase 1",
+    "Instrument",
+    "Record authoritative payment and cart transitions.",
+    "Phase 2",
+    "Shadow",
+    "Compare recovery decisions against manual triage."
+  ],
+  "section_headings": ["Instrument", "Shadow"]
+}

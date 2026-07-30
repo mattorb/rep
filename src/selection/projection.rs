@@ -69,7 +69,9 @@ pub fn highlight_for(anchor: SelectionAnchor, index: &SelectionIndex) -> Highlig
                 .sections
                 .iter()
                 .find(|s| s.start_node_idx == anchor.node_idx)
-                .map_or_else(Vec::new, |s| (s.start_node_idx..=s.end_node_idx).collect());
+                .map_or_else(Vec::new, |s| {
+                    (s.selection_start_node_idx..=s.end_node_idx).collect()
+                });
             Highlight::Section(nodes)
         }
     }

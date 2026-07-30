@@ -956,6 +956,7 @@ mod tests {
                     selector: format!("body > :nth-child({})", index + 1),
                     text_fragment: None,
                     heading_level: (index == 0).then_some(1),
+                    section_start: (index == 0).then_some(0),
                     list_id: None,
                     top_level_ordered_list_item: false,
                     links: Vec::new(),

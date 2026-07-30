@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Section Cards</title>
+  <style>
+    body {
+      margin: 2rem;
+      font-family: system-ui, sans-serif;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 2rem;
+    }
+    article {
+      min-height: 14rem;
+      padding: 1.5rem;
+      border: 1px solid #c7d2fe;
+      border-radius: 1rem;
+    }
+    .badge {
+      display: inline-block;
+      margin-bottom: 1rem;
+      color: #4338ca;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <div class="cards">
+    <article id="card-one">
+      <span class="badge" id="phase-one">Phase 1</span>
+      <h2 id="heading-one">Instrument</h2>
+      <p id="body-one">Record authoritative payment and cart transitions.</p>
+    </article>
+    <article id="card-two">
+      <span class="badge" id="phase-two">Phase 2</span>
+      <h2 id="heading-two">Shadow</h2>
+      <p id="body-two">Compare recovery decisions against manual triage.</p>
+    </article>
+  </div>
+</body>
+</html>
