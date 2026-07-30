@@ -416,7 +416,7 @@ media_cmd=(
   -y \
   -i "$mp4_tmp" \
   -filter_complex \
-  "[0:v]fps=10,scale=960:-2:flags=lanczos,split[gif_a][gif_b];[gif_a]palettegen=max_colors=160:stats_mode=diff[palette];[gif_b][palette]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" \
+  "[0:v]fps=10,scale=960:-2:flags=lanczos,split[gif_a][gif_b];[gif_a]palettegen=max_colors=128:stats_mode=diff[palette];[gif_b][palette]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" \
   -loop 0 \
   "$gif_tmp"
 

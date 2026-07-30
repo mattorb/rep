@@ -198,6 +198,7 @@ test("Claude HTML demo swaps a deterministic plan and hides before cleanup", () 
 
 test("Claude HTML demo losslessly optimizes the generated GIF", () => {
   assert.match(recorderScript, /GIFSICLE_VERSION="1\.96"/);
+  assert.match(recorderScript, /palettegen=max_colors=128:stats_mode=diff/);
   assert.match(
     recorderScript,
     /gifsicle -O3 "\$gif_tmp" -o "\$gif_optimized_tmp"/,
