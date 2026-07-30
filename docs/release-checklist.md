@@ -48,8 +48,9 @@ Linux. Chromium is covered by the automated gate.
       without changing the plan DOM layout.
 - [ ] Confirm the full-width bottom statusline remains pinned and legible, that
       its mode block names the active selection unit and changes colour with it,
-      and that the segments wrap without horizontal overflow at narrow viewport
-      widths.
+      that narrowing the window wraps the usage keys while `q` and `?` hold the
+      right edge, and that the legend becomes a two-column grid rather than
+      running off the edge at phone widths.
 - [ ] Confirm the active selection fill, border, halo, and leading focus bar
       remain legible over both light and dark plan colors, while annotation
       patterns and badges remain distinguishable.

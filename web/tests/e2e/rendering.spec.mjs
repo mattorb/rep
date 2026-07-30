@@ -53,33 +53,40 @@ test("@rendering blocks document code and unsafe resources without rewriting sou
   expect(await readFile(fixture("security.html"), "utf8")).toBe(original);
 });
 
-test("@rendering demo viewport keeps the statusline legend contained", async ({
+test("@rendering constrained widths wrap the usage keys and keep the session keys right", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1120, height: 620 });
   const { running } = await openPlan(page, "layout.html");
   try {
     const hud = page.locator("#review-hud");
-    const modeBox = await hud.locator("#mode").boundingBox();
-    const commandBoxes = await hud
-      .locator(".review-hud-command")
-      .evaluateAll((commands) =>
+    const hudBox = await hud.boundingBox();
+    const modeBox = await hud.locator(".review-hud-mode").boundingBox();
+    const boxes = (selector) =>
+      hud.locator(selector).evaluateAll((commands) =>
         commands.map((command) => {
           const box = command.getBoundingClientRect();
-          return { bottom: box.bottom, top: box.top };
+          return { right: box.right, top: box.top };
         }),
       );
-    expect(commandBoxes).toHaveLength(7);
-    const commandRows = new Set(
-      commandBoxes.map((box) => Math.round(box.top)),
-    );
-    expect(commandRows.size).toBeLessThanOrEqual(2);
-    expect(
-      Math.abs(
-        (commandBoxes[0].top + commandBoxes[0].bottom) / 2 -
-          (modeBox.y + modeBox.height / 2),
-      ),
-    ).toBeLessThanOrEqual(1);
+    const usage = await boxes(".review-hud-commands .review-hud-command");
+    const session = await boxes(".review-hud-session .review-hud-command");
+    expect(usage).toHaveLength(5);
+    expect(session).toHaveLength(2);
+
+    // The usage keys are the ones that give way, over at most two rows.
+    const usageRows = new Set(usage.map((box) => Math.round(box.top)));
+    expect(usageRows.size).toBe(2);
+
+    // The session keys hold the first row and the right edge.
+    for (const box of session) {
+      expect(Math.round(box.top)).toBe(Math.round(usage[0].top));
+    }
+    expect(hudBox.x + hudBox.width - session[1].right).toBeLessThanOrEqual(1);
+
+    // The mode block spans every row the legend needs.
+    expect(Math.abs(modeBox.height - hudBox.height)).toBeLessThanOrEqual(1);
+
     expect(
       await page.evaluate(
         () =>

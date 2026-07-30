@@ -205,7 +205,6 @@ iframe.empty {
   border-top: 1px solid color-mix(in srgb, CanvasText 22%, transparent);
   bottom: 0;
   display: flex;
-  flex-wrap: wrap;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   left: 0;
   padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -245,8 +244,18 @@ iframe.empty {
   font: inherit;
 }
 
+/* The bar itself never wraps, so the session keys keep the right edge at every
+   width; the usage keys wrap inside their own group instead. */
 .review-hud-commands {
-  display: contents;
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+}
+
+.review-hud-session {
+  align-items: flex-start;
+  display: flex;
+  flex: none;
 }
 
 .review-hud-command {
@@ -282,10 +291,6 @@ iframe.empty {
 .review-hud-label {
   color: color-mix(in srgb, CanvasText 72%, transparent);
   font-size: .85rem;
-}
-
-.review-hud-spacer {
-  flex: 1 1 2rem;
 }
 
 .completion {
@@ -338,7 +343,9 @@ body.finished .completion:not([hidden]) {
   display: grid;
 }
 
-@media (max-width: 38rem) {
+/* Below this the statusline needs more rows than it is worth and the session
+   keys start running off the clipped edge, so the legend becomes a grid. */
+@media (max-width: 48rem) {
   .review-hud {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -348,6 +355,11 @@ body.finished .completion:not([hidden]) {
     clip-path: none;
     grid-column: 1 / -1;
     justify-content: center;
+  }
+
+  .review-hud-commands,
+  .review-hud-session {
+    display: contents;
   }
 
   .review-hud-command {
@@ -361,9 +373,5 @@ body.finished .completion:not([hidden]) {
 
   .review-hud-label {
     font-size: .78rem;
-  }
-
-  .review-hud-spacer {
-    display: none;
   }
 }
