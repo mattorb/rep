@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/unit/*.test.mjs",
+    "test": "node --test --experimental-test-coverage --test-coverage-include='../src/web/*.js' --test-coverage-lines=95 --test-coverage-branches=90 --test-coverage-functions=95 tests/unit/*.test.mjs",
     "test:e2e": "playwright test",
     "gallery": "playwright test --grep @gallery && node tests/build-gallery.mjs"
   },

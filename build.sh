@@ -16,8 +16,16 @@ Validation:
   - cargo test --locked
   - cargo llvm-cov with an 80% line coverage threshold when installed,
     otherwise a coverage skip notice; CI=true requires cargo-llvm-cov
-  - npm --prefix web test when web dependencies are installed;
-    CI=true requires installed web dependencies
+  - npm --prefix web test, which enforces line, branch, and function
+    coverage thresholds over src/web/*.js, when web dependencies are
+    installed; CI=true requires installed web dependencies
+  - npm --prefix web run test:e2e (minus the @gallery screenshot captures,
+    which overwrite tracked files) when the Playwright browser is also
+    installed, otherwise a browser-test skip notice. The dedicated CI
+    browser job runs the full suite, so CI=true does not require it here.
+
+Environment:
+  REP_SKIP_E2E=1  Skip the browser tests even when they could run.
 
 Examples:
   ./build.sh
@@ -64,8 +72,39 @@ run_cmd cargo fmt --check
 run_cmd cargo clippy --all-targets -- -D warnings
 run_cmd cargo test --locked
 
+# The Playwright browser is a separate download from the npm dependencies, so
+# check for the executable rather than assuming node_modules implies it.
+chromium_installed() {
+  (
+    cd "$ROOT_DIR/web"
+    run_cmd node -e '
+      const { existsSync } = require("node:fs");
+      const { chromium } = require("@playwright/test");
+      process.exit(existsSync(chromium.executablePath()) ? 0 : 1);
+    '
+  ) >/dev/null 2>&1
+}
+
+web_deps=false
 if [[ -d "$ROOT_DIR/web/node_modules" ]]; then
+  web_deps=true
+fi
+
+if [[ "$web_deps" == true ]]; then
   run_cmd npm --prefix web test
+
+  # The browser tests carry most of the HTML frontend's coverage, so run them
+  # locally whenever they can run rather than leaving them to CI alone. The
+  # @gallery captures are excluded because they overwrite tracked screenshots;
+  # the CI browser job runs the full suite and refreshes those.
+  if [[ "${REP_SKIP_E2E:-}" == "1" ]]; then
+    printf 'Browser tests skipped: REP_SKIP_E2E=1.\n'
+  elif chromium_installed; then
+    run_cmd cargo build --locked
+    run_cmd npm --prefix web run test:e2e -- --grep-invert @gallery
+  else
+    printf 'Browser tests skipped: run npm --prefix web exec -- playwright install chromium.\n'
+  fi
 elif [[ "${CI:-}" == "true" ]]; then
   printf 'Web tests required: run npm --prefix web ci before ./build.sh.\n' >&2
   exit 1
