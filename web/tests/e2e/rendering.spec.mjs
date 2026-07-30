@@ -53,7 +53,7 @@ test("@rendering blocks document code and unsafe resources without rewriting sou
   expect(await readFile(fixture("security.html"), "utf8")).toBe(original);
 });
 
-test("@rendering demo viewport keeps the command legend in two contained rows", async ({
+test("@rendering demo viewport keeps the statusline legend contained", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1120, height: 620 });
@@ -69,11 +69,11 @@ test("@rendering demo viewport keeps the command legend in two contained rows", 
           return { bottom: box.bottom, top: box.top };
         }),
       );
-    expect(commandBoxes).toHaveLength(8);
+    expect(commandBoxes).toHaveLength(7);
     const commandRows = new Set(
       commandBoxes.map((box) => Math.round(box.top)),
     );
-    expect(commandRows.size).toBe(2);
+    expect(commandRows.size).toBeLessThanOrEqual(2);
     expect(
       Math.abs(
         (commandBoxes[0].top + commandBoxes[0].bottom) / 2 -

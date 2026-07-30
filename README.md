@@ -63,9 +63,11 @@ rep --web --no-open plan.html
 Rep prints the authenticated loopback URL to stderr. Keep the foreground
 process running, open that exact URL, and press `q` then confirm to send the
 review, or press `Q` to discard it silently. The page acknowledges the handoff
-and attempts to close itself. A large, full-width HUD stays visible at the
-bottom of the review, labels the current `Mode:`, and shows `Spacebar` to
-change mode alongside the `q` completion and `?` help shortcuts. One tinted,
+and attempts to close itself. A full-width statusline stays visible at the
+bottom of the review: a solid mode block, tinted per selection unit, names the
+current mode and carries the `Spacebar` cycle hint, and monospace segments to
+its right list every binding including the `q` completion and `?` help
+shortcuts. One tinted,
 rounded focus region encloses the current selection while the rest of the plan
 is dimmed. `--debug` validates and describes an HTML launch without binding a
 server or opening a browser.

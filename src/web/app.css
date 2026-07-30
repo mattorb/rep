@@ -43,18 +43,20 @@ body {
 }
 
 .mode {
-  background: color-mix(in srgb, #6366f1 15%, Canvas);
-  border: 1px solid color-mix(in srgb, #6366f1 38%, transparent);
-  border-radius: 999px;
-  color: color-mix(in srgb, #6366f1 82%, CanvasText);
-  display: inline-flex;
-  flex: none;
-  font-size: 1.44rem;
+  font-size: 1rem;
   font-weight: 700;
-  letter-spacing: .04em;
+  letter-spacing: .08em;
   line-height: 1.2;
-  padding: .36rem .9rem;
   text-transform: uppercase;
+}
+
+.visually-hidden {
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
 }
 
 .status {
@@ -196,25 +198,51 @@ iframe.empty {
 }
 
 .review-hud {
-  align-items: center;
+  --mode-color: #57534e;
+  align-items: stretch;
   backdrop-filter: blur(16px);
   background: color-mix(in srgb, Canvas 94%, transparent);
-  border-top: 2px solid color-mix(in srgb, CanvasText 24%, transparent);
+  border-top: 1px solid color-mix(in srgb, CanvasText 22%, transparent);
   bottom: 0;
-  box-shadow: 0 -.45rem 1.4rem color-mix(in srgb, #000 22%, transparent);
-  display: grid;
-  gap: clamp(.55rem, 1vw, 1rem);
-  grid-template-columns: repeat(5, max-content);
-  justify-content: center;
+  display: flex;
+  flex-wrap: wrap;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   left: 0;
-  padding: .65rem max(.65rem, env(safe-area-inset-right, 0px))
-    max(.65rem, env(safe-area-inset-bottom, 0px))
-    max(.65rem, env(safe-area-inset-left, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   pointer-events: none;
   position: absolute;
   right: 0;
   white-space: nowrap;
   z-index: 2;
+}
+
+.review-hud[data-mode="section"] { --mode-color: #4f46e5; }
+.review-hud[data-mode="paragraph"] { --mode-color: #0f766e; }
+.review-hud[data-mode="line"] { --mode-color: #b45309; }
+.review-hud[data-mode="sentence"] { --mode-color: #be123c; }
+.review-hud[data-mode="word"] { --mode-color: #6d28d9; }
+
+.review-hud-mode {
+  align-items: center;
+  background: var(--mode-color);
+  clip-path: polygon(0 0, calc(100% - .7rem) 0, 100% 50%, calc(100% - .7rem) 100%, 0 100%);
+  color: #fff;
+  display: flex;
+  flex: none;
+  gap: .5rem;
+  padding: .5rem 1.4rem .5rem .85rem;
+}
+
+.review-hud-cycle {
+  background: rgb(255 255 255 / 22%);
+  border-radius: .3rem;
+  font-size: .7rem;
+  letter-spacing: .04em;
+  padding: .2rem .35rem;
+}
+
+.review-hud-cycle kbd {
+  font: inherit;
 }
 
 .review-hud-commands {
@@ -223,24 +251,41 @@ iframe.empty {
 
 .review-hud-command {
   align-items: center;
-  color: color-mix(in srgb, CanvasText 78%, transparent);
+  color: color-mix(in srgb, #6366f1 82%, CanvasText);
   display: inline-flex;
-  font-size: clamp(.88rem, 1.45vw, 1.15rem);
-  font-weight: 650;
-  gap: .2rem;
+  gap: .35rem;
   line-height: 1.2;
+  padding: .5rem .7rem;
+  position: relative;
 }
 
-.review-hud-command kbd {
-  background: color-mix(in srgb, CanvasText 8%, Canvas);
-  border: 1px solid color-mix(in srgb, CanvasText 25%, transparent);
-  border-bottom-width: 2px;
-  border-radius: .35rem;
+.review-hud-command.is-session {
   color: CanvasText;
-  font: 700 1em/1 ui-monospace, SFMono-Regular, Consolas, monospace;
-  min-width: 1.65rem;
-  padding: .22rem .3rem;
-  text-align: center;
+}
+
+.review-hud-command + .review-hud-command::before {
+  color: color-mix(in srgb, CanvasText 32%, transparent);
+  content: "│";
+  left: -.15rem;
+  position: absolute;
+}
+
+.review-hud-keys {
+  font-size: .92rem;
+  font-weight: 700;
+}
+
+.review-hud-keys kbd {
+  font: inherit;
+}
+
+.review-hud-label {
+  color: color-mix(in srgb, CanvasText 72%, transparent);
+  font-size: .85rem;
+}
+
+.review-hud-spacer {
+  flex: 1 1 2rem;
 }
 
 .completion {
@@ -295,23 +340,30 @@ body.finished .completion:not([hidden]) {
 
 @media (max-width: 38rem) {
   .review-hud {
-    gap: .55rem;
+    display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    padding-inline: .75rem;
   }
 
-  .review-hud .mode {
+  .review-hud-mode {
+    clip-path: none;
     grid-column: 1 / -1;
     justify-content: center;
   }
 
-  .review-hud-commands {
-    display: contents;
-  }
-
   .review-hud-command {
-    font-size: .86rem;
+    padding: .35rem .55rem;
     white-space: normal;
   }
 
+  .review-hud-command + .review-hud-command::before {
+    content: none;
+  }
+
+  .review-hud-label {
+    font-size: .78rem;
+  }
+
+  .review-hud-spacer {
+    display: none;
+  }
 }

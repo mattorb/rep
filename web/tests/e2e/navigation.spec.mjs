@@ -122,27 +122,36 @@ test("@navigation keyboard units, boundaries, focus, and reload are authoritativ
       anchor: { node: 0, unit: "section", unitIndex: 0 },
     });
     const hud = page.locator("#review-hud");
+    const modeBlockColor = () =>
+      hud
+        .locator(".review-hud-mode")
+        .evaluate((element) => getComputedStyle(element).backgroundColor);
     await expect(hud).toBeVisible();
     await expect(hud.locator("#mode")).toHaveText("Mode: section", {
       ignoreCase: true,
     });
+    await expect(hud).toHaveAttribute("data-mode", "section");
+    const sectionColor = await modeBlockColor();
     await expectSelectionSpotlight(frame);
+    await expect(hud.locator(".review-hud-cycle")).toHaveText("Spacebar cycles");
     await expect(hud.locator(".review-hud-command")).toHaveText([
-      "Spacebar = change mode",
-      "j/k = next/prev",
-      "x = strike",
-      "c = change literal",
-      "f = feedback intent",
-      "b/a = insert before/after",
-      "q = submit & quit",
-      "? = help",
+      "j/k next · prev",
+      "x strike",
+      "c change literal",
+      "f feedback intent",
+      "b/a insert before · after",
+      "q submit & quit",
+      "? help",
     ]);
     const hudBox = await hud.boundingBox();
     const viewport = page.viewportSize();
     const hudTypography = await hud.evaluate((element) => ({
       borderRadius: getComputedStyle(element).borderRadius,
-      commandFontSize: getComputedStyle(
-        element.querySelector(".review-hud-command"),
+      keyFontSize: getComputedStyle(
+        element.querySelector(".review-hud-keys"),
+      ).fontSize,
+      labelFontSize: getComputedStyle(
+        element.querySelector(".review-hud-label"),
       ).fontSize,
       modeFontSize: getComputedStyle(element.querySelector("#mode")).fontSize,
     }));
@@ -153,11 +162,14 @@ test("@navigation keyboard units, boundaries, focus, and reload are authoritativ
     ).toBeLessThanOrEqual(1);
     expect(hudTypography.borderRadius).toBe("0px");
     expect(Number.parseFloat(hudTypography.modeFontSize)).toBeGreaterThanOrEqual(
-      23,
+      16,
+    );
+    expect(Number.parseFloat(hudTypography.keyFontSize)).toBeGreaterThanOrEqual(
+      14,
     );
     expect(
-      Number.parseFloat(hudTypography.commandFontSize),
-    ).toBeGreaterThanOrEqual(16);
+      Number.parseFloat(hudTypography.labelFontSize),
+    ).toBeGreaterThanOrEqual(13);
 
     await page.keyboard.press("j");
     await expect.poll(() => browserState(page)).toMatchObject({
@@ -173,6 +185,8 @@ test("@navigation keyboard units, boundaries, focus, and reload are authoritativ
     await expect(hud.locator("#mode")).toHaveText("Mode: paragraph", {
       ignoreCase: true,
     });
+    await expect(hud).toHaveAttribute("data-mode", "paragraph");
+    expect(await modeBlockColor()).not.toBe(sectionColor);
     await expectSelectionSpotlight(frame);
     await page.keyboard.press("Space");
     await expect.poll(() => browserState(page)).toMatchObject({

@@ -6,7 +6,8 @@ import {
 
 const root = new URL(".", window.location.href);
 const status = document.querySelector("#status");
-const mode = document.querySelector("#mode");
+const hud = document.querySelector("#review-hud");
+const modeName = document.querySelector("#mode-name");
 const frame = document.querySelector("#plan");
 const interactionLayer = document.querySelector("#interaction-layer");
 const completion = document.querySelector("#completion");
@@ -91,9 +92,9 @@ function renderState(next, scroll = true) {
   state = next;
   const empty = next.status === "empty";
   frame.classList.toggle("empty", empty);
-  mode.textContent = `Mode: ${
-    next.mode || (empty ? "No selection" : "Loading")
-  }`;
+  const unit = next.mode || (empty ? "No selection" : "Loading");
+  modeName.textContent = unit;
+  hud.dataset.mode = unit;
   setStatus(readyStatus(next));
   overlay?.paint(
     next.selection || [],

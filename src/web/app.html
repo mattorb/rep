@@ -22,16 +22,19 @@
       tabindex="0"
     ></div>
     <aside id="review-hud" class="review-hud" aria-label="Selection controls">
-      <span class="mode" id="mode" aria-live="polite">Mode: Loading</span>
+      <span class="review-hud-mode">
+        <span class="mode" id="mode" aria-live="polite"><span class="visually-hidden">Mode: </span><span id="mode-name">Loading</span></span>
+        <span class="review-hud-cycle"><kbd>Spacebar</kbd> cycles</span>
+      </span>
       <span class="review-hud-commands">
-        <span class="review-hud-command"><kbd>Spacebar</kbd> = change mode</span>
-        <span class="review-hud-command"><kbd>j</kbd>/<kbd>k</kbd> = next/prev</span>
-        <span class="review-hud-command"><kbd>x</kbd> = strike</span>
-        <span class="review-hud-command"><kbd>c</kbd> = change literal</span>
-        <span class="review-hud-command"><kbd>f</kbd> = feedback intent</span>
-        <span class="review-hud-command"><kbd>b</kbd>/<kbd>a</kbd> = insert before/after</span>
-        <span class="review-hud-command"><kbd>q</kbd> = submit &amp; quit</span>
-        <span class="review-hud-command"><kbd>?</kbd> = help</span>
+        <span class="review-hud-command"><span class="review-hud-keys"><kbd>j</kbd>/<kbd>k</kbd></span> <span class="review-hud-label">next · prev</span></span>
+        <span class="review-hud-command"><span class="review-hud-keys"><kbd>x</kbd></span> <span class="review-hud-label">strike</span></span>
+        <span class="review-hud-command"><span class="review-hud-keys"><kbd>c</kbd></span> <span class="review-hud-label">change literal</span></span>
+        <span class="review-hud-command"><span class="review-hud-keys"><kbd>f</kbd></span> <span class="review-hud-label">feedback intent</span></span>
+        <span class="review-hud-command"><span class="review-hud-keys"><kbd>b</kbd>/<kbd>a</kbd></span> <span class="review-hud-label">insert before · after</span></span>
+        <span class="review-hud-spacer" aria-hidden="true"></span>
+        <span class="review-hud-command is-session"><span class="review-hud-keys"><kbd>q</kbd></span> <span class="review-hud-label">submit &amp; quit</span></span>
+        <span class="review-hud-command is-session"><span class="review-hud-keys"><kbd>?</kbd></span> <span class="review-hud-label">help</span></span>
       </span>
     </aside>
   </main>
