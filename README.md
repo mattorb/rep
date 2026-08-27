@@ -3,166 +3,51 @@
 
 # Rep
 
-Rep is a human-in-the-loop plan reviewer with two deliberately separate
-frontends:
+A human in the loop TUI to review and revise LLM generated markdown plan files quickly.
 
-- Markdown plans use the existing terminal UI.
-- HTML plans use a foreground local web server and your browser, preserving
-  the plan's original static layout and CSS.
+![Rep CLI demo](docs/rep-cli-demo.gif)
 
-Both frontends produce the same human-readable action protocol for an agent to
-apply to the source plan.
+For agent-loop usage, wrap your agent harness in a tmux session so the skill can launch the rep UI modally.
 
-![Rep Markdown TUI demo](docs/rep-cli-demo.gif)
+![Rep Claude skill demo](docs/rep-claude-skill-demo.gif)
 
-The generated HTML review gallery is available at
-[web/gallery/index.html](web/gallery/index.html).
+## Overview
+
+`rep` opens a markdown file in an interactive TUI optimized for providing feedback and requesting changes from an LLM.
+
+When you exit `rep`, it prints a list of [requested changes](#emitted-annotations-example) for an AI agent to process and apply to the markdown plan. These changes can be a mix of deletions, additions, changes, and intent guidance.
+
+For the most seamless experience, launch Codex or Claude Code *inside a tmux session*, which allows rep to launch as modal from a skill and automatically pass the revisions you ask it for back into the agentic loop.
 
 ## Installation
-
-Install the latest macOS or Linux release to `~/.local/bin`, and the bundled
-agent skill source to `~/.agents/skills/rep`:
+Install the latest macOS or Linux release to `~/.local/bin`, and the bundled agent skill source to `~/.agents/skills/rep`, with this command:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mattorb/rep/main/install.sh | sh
 ```
 
-The installer can symlink the skill into supported Claude, Codex, Gemini,
-opencode, Hermes, and Droid skill directories. To update only the skill:
+After installing the skill source, the installer offers to symlink it into the supported agent skill directories for Claude, Codex, Gemini, opencode, Hermes, and Droid. The prompt works with the `curl | sh` form when an interactive terminal is available.
+
+To install or update only the skill source and optional agent symlinks later:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mattorb/rep/main/install.sh | sh -s -- --skills-only
 ```
 
-Node is needed only for repository web tests, never to install or run a Rep
-release.
+This source install path installs the `rep` binary only.
 
 ## Usage
 
-Use `/rep` in Claude Code or `$rep` in Codex for the complete review-and-apply
-loop. The bundled skill selects the frontend from the plan extension and waits
-for the fresh review result.
+### Preferred
+Use the rep skill to launch in the agentic loop: `/rep` in Claude Code or `$rep` in Codex.
 
-Run either frontend directly with:
-
+### Manual fallback
+If you execute it manually like this, you'll have to copy and paste results back to the agent.
 ```sh
 rep plan.md
-rep --web plan.html
 ```
-
-Markdown keeps its existing extensionless and non-`.md` behavior. HTML and HTM
-extensions are matched case-insensitively and require `--web`; `--web` rejects
-every other extension.
-
-For a browser you want to open yourself, including an SSH-forwarded session:
-
-```sh
-rep --web --no-open plan.html
-```
-
-Rep prints the authenticated loopback URL to stderr. Keep the foreground
-process running, open that exact URL, and press `q` then confirm to send the
-review, or press `Q` to discard it silently. The page acknowledges the handoff
-and attempts to close itself. A full-width statusline stays visible at the
-bottom of the review: a solid mode block, tinted per selection unit, names the
-current mode and carries the `Spacebar` cycle hint, and monospace segments to
-its right list every binding including the `q` completion and `?` help
-shortcuts. One tinted,
-rounded focus region encloses the current selection while the rest of the plan
-is dimmed. `--debug` validates and describes an HTML launch without binding a
-server or opening a browser.
-
-The bundled Rep skill owns the complete HTML handoff. Its runner starts Rep
-without the built-in opener, launches an isolated Chromium- or Firefox-family
-browser profile, and on macOS positions Chromium-family windows over the active
-agent window when those bounds are available. It waits for the `q` confirmation
-and fresh capture, then closes only that temporary browser process before the
-agent applies the actions. An explicit `--no-open` remains available for
-manual and SSH-forwarded browser sessions.
-
-The built-in `rep --demo` remains Markdown/TUI-only. An HTML example lives at
-[`examples/demo-plan.html`](examples/demo-plan.html); the opt-in
-`scripts/record-web-demo.sh` generates a browser demo video when development
-dependencies and Chromium are installed.
-
-For the complete agent loop, `scripts/record-claude-rep-html-demo.sh` records
-the actual interactive Claude Code terminal through VHS while macOS's built-in
-`screencapture` utility records the active display. The compositor crops that
-recording to the headed Chromium window, including its real tabs, toolbar,
-address bar, and window frame. VHS visibly types the plan request and `/rep`;
-it hides long Claude generation/application waits and ends before the cleanup
-`/quit`. After Claude creates a real draft,
-`scripts/claude-rep-html-demo-plan.html` replaces it with a deterministic plan,
-matching the Markdown demo's fixture-swap approach. The browser recording opens
-over the Claude window and shows keyboard-driven navigation plus visibly typed
-annotations before Claude applies the fresh review actions. No synthetic
-terminal, browser chrome, or third-party screen recorder is used.
-
-The recorder requires an installed, authenticated Claude Code CLI and the
-locked web dependencies. Grant Screen & System Audio Recording permission to
-the app running the script, restart that app if macOS requests it, and keep the
-logged-in desktop unlocked during capture. The script keeps the display awake
-while recording; pinned VHS, tmux, ttyd, and ffmpeg tooling is resolved through
-mise/pkgx. It produces
-[`docs/rep-claude-html-skill-demo.mp4`](docs/rep-claude-html-skill-demo.mp4)
-and [`docs/rep-claude-html-skill-demo.gif`](docs/rep-claude-html-skill-demo.gif).
-
-## HTML rendering and safety
-
-Rep renders the reviewed document in a sandboxed iframe while its toolbar,
-dialogs, status, and completion screen stay in a separate parent shell. The
-served copy retains original elements, inline styles, style sheets, images,
-fonts, and responsive CSS. Rep does not rewrite the source file.
-
-The safety boundary is intentionally static:
-
-- Document JavaScript, event-handler attributes, forms, nested frames,
-  plugins, navigation, downloads, refresh, and CSP/base overrides are removed
-  or blocked in the served copy.
-- Relative stylesheets, images, and fonts are served only when their canonical
-  paths remain beneath the HTML file's directory. Symlink escapes and
-  `../` traversal are rejected.
-- Data-URI images and fonts work. Remote and root-relative resources are
-  blocked and counted in the non-modal status line.
-- HTML must be UTF-8 and at most 10 MiB. Local assets are capped separately.
-- The server binds only to `127.0.0.1`, uses a fresh 256-bit URL token, and
-  accepts same-origin requests for that session.
-
-Rep is a review tool, not a trusted-content browser. JavaScript-dependent
-layouts are not supported, while original static HTML/CSS layout is preserved
-as closely as the safety boundary permits.
-
-## HTML selection model
-
-Review order follows visible DOM order, independent of CSS columns or viewport
-wrapping. Hidden content, generated pseudo-element content, canvas/image
-pixels, and plan-owned shadow DOM are not selectable.
-
-The five shared units retain the same cycle:
-
-```text
-Section -> Paragraph -> Line -> Sentence -> Word
-```
-
-For HTML, a paragraph is one extracted visible review block; a line is split
-only by `<br>` or a preformatted newline; sentences and words use the same
-segmenters as Markdown. Sections follow heading depth, with the existing
-top-level ordered-list rule before the first heading. Click once for a word,
-twice for a sentence (or logical line where applicable), and three times for
-the whole review block.
-
-Selections and annotations are painted as isolated overlay rectangles rather
-than wrappers inserted into the plan DOM, so responsive layout and original
-CSS selectors remain intact. The active selection combines a tinted fill,
-adaptive border, outer halo, and one leading focus bar; annotations retain
-their separate patterns, colors, and badges.
 
 ## Keybindings
-
-The same navigation and annotation keys apply in both frontends. `I` opens the
-Markdown AST or an HTML outline with element, source-line, and text context.
-`O` reveals both original and resolved link targets associated with the
-current selection.
 
 | Key | Action |
 | --- | --- |
@@ -190,39 +75,19 @@ current selection.
 | `Enter` | Save text in change, feedback, insert, edit, or search modes |
 | `Esc` | Cancel the current input mode or close an open popup |
 
-## Completion and troubleshooting
+## Platform Support
 
-Pressing `q` and confirming prints all actions to stdout, closes the listener,
-and shows a “Sending feedback to Rep skill” handoff while receipt is
-acknowledged. The bundled skill runner then closes its isolated temporary
-browser and resumes the agent loop; direct/manual browser sessions make a
-best-effort attempt to close their tab. Silent discard prints nothing. Before
-completion, closing or reloading the tab does not end the foreground process;
-reopen the same URL to restore the in-memory session. An open review tab sends
-a background heartbeat; a session with neither browser nor HTTP activity times
-out after 24 hours, and interruption exits without partial actions. If
-clipboard permission is denied, `r` opens the complete output in a selectable
-fallback dialog with a Copy button.
+| Platform | Release artifact | CI coverage | Support status |
+| --- | --- | --- | --- |
+| Linux x86_64 | `x86_64-unknown-linux-musl` | Build, package, archive smoke test, and installer smoke test on GitHub-hosted Ubuntu | Supported |
+| Linux arm64 | `aarch64-unknown-linux-musl` | Cross-build, package, archive smoke test, and installer smoke test on GitHub-hosted Ubuntu | Supported |
+| macOS x86_64 | `x86_64-apple-darwin` | Build and tests on GitHub-hosted macOS | Supported |
+| macOS arm64 | `aarch64-apple-darwin` | Cross-target release build on GitHub-hosted macOS | Supported |
 
-- If the browser opener is unavailable, Rep prints the URL and keeps serving;
-  open it manually or start with `--no-open`.
-- The bundled skill requires Chromium, Chrome, Edge, Brave, or Firefox so it
-  can own and safely close an isolated temporary browser process. Set
-  `REP_BROWSER_BIN` to an alternate executable when automatic detection is
-  unavailable.
-- When a resource is reported blocked, make it relative to the plan directory
-  and keep its canonical target inside that directory. Remote and
-  root-relative URLs are intentionally unsupported.
-- Over SSH, use `--no-open` and forward the printed loopback port securely.
-  The path token is required, so copy the entire URL.
-- If a stale tab says the review is unavailable, its foreground Rep process
-  has finished or timed out. Start a new review to receive a fresh URL.
-- If the layout depends on document JavaScript, create a static exported HTML
-  plan instead; Rep never enables plan scripts.
+Linux release artifacts are static MUSL builds.
 
-## Emitted annotations
-
-Markdown output remains compatible with existing consumers:
+## Emitted Annotations Example
+On exit, something like this prints to stdout, for the LLM agent to consume and make modifications to the markdown plan file.
 
 ```text
 FILE: plan.md
@@ -231,13 +96,101 @@ ACTION: change
 WHERE: line 12 sentence 2
 CONTEXT:
   prev: The release workflow builds archives for every configured target.
-  target: Windows artifacts are published even though tests do not cover them.
+  target: Windows artifacts are published even though the installer and tests do not cover Windows.
   next: Checksums are generated after packaging.
-CHANGE: Stop publishing Windows archives until support is added.
+CHANGE: Stop publishing Windows archives until CI and installer support are added.
 ```
 
-HTML action blocks add their format and a source locator while keeping the same
-action names and payloads:
+## Rep for HTML plans (experimental)
+
+Rep can review a local static `.html` or `.htm` plan in a browser while
+preserving its HTML/CSS layout. This experimental browser workflow is separate
+from the Markdown TUI documented above.
+
+### Launching a review
+
+Use `/rep` in Claude Code or `$rep` in Codex for the complete review-and-apply
+loop. The bundled skill selects browser mode from the plan's extension, waits
+for your confirmed review, applies the emitted actions, and closes its temporary
+browser session.
+
+To run the browser UI directly:
+
+```sh
+rep --web plan.html
+```
+
+`--web` is required for `.html` and `.htm` files (matched
+case-insensitively), and rejects other file types. Rep runs in the foreground,
+binds only to `127.0.0.1`, and opens a fresh authenticated review URL. Use
+`--no-open` to open that URL yourself, including through an SSH port forward:
+
+```sh
+rep --web --no-open plan.html
+```
+
+Keep Rep running and open the complete URL it prints to stderr; the path
+contains the session token. `--debug` validates and describes the launch
+without starting the server or browser. The built-in `rep --demo` remains
+Markdown-only; use [`examples/demo-plan.html`](examples/demo-plan.html) for an
+HTML example. The [HTML review gallery](web/gallery/index.html) shows the
+browser UI.
+
+The skill runner needs Chromium, Chrome, Edge, Brave, or Firefox. Set
+`REP_BROWSER_BIN` to an executable when automatic browser detection is not
+appropriate. The release binary embeds the browser UI, so running it does not
+require Node.
+
+### Reviewing the plan
+
+HTML reviews start in Section mode and use the same keybindings and annotation
+actions as the TUI. The selection cycle remains:
+
+```text
+Section -> Paragraph -> Line -> Sentence -> Word
+```
+
+Review order follows visible DOM order rather than CSS columns or viewport
+wrapping. Hidden content, generated pseudo-elements, canvas or image pixels,
+and plan-owned shadow DOM are not selectable. A paragraph is a visible review
+block; a line splits only at `<br>` or a preformatted newline. Click once for a
+word, twice for a sentence (or logical line), and three times for the entire
+review block. `I` opens the HTML outline with element and source context, and
+`O` reveals the original and resolved links for the current selection.
+
+Press `q` and confirm to submit the review, or `Q` to discard it without
+output. Direct runs print confirmed actions to stdout; the skill captures them
+and resumes the agent loop. Closing or reloading the tab does not end Rep, so
+you can reopen the same URL while the foreground process is active. A session
+with no browser or HTTP activity expires after 24 hours. If clipboard access is
+denied, `r` opens the output in a selectable fallback dialog.
+
+### Static rendering and safety
+
+Rep renders a sanitized copy in a sandboxed iframe and does not rewrite the
+source file. It retains elements, inline styles, responsive CSS, and supported
+local stylesheets, images, and fonts, subject to these limits:
+
+- Document scripts, event handlers, forms, nested frames, plugins, navigation,
+  downloads, refresh directives, and CSP/base overrides are removed or blocked.
+- Relative assets are served only when their canonical paths remain beneath
+  the plan's directory; symlink escapes and `../` traversal are rejected.
+- Data-URI images and fonts are supported. Remote and root-relative resources
+  are blocked and reported in the UI.
+- HTML must be UTF-8 and no larger than 10 MiB. Local assets have separate size
+  limits.
+- The loopback server uses a fresh 256-bit URL token and accepts only
+  same-origin requests for that session.
+
+JavaScript-dependent layouts are not supported; export a static HTML plan
+instead. If an asset is blocked, make its URL relative to the plan and keep its
+resolved path inside the plan directory. If a stale tab reports that the review
+is unavailable, start a new review to get a fresh URL.
+
+### Emitted annotations
+
+HTML uses the same actions and payloads as Markdown, adding `FORMAT: html` and a
+source locator:
 
 ```text
 FILE: plan.html
@@ -253,36 +206,8 @@ CONTEXT:
 CHANGE: Gate publishing on the supported target matrix.
 ```
 
-`WHERE` is a source-line hint. For HTML, the bundled skill resolves the
-original unique ID or structural locator and verifies normalized visible
-target and neighboring context before editing.
-
-## Platform support
-
-| Platform | Release artifact | CI coverage | Support status |
-| --- | --- | --- | --- |
-| Linux x86_64 | `x86_64-unknown-linux-musl` | Build, package, archive/installer/web smoke tests on GitHub-hosted Ubuntu | Supported |
-| Linux arm64 | `aarch64-unknown-linux-musl` | Cross-build, package, archive/installer/web smoke tests on GitHub-hosted Ubuntu | Supported |
-| macOS x86_64 | `x86_64-apple-darwin` | Native build/tests plus browser release checklist | Supported |
-| macOS arm64 | `aarch64-apple-darwin` | Cross-target release build plus browser release checklist | Supported |
-
-Linux release artifacts are static MUSL builds. The browser UI's HTML, CSS, and
-JavaScript application assets are embedded in the Rep binary.
-
-## Development
-
-The project pins Rust and Node with mise:
-
-```sh
-mise install
-mise exec -- npm --prefix web ci
-mise exec -- ./build.sh
-mise exec -- npm --prefix web run test:e2e
-```
-
-See [`docs/release-checklist.md`](docs/release-checklist.md) for cross-browser
-and packaged-release validation.
+`WHERE` is a source-line hint. The bundled skill uses `LOCATOR` plus normalized
+target and neighboring context to verify the source before editing it.
 
 ## License
-
 MIT — see [LICENSE](LICENSE).
